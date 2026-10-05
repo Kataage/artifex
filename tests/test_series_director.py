@@ -10,6 +10,7 @@ import pytest
 
 from artifex.config.models import EditorialConfig, PlannerConfig
 from artifex.db import Database
+from artifex.editorial import SeriesPlanKind
 from artifex.llm import ChatMessage, StructuredGenerator
 from artifex.planner import ConceptRepository, SeriesIdeaDirector
 from artifex.planner.models import (
@@ -20,7 +21,6 @@ from artifex.planner.models import (
     ResearchEvidenceSummary,
 )
 from artifex.series import SeriesRepository
-from artifex.editorial import SeriesPlanKind
 
 
 class FakeClient:
