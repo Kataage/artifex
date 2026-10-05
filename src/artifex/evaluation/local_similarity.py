@@ -32,6 +32,7 @@ class LocalSimilarityEmbeddingProvider:
             index = int.from_bytes(digest[:4], "little") % self._text_dimensions
             sign = 1.0 if digest[4] & 1 else -1.0
             vector[index] += sign
+        vector[0] += 1e-6
         return tuple(vector)
 
     async def embed_image(self, path: Path) -> tuple[float, ...]:
