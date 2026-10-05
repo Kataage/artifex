@@ -105,7 +105,7 @@ class PackRepository:
     def _record(pack: PackRow, scenes: list[SceneRow]) -> PackRecord:
         raw_plan = pack.payload_json.get("plan")
         if not isinstance(raw_plan, dict):
-            raise ValueError(f"pack {pack.id} is missing persisted full plan")
+            raise TypeError(f"pack {pack.id} is missing persisted full plan")
         plan = ContentPackPlan.model_validate(raw_plan)
         if len(scenes) != len(plan.scenes):
             raise ValueError(
