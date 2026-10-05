@@ -297,6 +297,8 @@ class EditorialService:
             policy = item.editorial_policy
             if not policy.auto_continue:
                 continue
+            if self._series_has_open_pack(item.id):
+                continue
             if (
                 policy.max_episodes is not None
                 and item.current_episode >= policy.max_episodes
@@ -317,6 +319,23 @@ class EditorialService:
             )
         )
         return tuple(eligible)
+
+    def _series_has_open_pack(self, series_id: str) -> bool:
+        terminal = {
+            PackState.FINALIZED.value,
+            PackState.FAILED.value,
+            PackState.BLOCKED.value,
+        }
+        with self._database.session() as session:
+            pack_id = session.scalar(
+                select(PackRow.id)
+                .where(
+                    PackRow.series_id == series_id,
+                    PackRow.state.not_in(terminal),
+                )
+                .limit(1)
+            )
+        return pack_id is not None
 
     def _choose_lane(
         self,
