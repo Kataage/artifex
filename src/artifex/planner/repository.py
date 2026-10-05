@@ -103,6 +103,14 @@ class ConceptRepository:
                 return None
             return self._selected_from_row(row)
 
+    def idea(self, concept_id: str) -> SelectedConcept:
+        with self._database.session() as session:
+            row = session.get(ConceptRow, concept_id)
+            if row is None or row.status != "idea":
+                raise KeyError(f"concept is not an available idea: {concept_id}")
+            session.expunge(row)
+        return self._selected_from_row(row)
+
     @staticmethod
     def _selected_from_row(row: ConceptRow) -> SelectedConcept:
         raw_candidate = row.payload_json.get("candidate")
