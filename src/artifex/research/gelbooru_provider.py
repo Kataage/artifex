@@ -52,9 +52,12 @@ class GelbooruMetadataProvider:
             "order": "DESC",
         }
         self._apply_auth(params)
-        response = await self._client.get("/index.php", params=params)
-        response.raise_for_status()
-        body = response.json()
+        try:
+            response = await self._client.get("/index.php", params=params)
+            response.raise_for_status()
+            body = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError(f"Gelbooru metadata search failed: {exc}") from exc
         raw_tags = _tag_list(body)
 
         results: list[ProviderResult] = []
