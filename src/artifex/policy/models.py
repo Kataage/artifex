@@ -32,11 +32,19 @@ class PolicyRule(PolicyModel):
 
     @model_validator(mode="after")
     def validate_force_tier(self) -> PolicyRule:
-        if self.outcome is PolicyOutcome.BLOCK and self.force_tier not in {
+        if self.force_tier not in {
             None,
+            PublicationTier.PRIVATE_REVIEW,
             PublicationTier.BLOCKED,
         }:
-            raise ValueError("blocked policy rule may only force blocked tier")
+            raise ValueError(
+                "policy rules may only force private_review or blocked tiers"
+            )
+        if (
+            self.outcome is PolicyOutcome.BLOCK
+            and self.force_tier is PublicationTier.PRIVATE_REVIEW
+        ):
+            raise ValueError("blocked policy rule cannot force private_review")
         return self
 
 
