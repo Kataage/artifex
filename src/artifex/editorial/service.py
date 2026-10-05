@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import select
 
@@ -66,14 +65,18 @@ class EditorialService:
         if active:
             return (
                 True,
-                "completed inventory is in refill window "
-                f"({counts.available}/{self._config.inventory_high_watermark})",
+                (
+                    "completed inventory is in refill window "
+                    f"({counts.available}/{self._config.inventory_high_watermark})"
+                ),
             )
         return (
             False,
-            "completed inventory above low-water mark "
-            f"({counts.available}; resume <= "
-            f"{self._config.inventory_low_watermark})",
+            (
+                "completed inventory above low-water mark "
+                f"({counts.available}; resume <= "
+                f"{self._config.inventory_low_watermark})"
+            ),
         )
 
     def decide_plan(self, *, has_ideas: bool) -> EditorialPlanDecision:
@@ -376,13 +379,17 @@ class EditorialService:
         if series_ratio < self._config.series_target_share:
             return (
                 EditorialLane.SERIES,
-                f"Series share {series_ratio:.2f} below target "
-                f"{self._config.series_target_share:.2f}",
+                (
+                    f"Series share {series_ratio:.2f} below target "
+                    f"{self._config.series_target_share:.2f}"
+                ),
             )
         return (
             EditorialLane.STANDALONE,
-            f"Series share {series_ratio:.2f} meets target "
-            f"{self._config.series_target_share:.2f}",
+            (
+                f"Series share {series_ratio:.2f} meets target "
+                f"{self._config.series_target_share:.2f}"
+            ),
         )
 
     def _select_standalone_concept(
