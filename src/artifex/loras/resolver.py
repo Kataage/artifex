@@ -62,19 +62,22 @@ class LoRAResolver:
         characters: list[CharacterProfile] = []
 
         for character_id in character_ids:
-            profile = self._characters.get(character_id)
-            if profile is None:
+            character_profile = self._characters.get(character_id)
+            if character_profile is None:
                 issues.append(f"unknown character: {character_id}")
                 continue
-            characters.append(profile)
-            if not profile.enabled:
+            characters.append(character_profile)
+            if not character_profile.enabled:
                 issues.append(f"character is disabled: {character_id}")
-            if profile.readiness < self._character_config.minimum_readiness:
+            if character_profile.readiness < self._character_config.minimum_readiness:
                 issues.append(
                     f"character readiness below threshold: {character_id} "
-                    f"({profile.readiness:.3f})"
+                    f"({character_profile.readiness:.3f})"
                 )
-            if profile.model_families and model_family not in profile.model_families:
+            if (
+                character_profile.model_families
+                and model_family not in character_profile.model_families
+            ):
                 issues.append(
                     f"character {character_id} is not configured for {model_family}"
                 )
@@ -84,8 +87,8 @@ class LoRAResolver:
 
         selected: dict[str, tuple[LoRAProfile, list[str]]] = {}
         for character in characters:
-            profile = self._select_for_character(character, model_family)
-            if profile is None:
+            lora_profile = self._select_for_character(character, model_family)
+            if lora_profile is None:
                 if character.lora_policy is LoRAPolicy.REQUIRED:
                     issues.append(
                         f"required production LoRA unavailable for {character.id}"
@@ -95,21 +98,21 @@ class LoRAResolver:
                         f"preferred LoRA unavailable for {character.id}; using base model"
                     )
                 continue
-            if profile.id in selected:
-                selected[profile.id][1].append(character.id)
+            if lora_profile.id in selected:
+                selected[lora_profile.id][1].append(character.id)
             else:
-                selected[profile.id] = (profile, [character.id])
+                selected[lora_profile.id] = (lora_profile, [character.id])
 
         if issues:
             raise LoRAResolutionError(tuple(issues))
 
         selected_profiles = [item[0] for item in selected.values()]
-        selected_ids = {profile.id for profile in selected_profiles}
-        for profile in selected_profiles:
-            conflicts = selected_ids.intersection(profile.incompatible_lora_ids)
+        selected_ids = {lora_profile.id for lora_profile in selected_profiles}
+        for lora_profile in selected_profiles:
+            conflicts = selected_ids.intersection(lora_profile.incompatible_lora_ids)
             if conflicts:
                 issues.append(
-                    f"LoRA {profile.id} conflicts with "
+                    f"LoRA {lora_profile.id} conflicts with "
                     + ", ".join(sorted(conflicts))
                 )
 
