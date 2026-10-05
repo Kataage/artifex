@@ -121,6 +121,7 @@ class LlmCallRepository:
                 "repair_index": row.repair_index,
                 "temperature": row.temperature,
                 "status": row.status,
+                "request_json": dict(row.request_json),
                 "response_digest": row.response_digest,
                 "error_text": row.error_text,
                 "started_at": row.started_at,
