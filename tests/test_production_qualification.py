@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -122,7 +121,6 @@ class FakeBackend:
 class FakeRecoveryComfy:
     async def get_history(self, prompt_id):
         del prompt_id
-        return None
 
     async def queue_snapshot(self):
         return {"queue_running": [], "queue_pending": []}
