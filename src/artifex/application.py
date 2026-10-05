@@ -8,7 +8,6 @@ from artifex.archive import PackArchive
 from artifex.characters import CharacterRegistry
 from artifex.comfy import ComfyUIClient, WorkflowTemplateRegistry
 from artifex.config.models import ArtifexSettings
-from artifex.context import ContextMemoryManager
 from artifex.db import Database
 from artifex.discord import (
     ArtifexRemoteOperations,
@@ -27,7 +26,6 @@ from artifex.evaluation import (
     SimilarityService,
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
-from artifex.llm.provenance import LlmCallRepository
 from artifex.llm.provenance import LlmCallRepository
 from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
 from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
