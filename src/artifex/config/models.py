@@ -22,7 +22,7 @@ class PlannerMixConfig(StrictModel):
     exploration: float = Field(default=0.10, ge=0)
 
     @model_validator(mode="after")
-    def validate_total(self) -> "PlannerMixConfig":
+    def validate_total(self) -> PlannerMixConfig:
         total = self.evergreen + self.trend + self.seasonal + self.exploration
         if abs(total - 1.0) > 1e-6:
             raise ValueError("planner mix weights must sum to 1.0")
