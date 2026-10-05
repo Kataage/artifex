@@ -51,6 +51,11 @@ class PackPlanner:
             planning_provenance={
                 "concept_id": concept.concept_id,
                 "candidate_key": concept.candidate.candidate_key,
+                "idea_source": concept.candidate.idea_source.value,
+                "theme": concept.candidate.theme,
+                "setting": concept.candidate.setting,
+                "format": concept.candidate.format.value,
+                "character_ids": list(concept.candidate.character_ids),
                 "series_id": series.id if series is not None else None,
                 "series_episode_before_plan": (
                     series.current_episode if series is not None else None
