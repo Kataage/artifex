@@ -47,6 +47,27 @@ llm:
   retry_backoff_seconds: 1
   structured_repair_attempts: 2
   api_key_env: null
+  context_window_tokens: 8192
+  reserved_output_tokens: 1536
+  repair_headroom_tokens: 512
+  enforce_token_budget: true
+  token_count_mode: llama_cpp
+
+context:
+  max_characters: 18
+  max_recent_concepts: 12
+  max_long_term_concepts: 8
+  max_research_items: 12
+  max_trend_signals: 12
+  character_tokens: 900
+  research_tokens: 1400
+  recent_history_tokens: 700
+  long_term_tokens: 700
+  trend_tokens: 500
+  evergreen_tokens: 300
+  operator_tokens: 200
+  series_recent_pack_ids: 3
+  long_term_candidate_limit: 500
 
 characters:
   profile_dirs:
