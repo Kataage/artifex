@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from artifex.domain import AgentState, PackState, SceneState
 
+
 class InvalidTransition(ValueError):
     def __init__(self, entity: str, current: StrEnum, target: StrEnum) -> None:
         super().__init__(f"invalid {entity} transition: {current.value} -> {target.value}")
