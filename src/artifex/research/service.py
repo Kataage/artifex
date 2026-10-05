@@ -221,7 +221,7 @@ class ResearchService:
             confidence = min(confidence, 0.5)
 
         brief = ResearchBrief(
-            id=self._repository._id_factory(),  # noqa: SLF001
+            id=self._repository.new_id()
             topic=sanitize_text(topic, max_chars=500),
             research_run_ids=run_ids,
             evidence_ids=evidence_ids,
