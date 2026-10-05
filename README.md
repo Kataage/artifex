@@ -68,3 +68,31 @@ Repository bootstrap is in progress. The implementation specification is tracked
 ## Initial Complete acceptance
 
 The normative acceptance criteria and automated evidence matrix are documented in [`docs/acceptance.md`](docs/acceptance.md). Real local backend qualification is tracked separately from the reproducible CI acceptance tier.
+
+
+## Research/Search
+
+Artifex uses a native Windows research layer before autonomous ideation. Docker,
+WSL, Podman and a local SearXNG instance are **not required**.
+
+The default general-search provider is the embedded Python `ddgs` dependency.
+Optional remote SearXNG and specialist metadata providers are routed behind the
+same Artifex contract.
+
+```powershell
+uv sync
+uv run artifex research status --json
+uv run artifex research search "illustration composition" --source web --json
+uv run artifex research search "illustration composition" --source images --since 30d --json
+uv run artifex research tags "example_tag%" --json
+```
+
+Normal autonomous idea generation is research-gated: a fresh cached or newly
+collected `ResearchBrief` must exist before the production `IdeaDirector`
+can generate candidates. Evidence/run IDs are persisted with the Concept for
+auditability.
+
+Adult-rated research is disabled by default (`research.adult_enabled: false`).
+When deliberately enabled, it remains a separate mode; adult evidence is
+metadata-only for page inspection and does not enable raw explicit page
+extraction.
