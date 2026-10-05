@@ -8,7 +8,6 @@ from typing import TypeVar
 from artifex.config.models import ContextConfig
 from artifex.memory.retrieval import ConceptMemoryRetriever
 from artifex.planner.models import (
-    CharacterOption,
     ContextProvenance,
     PlanningContext,
     ResearchBriefSummary,
