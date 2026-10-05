@@ -196,11 +196,18 @@ class HealthChecker:
     async def _check_research(self) -> ComponentHealth:
         config = self._settings.research
         if not config.enabled:
+            if config.required_for_ideation:
+                return ComponentHealth(
+                    name="research",
+                    state=ComponentState.UNHEALTHY,
+                    detail="Research is required for ideation but disabled.",
+                    blocking=True,
+                )
             return ComponentHealth(
                 name="research",
                 state=ComponentState.DISABLED,
                 detail="Research integration is disabled.",
-                blocking=config.required_for_ideation,
+                blocking=False,
             )
         if self._research_probe is None:
             return ComponentHealth(
