@@ -141,39 +141,3 @@ class ResearchBrief(ResearchModel):
             raise ValueError("ResearchBrief items must reference evidence_ids")
         return self
 
-
-class ResearchBriefSummary(ResearchModel):
-    id: str
-    topic: str
-    research_run_ids: tuple[str, ...]
-    evidence_ids: tuple[str, ...]
-    key_findings: tuple[str, ...]
-    generated_at: datetime
-    expires_at: datetime
-    freshness_confidence: float = Field(ge=0, le=1)
-    degraded: bool
-    adult: bool
-
-    @classmethod
-    def from_brief(cls, brief: ResearchBrief) -> ResearchBriefSummary:
-        return cls(
-            id=brief.id,
-            topic=brief.topic,
-            research_run_ids=brief.research_run_ids,
-            evidence_ids=brief.evidence_ids,
-            key_findings=brief.key_findings,
-            generated_at=brief.generated_at,
-            expires_at=brief.expires_at,
-            freshness_confidence=brief.freshness_confidence,
-            degraded=brief.degraded,
-            adult=brief.adult,
-        )
-
-    def fresh_at(self, when: datetime) -> bool:
-        left = self.expires_at
-        right = when
-        if left.tzinfo is None and right.tzinfo is not None:
-            left = left.replace(tzinfo=right.tzinfo)
-        if right.tzinfo is None and left.tzinfo is not None:
-            right = right.replace(tzinfo=left.tzinfo)
-        return left > right
