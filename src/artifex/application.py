@@ -54,6 +54,7 @@ from artifex.research import (
     ResearchService,
     SearXNGResearchProvider,
 )
+from artifex.research.provider import ResearchProvider
 from artifex.retry import RetryPolicy
 from artifex.review import ReviewQueueRepository
 from artifex.runtime import RuntimeDaemon, RuntimeStore
@@ -112,7 +113,9 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
     runtime = RuntimeStore(database)
     scheduler = Scheduler(database, runtime, settings.production)
     telemetry = TelemetryRepository(database)
-    research_providers = [DDGSResearchProvider(settings.research)]
+    research_providers: list[ResearchProvider] = [
+        DDGSResearchProvider(settings.research)
+    ]
     if settings.research.searxng_base_url:
         research_providers.append(SearXNGResearchProvider(settings.research))
     if settings.research.gelbooru_enabled:
