@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-_NON_WORD = re.compile(r"[^a-z0-9]+")
+_NON_WORD = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def normalize_match_text(value: str) -> str:
