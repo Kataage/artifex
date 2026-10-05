@@ -45,6 +45,15 @@ from artifex.production import (
     ProductionCoordinator,
 )
 from artifex.prompts import ILXLDanbooruAdapter, PromptCompiler
+from artifex.research import (
+    DDGSResearchProvider,
+    GelbooruMetadataProvider,
+    ResearchDirector,
+    ResearchRepository,
+    ResearchRouter,
+    ResearchService,
+    SearXNGResearchProvider,
+)
 from artifex.retry import RetryPolicy
 from artifex.review import ReviewQueueRepository
 from artifex.runtime import RuntimeDaemon, RuntimeStore
@@ -76,9 +85,11 @@ class CoreServices:
     series: SeriesRepository
     policy_decisions: PolicyDecisionRepository
     telemetry: TelemetryRepository
+    research: ResearchService
     comfy: ComfyUIClient
 
     async def close(self) -> None:
+        await self.research.aclose()
         await self.comfy.aclose()
         self.database.dispose()
 
@@ -101,6 +112,19 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
     runtime = RuntimeStore(database)
     scheduler = Scheduler(database, runtime, settings.production)
     telemetry = TelemetryRepository(database)
+    research_providers = [DDGSResearchProvider(settings.research)]
+    if settings.research.searxng_base_url:
+        research_providers.append(SearXNGResearchProvider(settings.research))
+    if settings.research.gelbooru_enabled:
+        research_providers.append(GelbooruMetadataProvider(settings.research))
+    research = ResearchService(
+        settings.research,
+        ResearchRepository(database),
+        ResearchRouter(
+            research_providers,
+            provider_order=settings.research.provider_order,
+        ),
+    )
     comfy = ComfyUIClient(settings.comfyui)
 
     return CoreServices(
@@ -114,6 +138,7 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         series=SeriesRepository(database),
         policy_decisions=PolicyDecisionRepository(database),
         telemetry=telemetry,
+        research=research,
         comfy=comfy,
     )
 
@@ -211,7 +236,9 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
             DefaultSignalProvider(),
             similarity,
         ),
+        require_research=settings.research.required_for_ideation,
     )
+    research_director = ResearchDirector(core.research, settings.research)
 
     packs = PackRepository(core.database)
     pack_planner = PackPlanner(generator, packs)
@@ -282,6 +309,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.telemetry,
         settings.production,
         settings.operations,
+        research=research_director,
     )
 
     remote = ArtifexRemoteOperations(
