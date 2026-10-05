@@ -121,6 +121,7 @@ class LlmConfig(StrictModel):
 
 
 class ContextConfig(StrictModel):
+    version: str = "context-v1"
     max_characters: int = Field(default=18, ge=1, le=100)
     max_recent_concepts: int = Field(default=12, ge=0, le=100)
     max_long_term_concepts: int = Field(default=8, ge=0, le=100)
@@ -317,3 +318,20 @@ class ArtifexSettings(StrictModel):
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     operations: OperationsConfig = Field(default_factory=OperationsConfig)
+
+    @model_validator(mode="after")
+    def validate_context_sections(self) -> ArtifexSettings:
+        sections = (
+            self.context.character_tokens
+            + self.context.research_tokens
+            + self.context.recent_history_tokens
+            + self.context.long_term_tokens
+            + self.context.trend_tokens
+            + self.context.evergreen_tokens
+            + self.context.operator_tokens
+        )
+        if sections >= self.llm.max_input_tokens:
+            raise ValueError(
+                "context section budgets must leave headroom for system/schema overhead"
+            )
+        return self
