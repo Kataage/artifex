@@ -75,6 +75,13 @@ comfyui:
   default_template: ilxl_base_v1
 
 evaluation:
+  provider: openai_compatible_vision
+  vision_base_url: null
+  vision_model: null
+  vision_api_key_env: null
+  vision_timeout_seconds: 120
+  vision_request_attempts: 2
+  vision_retry_backoff_seconds: 1
   weights:
     identity: 0.25
     alignment: 0.15
