@@ -5,6 +5,7 @@ from typing import Any
 
 from artifex.config.models import ContextConfig
 from artifex.llm import ChatMessage, StructuredGenerator
+from artifex.llm.prompts import CONTENT_PACK_PROMPT
 from artifex.packs.models import ContentPackPlan, PackRecord
 from artifex.packs.repository import PackRepository
 from artifex.planner.models import SelectedConcept
@@ -39,7 +40,9 @@ class PackPlanner:
         plan = await self._generator.generate(
             ContentPackPlan,
             messages,
-            schema_name="artifex_content_pack_plan",
+            schema_name=CONTENT_PACK_PROMPT.schema_name(
+                "artifex_content_pack_plan"
+            ),
             post_validator=validate,
         )
         return self._repository.create_planned_pack(
@@ -173,15 +176,7 @@ class PackPlanner:
         return (
             ChatMessage(
                 role="system",
-                content=(
-                    "You are the Content Pack planner for Artifex. Convert the already "
-                    "selected concept into a complete multi-scene production plan before "
-                    "any image is generated. Preserve character identity, outfit/state "
-                    "continuity where intended, while making each scene visually useful "
-                    "and distinct. Do not write Danbooru tags or ComfyUI graphs. Describe "
-                    "structured visual intent. Publication tier is intent only and may be "
-                    "reclassified by policy/evaluation later. Return only schema-valid JSON."
-                ),
+                content=CONTENT_PACK_PROMPT.text,
             ),
             ChatMessage(
                 role="user",
