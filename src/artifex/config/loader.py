@@ -39,7 +39,7 @@ def _load_yaml_text(text: str) -> dict[str, Any]:
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
-        raise ValueError("configuration root must be a mapping")
+        raise TypeError("configuration root must be a mapping")
     return dict(loaded)
 
 
@@ -80,7 +80,7 @@ def _environment_overrides(env: Mapping[str, str]) -> dict[str, Any]:
         for part in path[:-1]:
             child = cursor.setdefault(part, {})
             if not isinstance(child, dict):
-                raise ValueError(f"environment configuration collision at {name}")
+                raise TypeError(f"environment configuration collision at {name}")
             cursor = child
         cursor[path[-1]] = _parse_env_value(raw_value)
     return root
