@@ -11,8 +11,8 @@ from artifex.planner.models import CharacterOption, PlanningContext
 from artifex.research.models import (
     ResearchEvidence,
     ResearchIntent,
+    ResearchSearchRequest,
     ResearchSearchResponse,
-    SearchSource,
 )
 from artifex.telemetry import TelemetryRepository
 from artifex.trends import (
@@ -32,15 +32,15 @@ from artifex.trends import (
 class FakeResearchService:
     async def search(
         self,
-        request: object,
+        request: ResearchSearchRequest,
         *,
         now: datetime | None = None,
         use_cache: bool = True,
     ) -> ResearchSearchResponse:
         del use_cache
         current = now or datetime.now(UTC)
-        source = getattr(request, "source")
-        query = getattr(request, "query")
+        source = request.source
+        query = request.query
         return ResearchSearchResponse(
             run_id=f"run-{source.value}",
             query=query,
