@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from artifex.llm import ChatMessage, StructuredGenerator
-from artifex.packs.models import ContentPackPlan
+from artifex.packs.models import ContentPackPlan, PackRecord
 from artifex.packs.repository import PackRepository
 from artifex.planner.models import SelectedConcept
 from artifex.series.models import SeriesProfile, SeriesStatus
@@ -23,7 +23,7 @@ class PackPlanner:
         concept: SelectedConcept,
         *,
         series: SeriesProfile | None = None,
-    ):
+    ) -> PackRecord:
         messages = self._messages(concept, series)
 
         def validate(plan: ContentPackPlan) -> None:
