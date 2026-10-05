@@ -36,6 +36,22 @@ production:
   height: 1536
   batch_size: 1
 
+editorial:
+  mode: watermark
+  inventory_low_watermark: 3
+  inventory_high_watermark: 7
+  inventory_expiry_hours: 168
+  series_target_share: 0.35
+  cadence_window_packs: 10
+  max_consecutive_series: 2
+  max_consecutive_standalone: 4
+  diversity_window_packs: 12
+  character_cooldown_packs: 2
+  character_diversity_weight: 0.50
+  branch_diversity_weight: 0.30
+  group_diversity_weight: 0.20
+  series_candidate_count: 4
+
 llm:
   backend: llama_cpp
   base_url: http://127.0.0.1:8080
