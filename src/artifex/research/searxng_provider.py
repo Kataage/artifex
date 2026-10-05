@@ -65,9 +65,12 @@ class SearXNGResearchProvider:
                 "y": "year",
             }[request.timelimit]
 
-        response = await self._client.get("/search", params=params)
-        response.raise_for_status()
-        body = response.json()
+        try:
+            response = await self._client.get("/search", params=params)
+            response.raise_for_status()
+            body = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError(f"SearXNG search failed: {exc}") from exc
         raw_results = body.get("results", ())
         if not isinstance(raw_results, list):
             raise RuntimeError("SearXNG response is missing results list")
