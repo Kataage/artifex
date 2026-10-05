@@ -34,6 +34,6 @@ __all__ = [
     "ResearchSearchResponse",
     "ResearchService",
     "SafeSearch",
-    "SearchSource",
     "SearXNGResearchProvider",
+    "SearchSource",
 ]
