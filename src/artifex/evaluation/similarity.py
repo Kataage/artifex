@@ -104,7 +104,13 @@ class SimilarityAwareSignalProvider:
         base = await self._base.evaluate(candidate, context)
         similarity_penalty = await self._similarity.max_text_similarity(
             _candidate_text(candidate),
-            tuple(_recent_text(item) for item in context.recent_concepts),
+            tuple(
+                _recent_text(item)
+                for item in (
+                    *context.recent_concepts,
+                    *context.long_term_concepts,
+                )
+            ),
         )
         data = base.model_dump()
         data["similarity_penalty"] = similarity_penalty
