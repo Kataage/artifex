@@ -38,6 +38,9 @@ class ResearchRepository:
         self._database = database
         self._id_factory = id_factory
 
+    def new_id(self) -> str:
+        return self._id_factory()
+
     def create_run(
         self,
         request: ResearchSearchRequest,
