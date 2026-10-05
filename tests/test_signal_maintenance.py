@@ -46,7 +46,7 @@ async def test_signal_maintenance_is_cadenced_and_composable(
     service = WorkingSignalService()
     other = OtherMaintenance()
     signal = SignalIngestionMaintenance(
-        service,  # type: ignore[arg-type]
+        service,
         telemetry,
         interval_seconds=3600,
     )
@@ -72,7 +72,7 @@ async def test_signal_maintenance_failure_does_not_escape_to_daemon(
     database.migrate()
     telemetry = TelemetryRepository(database)
     signal = SignalIngestionMaintenance(
-        BrokenSignalService(),  # type: ignore[arg-type]
+        BrokenSignalService(),
         telemetry,
         interval_seconds=1,
     )
