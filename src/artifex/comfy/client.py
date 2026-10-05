@@ -75,10 +75,7 @@ class ComfyUIClient:
         if client_id is not None:
             payload["client_id"] = client_id
 
-        try:
-            body = await self._request_json("POST", "/prompt", json=payload)
-        except ComfyUIError:
-            raise
+        body = await self._request_json("POST", "/prompt", json=payload)
 
         raw_error = body.get("error")
         node_errors = body.get("node_errors")
