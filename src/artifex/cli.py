@@ -14,6 +14,7 @@ from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.policy import PolicyDecisionRepository
 from artifex.research import (
     ResearchIntent,
+    ResearchProviderError,
     ResearchSearchRequest,
     SafeSearch,
     SearchSource,
@@ -166,8 +167,9 @@ def research_search(
                 f"{item.id}\t[{item.provider}/{item.source.value}] "
                 f"{item.title}\t{item.canonical_url}"
             )
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    except (ResearchProviderError, RuntimeError, ValueError) as exc:
+        typer.echo(f"research error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     finally:
         asyncio.run(core.close())
 
@@ -211,8 +213,9 @@ def research_tags(
             return
         for item in response.evidence:
             typer.echo(f"{item.id}\t{item.title}\t{item.snippet}")
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    except (ResearchProviderError, RuntimeError, ValueError) as exc:
+        typer.echo(f"research error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     finally:
         asyncio.run(core.close())
 
@@ -282,8 +285,9 @@ def research_brief(
             )
         brief = asyncio.run(core.research.brief(topic, requests, adult=adult))
         _print_payload(brief.model_dump(mode="json"), as_json=json_output)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    except (ResearchProviderError, RuntimeError, ValueError) as exc:
+        typer.echo(f"research error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     finally:
         asyncio.run(core.close())
 
