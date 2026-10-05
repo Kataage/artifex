@@ -56,6 +56,9 @@ class SeasonalEventSummary(PlannerModel):
     id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     relevance: float = Field(default=1.0, ge=0, le=1)
+    provider: str = ""
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
 
 
 class RecentConceptSummary(PlannerModel):
