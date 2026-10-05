@@ -205,6 +205,17 @@ class StorageConfig(StrictModel):
     minimum_free_gib: float = Field(default=5.0, ge=0)
 
 
+class OperationsConfig(StrictModel):
+    health_interval_seconds: float = Field(default=30.0, gt=0)
+    backend_failure_threshold: int = Field(default=3, ge=1)
+    heartbeat_interval_seconds: float = Field(default=30.0, gt=0)
+    heartbeat_stale_seconds: float = Field(default=120.0, gt=0)
+    sustained_run_cycles: int = Field(default=5, ge=1)
+    max_scenes_per_pack: int = Field(default=12, ge=1)
+    max_attempts_per_scene: int = Field(default=4, ge=1)
+    max_events_per_cycle: int = Field(default=50, ge=1)
+
+
 class ArtifexSettings(StrictModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
@@ -218,3 +229,4 @@ class ArtifexSettings(StrictModel):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
