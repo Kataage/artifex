@@ -26,6 +26,9 @@ class SeriesProfile(BaseModel):
     prior_pack_ids: tuple[str, ...] = ()
     character_ids: tuple[str, ...] = Field(min_length=1)
     continuity_state: dict[str, Any] = Field(default_factory=dict)
+    bible: tuple[str, ...] = ()
+    rolling_summary: str = ""
+    recent_episode_summaries: tuple[str, ...] = ()
     unresolved_hooks: tuple[str, ...] = ()
     preferred_format: PackFormat | None = None
     created_at: datetime
