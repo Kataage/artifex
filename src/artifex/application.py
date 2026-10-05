@@ -142,7 +142,10 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         characters=characters,
         loras=loras,
         reviews=ReviewQueueRepository(database),
-        series=SeriesRepository(database),
+        series=SeriesRepository(
+            database,
+            rolling_summary_max_chars=settings.context.series_tokens,
+        ),
         policy_decisions=PolicyDecisionRepository(database),
         telemetry=telemetry,
         research=research,
@@ -256,7 +259,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     )
 
     packs = PackRepository(core.database)
-    pack_planner = PackPlanner(generator, packs)
+    pack_planner = PackPlanner(generator, packs, settings.context)
 
     policy_registry = PolicyRegistry.with_packaged_defaults()
     policy_registry.load_directories(settings.rights.profile_dirs)
