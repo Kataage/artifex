@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -102,7 +102,7 @@ class PackRepository:
         return record.plan.scenes
 
     @staticmethod
-    def _record(pack: PackRow, scenes: list[SceneRow]) -> PackRecord:
+    def _record(pack: PackRow, scenes: Sequence[SceneRow]) -> PackRecord:
         raw_plan = pack.payload_json.get("plan")
         if not isinstance(raw_plan, dict):
             raise TypeError(f"pack {pack.id} is missing persisted full plan")
