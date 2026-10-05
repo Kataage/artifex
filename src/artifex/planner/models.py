@@ -100,6 +100,7 @@ class PlanningContext(PlannerModel):
     trend_signals: tuple[TrendSignalSummary, ...] = ()
     seasonal_events: tuple[SeasonalEventSummary, ...] = ()
     recent_concepts: tuple[RecentConceptSummary, ...] = ()
+    long_term_concepts: tuple[RecentConceptSummary, ...] = ()
     evergreen_prompts: tuple[str, ...] = ()
     operator_notes: tuple[str, ...] = ()
     research_brief: ResearchBriefSummary | None = None
