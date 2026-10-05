@@ -99,9 +99,7 @@ class RetryPolicy:
                 )
             elif reason.startswith("alignment_"):
                 add(RetryAction.REVISE_PROMPT)
-            elif reason.startswith("face_quality_"):
-                add(RetryAction.CHANGE_SEED, RetryAction.REPAIR_WORKFLOW)
-            elif reason.startswith("technical_quality_"):
+            elif reason.startswith(("face_quality_", "technical_quality_")):
                 add(RetryAction.CHANGE_SEED, RetryAction.REPAIR_WORKFLOW)
             elif reason.startswith("continuity_"):
                 add(RetryAction.REVISE_PROMPT)
