@@ -125,44 +125,49 @@ def inventory_list(
                     PackInventoryRow.pack_id.asc(),
                 )
             ).all()
-            payload = {
-                "counts": counts.model_dump(mode="json"),
-                "items": [
-                    {
-                        "pack_id": row.pack_id,
-                        "state": row.state,
-                        "reserved_at": (
-                            row.reserved_at.isoformat()
-                            if row.reserved_at is not None
-                            else None
-                        ),
-                        "consumed_at": (
-                            row.consumed_at.isoformat()
-                            if row.consumed_at is not None
-                            else None
-                        ),
-                        "expires_at": (
-                            row.expires_at.isoformat()
-                            if row.expires_at is not None
-                            else None
-                        ),
-                        "metadata": dict(row.metadata_json),
-                    }
-                    for row in rows
-                ],
-            }
+            items: list[dict[str, object]] = [
+                {
+                    "pack_id": row.pack_id,
+                    "state": row.state,
+                    "reserved_at": (
+                        row.reserved_at.isoformat()
+                        if row.reserved_at is not None
+                        else None
+                    ),
+                    "consumed_at": (
+                        row.consumed_at.isoformat()
+                        if row.consumed_at is not None
+                        else None
+                    ),
+                    "expires_at": (
+                        row.expires_at.isoformat()
+                        if row.expires_at is not None
+                        else None
+                    ),
+                    "metadata": dict(row.metadata_json),
+                }
+                for row in rows
+            ]
         if json_output:
-            _print_payload(payload, as_json=True)
+            _print_payload(
+                {
+                    "counts": counts.model_dump(mode="json"),
+                    "items": items,
+                },
+                as_json=True,
+            )
             return
         typer.echo(
-            "available={available} reserved={reserved} consumed={consumed} "
-            "expired={expired}".format(**payload["counts"])
+            f"available={counts.available} reserved={counts.reserved} "
+            f"consumed={counts.consumed} expired={counts.expired}"
         )
-        for item in payload["items"]:
-            typer.echo(
-                f"{item['pack_id']}\t{item['state']}\t"
-                f"expires={item['expires_at'] or '-'}"
+        for row in rows:
+            expires = (
+                row.expires_at.isoformat()
+                if row.expires_at is not None
+                else "-"
             )
+            typer.echo(f"{row.pack_id}\t{row.state}\texpires={expires}")
     finally:
         asyncio.run(core.close())
 
