@@ -8,12 +8,12 @@ from artifex.evaluation.models import (
 )
 from artifex.evaluation.repository import EvaluationRepository, GenerationAttemptRepository
 from artifex.evaluation.selection import AttemptSelector, SelectionResult
-from artifex.evaluation.vision import OpenAICompatibleVisionEvaluationProvider
 from artifex.evaluation.similarity import (
     EmbeddingProvider,
     SimilarityAwareSignalProvider,
     SimilarityService,
 )
+from artifex.evaluation.vision import OpenAICompatibleVisionEvaluationProvider
 
 __all__ = [
     "AttemptSelector",
