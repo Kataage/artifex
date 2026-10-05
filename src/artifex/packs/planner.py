@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
+from artifex.config.models import ContextConfig
 from artifex.llm import ChatMessage, StructuredGenerator
 from artifex.packs.models import ContentPackPlan, PackRecord
 from artifex.packs.repository import PackRepository
 from artifex.planner.models import SelectedConcept
-from artifex.series.models import SeriesProfile, SeriesStatus
+from artifex.series.models import SeriesProfile, SeriesPromptContext, SeriesStatus
 
 
 class PackPlanner:
@@ -14,9 +16,11 @@ class PackPlanner:
         self,
         generator: StructuredGenerator,
         repository: PackRepository,
+        context_config: ContextConfig | None = None,
     ) -> None:
         self._generator = generator
         self._repository = repository
+        self._context = context_config or ContextConfig()
 
     async def plan_and_persist(
         self,
@@ -24,7 +28,10 @@ class PackPlanner:
         *,
         series: SeriesProfile | None = None,
     ) -> PackRecord:
-        messages = self._messages(concept, series)
+        series_context = (
+            self._series_context(series) if series is not None else None
+        )
+        messages = self._messages(concept, series_context)
 
         def validate(plan: ContentPackPlan) -> None:
             self._validate_plan(plan, concept, series)
@@ -45,11 +52,19 @@ class PackPlanner:
                 "series_episode_before_plan": (
                     series.current_episode if series is not None else None
                 ),
+                "series_prior_pack_count": (
+                    len(series.prior_pack_ids) if series is not None else 0
+                ),
+                "series_context_prior_pack_ids": (
+                    list(series_context.recent_prior_pack_ids)
+                    if series_context is not None
+                    else []
+                ),
             },
         )
 
-    @staticmethod
     def _validate_plan(
+        self,
         plan: ContentPackPlan,
         concept: SelectedConcept,
         series: SeriesProfile | None,
@@ -80,8 +95,11 @@ class PackPlanner:
             raise ValueError("pack series_id does not match series")
         if plan.episode_number != series.current_episode + 1:
             raise ValueError("pack episode_number is not the next series episode")
-        if plan.prior_pack_ids != series.prior_pack_ids:
-            raise ValueError("pack prior_pack_ids must exactly match series history")
+        expected_prior = series.prior_pack_ids[-self._context.series_recent_pack_ids :]
+        if self._context.series_recent_pack_ids == 0:
+            expected_prior = ()
+        if plan.prior_pack_ids != expected_prior:
+            raise ValueError("pack prior_pack_ids must match bounded recent series history")
         if set(plan.character_ids) - set(series.character_ids):
             raise ValueError("pack introduces characters outside series configuration")
         if series.preferred_format is not None and plan.format is not series.preferred_format:
@@ -89,10 +107,53 @@ class PackPlanner:
         if plan.unresolved_hooks_carried != series.unresolved_hooks:
             raise ValueError("pack must carry the current unresolved series hooks")
 
+    def _series_context(self, series: SeriesProfile) -> SeriesPromptContext:
+        recent = (
+            series.prior_pack_ids[-self._context.series_recent_pack_ids :]
+            if self._context.series_recent_pack_ids > 0
+            else ()
+        )
+        continuity = {
+            str(key): _compact_value(value, 240)
+            for key, value in sorted(
+                series.continuity_state.items(),
+                key=lambda item: str(item[0]),
+            )
+        }
+        summary_budget = max(120, self._context.series_tokens // 2)
+        summary = series.rolling_summary[-summary_budget:]
+        context = SeriesPromptContext(
+            id=series.id,
+            title=series.title,
+            current_episode=series.current_episode,
+            character_ids=series.character_ids,
+            recent_prior_pack_ids=recent,
+            omitted_prior_pack_count=max(
+                0, len(series.prior_pack_ids) - len(recent)
+            ),
+            rolling_summary=summary,
+            continuity_state=continuity,
+            unresolved_hooks=series.unresolved_hooks,
+            preferred_format=series.preferred_format,
+        )
+        while _estimate_context(context) > self._context.series_tokens and continuity:
+            key = sorted(continuity)[-1]
+            continuity.pop(key)
+            context = context.model_copy(update={"continuity_state": dict(continuity)})
+        if _estimate_context(context) > self._context.series_tokens:
+            context = context.model_copy(
+                update={
+                    "rolling_summary": context.rolling_summary[
+                        -max(80, self._context.series_tokens // 4) :
+                    ]
+                }
+            )
+        return context
+
     @staticmethod
     def _messages(
         concept: SelectedConcept,
-        series: SeriesProfile | None,
+        series: SeriesPromptContext | None,
     ) -> tuple[ChatMessage, ...]:
         payload = {
             "selected_concept": concept.model_dump(mode="json"),
@@ -127,3 +188,22 @@ class PackPlanner:
                 content=json.dumps(payload, ensure_ascii=False),
             ),
         )
+
+
+
+def _compact_value(value: Any, limit: int) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _estimate_context(context: SeriesPromptContext) -> int:
+    return len(
+        json.dumps(
+            context.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
