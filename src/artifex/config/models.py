@@ -134,6 +134,7 @@ class ContextConfig(StrictModel):
     trend_tokens: int = Field(default=500, ge=0)
     evergreen_tokens: int = Field(default=300, ge=0)
     operator_tokens: int = Field(default=200, ge=0)
+    series_tokens: int = Field(default=1200, ge=200)
     series_recent_pack_ids: int = Field(default=3, ge=0, le=20)
     long_term_candidate_limit: int = Field(default=500, ge=1, le=10000)
 
