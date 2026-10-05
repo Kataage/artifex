@@ -89,6 +89,34 @@ class GenerationAttemptRepository:
                 session.expunge(row)
             return tuple(rows)
 
+    def latest_for_scene(self, scene_id: str) -> GenerationAttemptRow | None:
+        with self._database.session() as session:
+            row = session.scalar(
+                select(GenerationAttemptRow)
+                .where(GenerationAttemptRow.scene_id == scene_id)
+                .order_by(
+                    GenerationAttemptRow.ordinal.desc(),
+                    GenerationAttemptRow.id.desc(),
+                )
+                .limit(1)
+            )
+            if row is None:
+                return None
+            session.expunge(row)
+            return row
+
+    def patch_provenance(
+        self,
+        attempt_id: str,
+        patch: Mapping[str, Any],
+    ) -> GenerationAttemptRow:
+        with self._database.session() as session:
+            row = session.get(GenerationAttemptRow, attempt_id)
+            if row is None:
+                raise KeyError(f"unknown generation attempt: {attempt_id}")
+            row.provenance_json = {**row.provenance_json, **dict(patch)}
+        return self.require(attempt_id)
+
     def record_backend_status(
         self,
         attempt_id: str,
