@@ -167,6 +167,7 @@ class ArtifexDiscordClient(discord.Client):
     async def setup_hook(self) -> None:
         if self._config.guild_id is not None:
             guild = discord.Object(id=self._config.guild_id)
+            self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()
