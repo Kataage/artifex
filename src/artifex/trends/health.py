@@ -35,7 +35,7 @@ class SignalHealthRepository:
             consecutive_failures=0,
             last_count=max(0, count),
         )
-        self._write(health, previous=previous)
+        self._write(health)
         return health
 
     def failure(
@@ -92,10 +92,7 @@ class SignalHealthRepository:
     def _write(
         self,
         health: SignalSourceHealth,
-        *,
-        previous: SignalSourceHealth | None,
     ) -> None:
-        del previous
         now = _utc(health.last_attempt_at or datetime.now(UTC))
         key = self._key(health.provider, health.kind)
         payload = health.model_dump(mode="json")
