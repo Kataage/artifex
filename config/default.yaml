@@ -59,6 +59,12 @@ loras:
 
 comfyui:
   base_url: http://127.0.0.1:8188
+  timeout_seconds: 30
+  execution_timeout_seconds: 900
+  poll_interval_seconds: 1
+  request_attempts: 3
+  reconnect_backoff_seconds: 1
+  default_template: ilxl_base_v1
 
 discord:
   enabled: false
