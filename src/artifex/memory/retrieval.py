@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from artifex.evaluation.similarity import EmbeddingProvider, cosine_similarity
 from artifex.planner.models import PlanningContext, RecentConceptSummary
 from artifex.planner.repository import ConceptRepository
@@ -20,13 +18,18 @@ def _summary_text(item: RecentConceptSummary) -> str:
 
 def _query_text(context: PlanningContext) -> str:
     parts: list[str] = [
-        "characters: " + ", ".join(item.display_name for item in context.characters)
+        "characters: "
+        + ", ".join(
+            f"{item.id} {item.display_name}"
+            for item in context.characters
+        )
     ]
     if context.research_brief is not None:
-        parts.extend(context.research_brief.key_findings)
-    parts.extend(signal.topic for signal in context.trend_signals)
-    parts.extend(event.title for event in context.seasonal_events)
-    parts.extend(context.operator_notes)
+        parts.extend(context.research_brief.key_findings[:8])
+    parts.extend(signal.topic for signal in context.trend_signals[:8])
+    parts.extend(event.title for event in context.seasonal_events[:6])
+    parts.extend(context.evergreen_prompts[:6])
+    parts.extend(context.operator_notes[:6])
     return " | ".join(part for part in parts if part.strip())
 
 
@@ -39,6 +42,34 @@ class ConceptMemoryRetriever:
         self._repository = repository
         self._embeddings = embeddings
 
+    def candidates(
+        self,
+        context: PlanningContext,
+        *,
+        candidate_limit: int,
+    ) -> tuple[RecentConceptSummary, ...]:
+        recent_ids = {item.concept_id for item in context.recent_concepts}
+        return tuple(
+            item
+            for item in self._repository.historical_summaries(
+                limit=candidate_limit
+            )
+            if item.concept_id not in recent_ids
+        )
+
+    def candidate_count(
+        self,
+        context: PlanningContext,
+        *,
+        candidate_limit: int,
+    ) -> int:
+        return len(
+            self.candidates(
+                context,
+                candidate_limit=candidate_limit,
+            )
+        )
+
     async def retrieve(
         self,
         context: PlanningContext,
@@ -49,13 +80,9 @@ class ConceptMemoryRetriever:
         if limit <= 0:
             return ()
 
-        recent_ids = {item.concept_id for item in context.recent_concepts}
-        candidates = tuple(
-            item
-            for item in self._repository.historical_summaries(
-                limit=candidate_limit
-            )
-            if item.concept_id not in recent_ids
+        candidates = self.candidates(
+            context,
+            candidate_limit=candidate_limit,
         )
         if not candidates:
             return ()
