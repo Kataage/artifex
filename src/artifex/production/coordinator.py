@@ -31,6 +31,7 @@ from artifex.policy import PolicyApplicationService, PolicyOutcome, UseClass
 from artifex.production.backend import GenerationBackend, GenerationRequest
 from artifex.production.context import PlanningContextBuilder
 from artifex.prompts import CompiledPrompt, PromptCompiler
+from artifex.research import ResearchDirector
 from artifex.retry import RetryAction, RetryPolicy
 from artifex.review import ReviewQueueRepository
 from artifex.runtime import RuntimeStore
@@ -74,6 +75,7 @@ class ProductionCoordinator:
         production: ProductionConfig,
         operations: OperationsConfig,
         *,
+        research: ResearchDirector | None = None,
         seed_factory: Callable[[], int] = _seed,
     ) -> None:
         if production.batch_size != 1:
@@ -106,6 +108,7 @@ class ProductionCoordinator:
         self._telemetry = telemetry
         self._production = production
         self._operations = operations
+        self._research = research
         self._seed_factory = seed_factory
 
     async def replenish_ideas(self) -> None:
@@ -118,6 +121,18 @@ class ProductionCoordinator:
         if count == 0:
             return
         context = self._context_builder.build()
+        if self._research is not None:
+            context = await self._research.prepare(context)
+            brief = context.research_brief
+            self._telemetry.record(
+                "research.ideation_ready",
+                EventSeverity.INFO,
+                {
+                    "brief_id": brief.id if brief is not None else None,
+                    "evidence_count": len(brief.evidence_ids) if brief is not None else 0,
+                    "degraded": brief.degraded if brief is not None else True,
+                },
+            )
         selected = await self._idea_director.replenish(context, count=count)
         self._telemetry.record(
             "planner.inventory_replenished",
