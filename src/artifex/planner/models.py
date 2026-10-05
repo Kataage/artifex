@@ -45,6 +45,7 @@ class TrendSignalSummary(PlannerModel):
     id: str = Field(min_length=1)
     topic: str = Field(min_length=1)
     strength: float = Field(ge=0, le=1)
+    confidence: float = Field(default=1.0, ge=0, le=1)
     freshness: float = Field(ge=0, le=1)
 
 
