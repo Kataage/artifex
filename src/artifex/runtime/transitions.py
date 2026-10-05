@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
+
 from artifex.domain import AgentState, PackState, SceneState
 
 class InvalidTransition(ValueError):
