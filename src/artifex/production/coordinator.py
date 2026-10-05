@@ -12,7 +12,6 @@ from artifex.archive import PackArchive
 from artifex.characters import CharacterRegistry
 from artifex.comfy import ComfyUIError
 from artifex.config.models import OperationsConfig, ProductionConfig
-from artifex.memory import ContextMemoryManager
 from artifex.db import Database
 from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow
 from artifex.domain import PackState, PublicationTier, ResultState, SceneState
@@ -25,6 +24,7 @@ from artifex.evaluation import (
     GenerationAttemptRepository,
 )
 from artifex.loras import LoRAPlan, LoRAResolutionError, LoRAResolver
+from artifex.memory import ContextMemoryManager
 from artifex.operations.recovery import RecoveryManager, RecoveryState
 from artifex.packs import PackPlanner, PackRepository, ScenePlan
 from artifex.planner import ConceptRepository, IdeaDirector
