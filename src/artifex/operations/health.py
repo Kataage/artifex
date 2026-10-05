@@ -79,6 +79,7 @@ class HealthChecker:
         components = [
             await self._check_llm(),
             await self._check_comfy(),
+            await self._check_evaluator(),
             self._check_database(),
             self._check_storage(),
             self._check_discord(),
@@ -142,6 +143,45 @@ class HealthChecker:
                 "version": health.version or "unknown",
                 "device_count": len(health.devices),
             },
+        )
+
+    async def _check_evaluator(self) -> ComponentHealth:
+        config = self._settings.evaluation
+        if not config.vision_base_url or not config.vision_model:
+            return ComponentHealth(
+                name="evaluator",
+                state=ComponentState.UNHEALTHY,
+                detail="Vision evaluator endpoint/model are not configured.",
+                blocking=True,
+            )
+        timeout = min(10.0, config.vision_timeout_seconds)
+        headers: dict[str, str] = {}
+        if config.vision_api_key_env:
+            token = os.environ.get(config.vision_api_key_env)
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+        try:
+            async with httpx.AsyncClient(
+                base_url=config.vision_base_url.rstrip("/"),
+                timeout=httpx.Timeout(timeout),
+                headers=headers,
+            ) as client:
+                response = await client.get("/health")
+                if response.status_code == 404:
+                    response = await client.get("/v1/models")
+                response.raise_for_status()
+        except (httpx.HTTPError, ValueError) as exc:
+            return ComponentHealth(
+                name="evaluator",
+                state=ComponentState.UNHEALTHY,
+                detail=f"Vision evaluator unavailable: {exc}",
+                blocking=True,
+            )
+        return ComponentHealth(
+            name="evaluator",
+            state=ComponentState.HEALTHY,
+            detail=f"Vision evaluator is ready: {config.vision_model}.",
+            blocking=True,
         )
 
     def _check_database(self) -> ComponentHealth:
