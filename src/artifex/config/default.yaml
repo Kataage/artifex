@@ -12,6 +12,8 @@ planner:
 
 production:
   retry_limit: 3
+  idea_inventory_target: 30
+  planned_inventory_target: 10
   completed_inventory_target: 7
 
 llm:
