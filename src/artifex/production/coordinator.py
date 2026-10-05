@@ -365,9 +365,7 @@ class ProductionCoordinator:
             )
 
             infrastructure_retries = 0
-
-            def on_submitted(prompt_id: str) -> None:
-                self._record_submission(attempt.id, prompt_id)
+            on_submitted = partial(self._record_submission, attempt.id)
 
             while True:
                 try:
