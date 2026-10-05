@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Callable, Mapping
+from functools import partial
 from pathlib import Path
 from typing import Any
 
