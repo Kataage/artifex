@@ -4,12 +4,12 @@ import os
 import shutil
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
-from pathlib import Path
 from typing import Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from artifex.comfy import ComfyUIClient
 from artifex.config.models import ArtifexSettings
@@ -195,7 +195,7 @@ class HealthChecker:
                 value = session.execute(text("SELECT 1")).scalar_one()
             if value != 1:
                 raise RuntimeError("database SELECT 1 returned unexpected value")
-        except Exception as exc:
+        except (SQLAlchemyError, RuntimeError) as exc:
             return ComponentHealth(
                 name="database",
                 state=ComponentState.UNHEALTHY,
