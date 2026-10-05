@@ -1,0 +1,8 @@
+id: default
+version: "1"
+allow_generation: true
+minimum_publication_tier: public
+requires_operator_review: false
+allowed_formats: []
+notes:
+  - Default Artifex policy profile; replace or override character references with project-specific rights profiles.
