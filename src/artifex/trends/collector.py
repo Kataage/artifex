@@ -9,7 +9,7 @@ from artifex.config.models import TrendConfig
 from artifex.planner.models import TrendSignalSummary
 from artifex.trends.models import RawTrendSignal
 from artifex.trends.normalization import merge_signals
-from artifex.trends.provider import TrendProvider, TrendProviderError
+from artifex.trends.provider import TrendProvider
 from artifex.trends.repository import TrendRepository
 
 
@@ -42,7 +42,9 @@ class TrendCollector:
             for provider in self._providers:
                 try:
                     signals = await provider.collect(as_of=as_of)
-                except TrendProviderError as exc:
+                except Exception as exc:  # noqa: BLE001
+                    # Provider implementations are an isolation boundary. A broken
+                    # trend source must never stop evergreen/seasonal production.
                     failures[provider.name] = str(exc)
                     continue
                 raw.extend(signals)
