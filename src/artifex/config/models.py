@@ -77,6 +77,12 @@ class ProductionConfig(StrictModel):
     idea_inventory_target: int = Field(default=30, ge=0)
     planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
+    idea_replenish_batch: int = Field(default=3, ge=1)
+    model_family: str = "ilxl"
+    checkpoint: str | None = None
+    width: int = Field(default=1024, ge=64, le=8192)
+    height: int = Field(default=1536, ge=64, le=8192)
+    batch_size: int = Field(default=1, ge=1, le=64)
 
 
 class LlmConfig(StrictModel):
@@ -109,6 +115,7 @@ class LoRARegistryConfig(StrictModel):
 
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
+    output_dir: Path | None = None
     timeout_seconds: float = Field(default=30.0, gt=0)
     execution_timeout_seconds: float = Field(default=900.0, gt=0)
     poll_interval_seconds: float = Field(default=1.0, gt=0)
@@ -214,6 +221,7 @@ class OperationsConfig(StrictModel):
     max_scenes_per_pack: int = Field(default=12, ge=1)
     max_attempts_per_scene: int = Field(default=4, ge=1)
     max_events_per_cycle: int = Field(default=50, ge=1)
+    event_retention_rows: int = Field(default=10000, ge=100)
 
 
 class ArtifexSettings(StrictModel):
