@@ -154,6 +154,13 @@ class EvaluationWeightsConfig(StrictModel):
 
 
 class EvaluationConfig(StrictModel):
+    provider: Literal["openai_compatible_vision"] = "openai_compatible_vision"
+    vision_base_url: str | None = None
+    vision_model: str | None = None
+    vision_api_key_env: str | None = None
+    vision_timeout_seconds: float = Field(default=120.0, gt=0)
+    vision_request_attempts: int = Field(default=2, ge=1)
+    vision_retry_backoff_seconds: float = Field(default=1.0, ge=0)
     weights: EvaluationWeightsConfig = Field(default_factory=EvaluationWeightsConfig)
     identity_hard_min: float = Field(default=0.60, ge=0, le=1)
     integrity_hard_min: float = Field(default=0.80, ge=0, le=1)
