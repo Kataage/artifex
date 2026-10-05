@@ -72,6 +72,25 @@ class ReviewQueueRepository:
             ).all()
             return tuple(self._to_item(row) for row in rows)
 
+    def find_open(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+    ) -> ReviewItem | None:
+        with self._database.session() as session:
+            row = session.scalar(
+                select(ReviewQueueRow)
+                .where(
+                    ReviewQueueRow.subject_type == subject_type,
+                    ReviewQueueRow.subject_id == subject_id,
+                    ReviewQueueRow.state == ReviewState.OPEN.value,
+                )
+                .order_by(ReviewQueueRow.created_at.asc(), ReviewQueueRow.id.asc())
+                .limit(1)
+            )
+            return None if row is None else self._to_item(row)
+
     def next_open(self) -> ReviewItem | None:
         items = self.list_open(limit=1)
         return items[0] if items else None

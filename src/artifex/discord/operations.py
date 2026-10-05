@@ -9,7 +9,7 @@ from artifex.db import Database
 from artifex.db.models import ConceptRow, PackRow, SceneRow
 from artifex.discord.models import CommandName, CommandRequest, CommandResponse
 from artifex.domain import AgentState, PackState, SceneState
-from artifex.policy import PolicyDecisionRepository
+from artifex.policy import PolicyDecision, PolicyDecisionRepository
 from artifex.review import ReviewItem, ReviewQueueRepository, ReviewState
 from artifex.runtime import RuntimeStore
 from artifex.scheduler import Scheduler
@@ -218,9 +218,11 @@ class ArtifexRemoteOperations:
     def _approve(self, review_id: str) -> CommandResponse:
         item = self._reviews.require(review_id)
         self._require_open(item)
-        self._resolve_policy(item, approved=True)
+        policy = self._resolve_policy(item, approved=True)
+        self._apply_policy_resolution(item, policy)
         self._accept_subject(item)
         resolved = self._reviews.resolve(review_id, ReviewState.APPROVED)
+        self._resume_parent_pack(item, retry=False)
         return CommandResponse(
             ok=True,
             message=f"Approved review {review_id} ({resolved.subject_type}:{resolved.subject_id}).",
@@ -229,9 +231,11 @@ class ArtifexRemoteOperations:
     def _reject(self, review_id: str) -> CommandResponse:
         item = self._reviews.require(review_id)
         self._require_open(item)
-        self._resolve_policy(item, approved=False)
+        policy = self._resolve_policy(item, approved=False)
+        self._apply_policy_resolution(item, policy)
         self._reject_subject(item)
         resolved = self._reviews.resolve(review_id, ReviewState.REJECTED)
+        self._resume_parent_pack(item, retry=False)
         return CommandResponse(
             ok=True,
             message=f"Rejected review {review_id} ({resolved.subject_type}:{resolved.subject_id}).",
@@ -255,6 +259,7 @@ class ArtifexRemoteOperations:
                 ReviewState.RETRY,
                 payload_patch={"operator_retry_at": datetime.now(UTC).isoformat()},
             )
+            self._resume_parent_pack(item, retry=True)
         return CommandResponse(ok=True, message=f"Retry requested for {subject_type} {subject_id}.")
 
     def _skip(self, target: str) -> CommandResponse:
@@ -271,6 +276,7 @@ class ArtifexRemoteOperations:
 
         if item is not None:
             self._reviews.resolve(item.id, ReviewState.SKIPPED)
+            self._resume_parent_pack(item, retry=False)
         return CommandResponse(ok=True, message=f"Skipped {subject_type} {subject_id}.")
 
     def _alternate(self, review_id: str) -> CommandResponse:
@@ -347,13 +353,35 @@ class ArtifexRemoteOperations:
             data=profile.model_dump(mode="json"),
         )
 
-    def _resolve_policy(self, item: ReviewItem, *, approved: bool) -> None:
+    def _resolve_policy(
+        self,
+        item: ReviewItem,
+        *,
+        approved: bool,
+    ) -> PolicyDecision | None:
         raw = item.payload.get("policy_decision_id")
         if raw is None:
-            return
+            return None
         if not isinstance(raw, str) or not raw:
             raise TypeError("review policy_decision_id must be a non-empty string")
-        self._policy_decisions.resolve_review(raw, approved=approved)
+        return self._policy_decisions.resolve_review(raw, approved=approved)
+
+    def _apply_policy_resolution(
+        self,
+        item: ReviewItem,
+        decision: PolicyDecision | None,
+    ) -> None:
+        if decision is None or item.subject_type != "scene":
+            return
+        with self._database.session() as session:
+            scene = session.get(SceneRow, item.subject_id)
+            if scene is None:
+                raise KeyError(f"unknown scene: {item.subject_id}")
+            scene.publication_tier = decision.effective_tier.value
+            scene.payload_json = {
+                **scene.payload_json,
+                "latest_policy_decision_id": decision.decision_id,
+            }
 
     def _accept_subject(self, item: ReviewItem) -> None:
         if item.subject_type == "scene":
@@ -376,7 +404,7 @@ class ArtifexRemoteOperations:
                     raise KeyError(f"unknown pack: {item.subject_id}")
                 pack_state = PackState(pack.state)
             if pack_state is PackState.REVIEW:
-                self._runtime.transition_pack(item.subject_id, PackState.FINALIZED)
+                self._runtime.transition_pack(item.subject_id, PackState.EVALUATING)
 
     def _reject_subject(self, item: ReviewItem) -> None:
         if item.subject_type == "scene":
@@ -400,6 +428,25 @@ class ArtifexRemoteOperations:
                 pack_state = PackState(pack.state)
             if pack_state is PackState.REVIEW:
                 self._runtime.transition_pack(item.subject_id, PackState.FAILED)
+
+    def _resume_parent_pack(self, item: ReviewItem, *, retry: bool) -> None:
+        if item.subject_type != "scene":
+            return
+        with self._database.session() as session:
+            scene = session.get(SceneRow, item.subject_id)
+            if scene is None:
+                raise KeyError(f"unknown scene: {item.subject_id}")
+            pack = session.get(PackRow, scene.pack_id)
+            if pack is None:
+                raise KeyError(f"unknown pack: {scene.pack_id}")
+            pack_state = PackState(pack.state)
+            pack_id = pack.id
+        if pack_state is PackState.REVIEW:
+            self._runtime.transition_pack(
+                pack_id,
+                PackState.GENERATING if retry else PackState.EVALUATING,
+                checkpoint_patch={"operator_review_resolved": True},
+            )
 
     @staticmethod
     def _attempt_id(item: ReviewItem, fallback: str | None) -> str | None:

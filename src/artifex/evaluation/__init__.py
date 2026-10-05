@@ -1,4 +1,5 @@
 from artifex.evaluation.engine import EvaluationEngine
+from artifex.evaluation.local_similarity import LocalSimilarityEmbeddingProvider
 from artifex.evaluation.models import (
     EvaluationContext,
     EvaluationResult,
@@ -12,6 +13,7 @@ from artifex.evaluation.similarity import (
     SimilarityAwareSignalProvider,
     SimilarityService,
 )
+from artifex.evaluation.vision import OpenAICompatibleVisionEvaluationProvider
 
 __all__ = [
     "AttemptSelector",
@@ -22,6 +24,8 @@ __all__ = [
     "EvaluationResult",
     "EvaluationScores",
     "GenerationAttemptRepository",
+    "LocalSimilarityEmbeddingProvider",
+    "OpenAICompatibleVisionEvaluationProvider",
     "RawEvaluationSignals",
     "SelectionResult",
     "SimilarityAwareSignalProvider",

@@ -10,6 +10,8 @@ from sqlalchemy import select
 from artifex.db import Database
 from artifex.db.models import ConceptRow
 from artifex.planner.models import (
+    CandidateScore,
+    ConceptCandidate,
     RecentConceptSummary,
     ScoredConcept,
     SelectedConcept,
@@ -75,6 +77,35 @@ class ConceptRepository:
         if selected_result is None:
             raise KeyError(f"selected candidate was not persisted: {selected_key}")
         return selected_result
+
+    def next_idea(self) -> SelectedConcept | None:
+        with self._database.session() as session:
+            row = session.scalar(
+                select(ConceptRow)
+                .where(ConceptRow.status == "idea")
+                .order_by(ConceptRow.created_at.asc(), ConceptRow.id.asc())
+                .limit(1)
+            )
+            if row is None:
+                return None
+            raw_candidate = row.payload_json.get("candidate")
+            raw_score = row.payload_json.get("score")
+            if not isinstance(raw_candidate, dict) or not isinstance(raw_score, dict):
+                raise TypeError(f"concept {row.id} is missing candidate/score payload")
+            return SelectedConcept(
+                concept_id=row.id,
+                candidate=ConceptCandidate.model_validate(raw_candidate),
+                score=CandidateScore.model_validate(raw_score),
+            )
+
+    def set_status(self, concept_id: str, status: str) -> None:
+        if not status.strip():
+            raise ValueError("concept status must be non-empty")
+        with self._database.session() as session:
+            row = session.get(ConceptRow, concept_id)
+            if row is None:
+                raise KeyError(f"unknown concept: {concept_id}")
+            row.status = status
 
     def recent_summaries(self, *, limit: int = 30) -> tuple[RecentConceptSummary, ...]:
         if limit < 1:

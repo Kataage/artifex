@@ -33,6 +33,14 @@ class RuntimeStore:
                 value = raw
             return AgentState(str(value))
 
+    def get_agent_reason(self) -> str | None:
+        with self._database.session() as session:
+            row = session.get(SettingRow, _AGENT_STATE_KEY)
+            if row is None or not isinstance(row.value_json, dict):
+                return None
+            raw = row.value_json.get("reason")
+            return str(raw) if raw is not None else None
+
     def set_agent_state(
         self,
         target: AgentState,

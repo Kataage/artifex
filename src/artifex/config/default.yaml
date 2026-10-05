@@ -29,6 +29,12 @@ production:
   idea_inventory_target: 30
   planned_inventory_target: 10
   completed_inventory_target: 7
+  idea_replenish_batch: 3
+  model_family: ilxl
+  checkpoint: null
+  width: 1024
+  height: 1536
+  batch_size: 1
 
 llm:
   backend: llama_cpp
@@ -60,6 +66,7 @@ loras:
 
 comfyui:
   base_url: http://127.0.0.1:8188
+  output_dir: null
   timeout_seconds: 30
   execution_timeout_seconds: 900
   poll_interval_seconds: 1
@@ -68,6 +75,13 @@ comfyui:
   default_template: ilxl_base_v1
 
 evaluation:
+  provider: openai_compatible_vision
+  vision_base_url: null
+  vision_model: null
+  vision_api_key_env: null
+  vision_timeout_seconds: 120
+  vision_request_attempts: 2
+  vision_retry_backoff_seconds: 1
   weights:
     identity: 0.25
     alignment: 0.15
@@ -121,3 +135,14 @@ storage:
   database_url: sqlite:///data/artifex.sqlite3
   packs_dir: data/packs
   minimum_free_gib: 5
+
+operations:
+  health_interval_seconds: 30
+  backend_failure_threshold: 3
+  heartbeat_interval_seconds: 30
+  heartbeat_stale_seconds: 120
+  sustained_run_cycles: 5
+  max_scenes_per_pack: 12
+  max_attempts_per_scene: 4
+  max_events_per_cycle: 50
+  event_retention_rows: 10000

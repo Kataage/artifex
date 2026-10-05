@@ -77,6 +77,12 @@ class ProductionConfig(StrictModel):
     idea_inventory_target: int = Field(default=30, ge=0)
     planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
+    idea_replenish_batch: int = Field(default=3, ge=1)
+    model_family: str = "ilxl"
+    checkpoint: str | None = None
+    width: int = Field(default=1024, ge=64, le=8192)
+    height: int = Field(default=1536, ge=64, le=8192)
+    batch_size: int = Field(default=1, ge=1, le=64)
 
 
 class LlmConfig(StrictModel):
@@ -109,6 +115,7 @@ class LoRARegistryConfig(StrictModel):
 
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
+    output_dir: Path | None = None
     timeout_seconds: float = Field(default=30.0, gt=0)
     execution_timeout_seconds: float = Field(default=900.0, gt=0)
     poll_interval_seconds: float = Field(default=1.0, gt=0)
@@ -147,6 +154,13 @@ class EvaluationWeightsConfig(StrictModel):
 
 
 class EvaluationConfig(StrictModel):
+    provider: Literal["openai_compatible_vision"] = "openai_compatible_vision"
+    vision_base_url: str | None = None
+    vision_model: str | None = None
+    vision_api_key_env: str | None = None
+    vision_timeout_seconds: float = Field(default=120.0, gt=0)
+    vision_request_attempts: int = Field(default=2, ge=1)
+    vision_retry_backoff_seconds: float = Field(default=1.0, ge=0)
     weights: EvaluationWeightsConfig = Field(default_factory=EvaluationWeightsConfig)
     identity_hard_min: float = Field(default=0.60, ge=0, le=1)
     integrity_hard_min: float = Field(default=0.80, ge=0, le=1)
@@ -205,6 +219,18 @@ class StorageConfig(StrictModel):
     minimum_free_gib: float = Field(default=5.0, ge=0)
 
 
+class OperationsConfig(StrictModel):
+    health_interval_seconds: float = Field(default=30.0, gt=0)
+    backend_failure_threshold: int = Field(default=3, ge=1)
+    heartbeat_interval_seconds: float = Field(default=30.0, gt=0)
+    heartbeat_stale_seconds: float = Field(default=120.0, gt=0)
+    sustained_run_cycles: int = Field(default=5, ge=1)
+    max_scenes_per_pack: int = Field(default=12, ge=1)
+    max_attempts_per_scene: int = Field(default=4, ge=1)
+    max_events_per_cycle: int = Field(default=50, ge=1)
+    event_retention_rows: int = Field(default=10000, ge=100)
+
+
 class ArtifexSettings(StrictModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
@@ -218,3 +244,4 @@ class ArtifexSettings(StrictModel):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
