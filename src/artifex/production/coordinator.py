@@ -254,7 +254,16 @@ class ProductionCoordinator:
             if self._context_memory is not None:
                 context = self._context_memory.pre_research(context)
             if self._research is not None:
-                context = await self._research.prepare(context)
+                topic_parts = [
+                    f"Series {series.title}",
+                    *series.bible[:3],
+                ]
+                if series.rolling_summary:
+                    topic_parts.append(series.rolling_summary[-400:])
+                context = await self._research.prepare(
+                    context,
+                    topic_hint=" | ".join(topic_parts),
+                )
             if self._context_memory is not None:
                 context = await self._context_memory.finalize(context)
 
