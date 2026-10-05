@@ -9,6 +9,7 @@ import typer
 from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
+from artifex.characters import HololiveCatalog
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.db import Database
@@ -36,6 +37,12 @@ app = typer.Typer(
     help="Autonomous Illustration Production System",
     no_args_is_help=True,
 )
+characters_app = typer.Typer(
+    name="characters",
+    help="Bootstrap and audit versioned character catalogs.",
+    no_args_is_help=True,
+)
+app.add_typer(characters_app, name="characters")
 research_app = typer.Typer(
     name="research",
     help="Search and inspect bounded external research evidence.",
@@ -84,6 +91,92 @@ def _remote(core: CoreServices) -> ArtifexRemoteOperations:
     )
 
 
+
+
+@characters_app.command("bootstrap-hololive")
+def characters_bootstrap_hololive(
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="Destination YAML. Defaults to <first profile dir>/hololive.yaml.",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace an existing generated catalog."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+    config: ConfigOption = None,
+) -> None:
+    """Materialize the packaged versioned Hololive roster into a runtime profile."""
+    settings = _settings(config)
+    catalog = HololiveCatalog.packaged()
+    if output is None:
+        if not settings.characters.profile_dirs:
+            raise typer.BadParameter("characters.profile_dirs is empty")
+        output = settings.characters.profile_dirs[0] / "hololive.yaml"
+    try:
+        path = catalog.materialize(output, overwrite=force)
+    except FileExistsError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    payload = {
+        "catalog_id": catalog.catalog_id,
+        "catalog_version": catalog.catalog_version,
+        "characters": len(catalog.profiles),
+        "path": str(path),
+    }
+    if json_output:
+        _print_payload(payload, as_json=True)
+        return
+    typer.echo(
+        f"{catalog.catalog_id}@{catalog.catalog_version}: "
+        f"{len(catalog.profiles)} character(s) -> {path}"
+    )
+
+
+@characters_app.command("audit")
+def characters_audit(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Audit installed profiles against the packaged Hololive roster."""
+    settings = _settings(config)
+    core = build_core(settings)
+    try:
+        report = HololiveCatalog.packaged().audit(
+            core.characters,
+            settings.characters.profile_dirs,
+            minimum_readiness=settings.characters.minimum_readiness,
+        )
+        if json_output:
+            _print_payload(report.model_dump(mode="json"), as_json=True)
+            return
+
+        typer.echo(
+            f"{report.catalog_id}@{report.catalog_version} "
+            f"loaded={report.loaded_count}/{report.expected_count} "
+            f"complete={report.catalog_complete} "
+            f"production_ready={report.production_ready}"
+        )
+        for name in (
+            "missing_ids",
+            "unexpected_ids",
+            "duplicate_profile_ids",
+            "excluded_namespace_ids",
+            "disabled_ids",
+            "unready_ids",
+            "missing_canonical_tag_ids",
+            "missing_policy_profile_ids",
+            "missing_provenance_ids",
+            "missing_reference_slot_ids",
+        ):
+            values = getattr(report, name)
+            if values:
+                typer.echo(f"{name}: {', '.join(values)}")
+    finally:
+        asyncio.run(core.close())
 
 
 @llm_app.command("qualify")
