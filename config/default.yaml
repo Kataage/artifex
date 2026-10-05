@@ -67,6 +67,7 @@ context:
   trend_tokens: 500
   evergreen_tokens: 300
   operator_tokens: 200
+  series_tokens: 1200
   series_recent_pack_ids: 3
   long_term_candidate_limit: 500
 
