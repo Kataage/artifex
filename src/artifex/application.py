@@ -152,6 +152,7 @@ def build_doctor(core: CoreServices) -> DoctorService:
         core.database,
         core.telemetry,
         comfy=core.comfy,
+        research_probe=core.research.health,
     )
     return DoctorService(core.settings, checker, core.characters)
 
