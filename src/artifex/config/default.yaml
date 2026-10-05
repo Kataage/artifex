@@ -145,10 +145,25 @@ evaluation:
 
 trends:
   enabled: true
+  refresh_interval_seconds: 1800
   default_ttl_hours: 24
   freshness_half_life_hours: 8
   max_summary_signals: 20
   minimum_effective_strength: 0.05
+  max_provider_results: 8
+  max_external_topic_chars: 180
+  current_web_enabled: true
+  tag_trends_enabled: true
+  current_queries:
+    - hololive fanart illustration trends
+    - hololive fanart
+    - vtuber anime illustration trends
+  tag_queries:
+    - hololive%
+    - virtual_youtuber%
+  seasonal_enabled: true
+  max_seasonal_events: 12
+  custom_seasonal_events: []
 
 research:
   enabled: true
