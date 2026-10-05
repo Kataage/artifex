@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, Sequence
+from typing import Any, Literal, Protocol
 
 import httpx
 
