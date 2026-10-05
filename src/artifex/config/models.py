@@ -171,9 +171,26 @@ class TrendConfig(StrictModel):
 class DiscordConfig(StrictModel):
     enabled: bool = False
     token_env: str = "ARTIFEX_DISCORD_TOKEN"
+    guild_id: int | None = Field(default=None, ge=1)
+    channel_id: int | None = Field(default=None, ge=1)
+    allowed_user_ids: tuple[int, ...] = ()
+    allowed_role_ids: tuple[int, ...] = ()
+    command_prefix: str = "!artifex "
     notify_completion: bool = True
     notify_review: bool = True
     notify_error: bool = True
+    notify_backend: bool = True
+    notify_disk: bool = True
+    daily_summary_hour_local: int = Field(default=9, ge=0, le=23)
+    daily_summary_timezone: str = "Asia/Tokyo"
+
+    @model_validator(mode="after")
+    def validate_authorization(self) -> DiscordConfig:
+        if self.enabled and not (self.allowed_user_ids or self.allowed_role_ids):
+            raise ValueError(
+                "Discord requires allowed_user_ids or allowed_role_ids when enabled"
+            )
+        return self
 
 
 class RightsConfig(StrictModel):
