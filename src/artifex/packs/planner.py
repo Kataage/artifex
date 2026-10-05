@@ -124,35 +124,80 @@ class PackPlanner:
                 key=lambda item: str(item[0]),
             )
         }
-        summary_budget = max(120, self._context.series_tokens // 2)
-        summary = series.rolling_summary[-summary_budget:]
-        hook_budget = max(80, self._context.series_tokens // 4)
-        hooks = _fit_strings(series.unresolved_hooks, hook_budget, item_limit=160)
+        bible = _fit_strings(
+            series.bible,
+            max(80, self._context.series_tokens // 5),
+            item_limit=180,
+        )
+        recent_summaries = _fit_strings(
+            series.recent_episode_summaries[-5:],
+            max(100, self._context.series_tokens // 4),
+            item_limit=240,
+        )
+        rolling_summary = _truncate(
+            series.rolling_summary,
+            max(120, self._context.series_tokens // 4),
+        )
+        hooks = _fit_strings(
+            series.unresolved_hooks,
+            max(80, self._context.series_tokens // 6),
+            item_limit=160,
+        )
         context = SeriesPromptContext(
             id=series.id,
             title=_truncate(series.title, 160),
             current_episode=series.current_episode,
             character_ids=series.character_ids,
+            bible=bible,
             recent_prior_pack_ids=recent,
             omitted_prior_pack_count=max(
                 0, len(series.prior_pack_ids) - len(recent)
             ),
-            rolling_summary=summary,
+            rolling_summary=rolling_summary,
+            recent_episode_summaries=recent_summaries,
             continuity_state=continuity,
             unresolved_hooks=hooks,
             preferred_format=series.preferred_format,
         )
-        while _estimate_context(context) > self._context.series_tokens and continuity:
-            key = sorted(continuity)[-1]
-            continuity.pop(key)
-            context = context.model_copy(update={"continuity_state": dict(continuity)})
+
+        while (
+            _estimate_context(context) > self._context.series_tokens
+            and len(context.recent_episode_summaries) > 1
+        ):
+            context = context.model_copy(
+                update={
+                    "recent_episode_summaries": context.recent_episode_summaries[1:]
+                }
+            )
         if _estimate_context(context) > self._context.series_tokens:
             context = context.model_copy(
                 update={
-                    "rolling_summary": context.rolling_summary[
-                        -max(80, self._context.series_tokens // 4) :
-                    ]
+                    "rolling_summary": _truncate(
+                        context.rolling_summary,
+                        max(60, self._context.series_tokens // 8),
+                    )
                 }
+            )
+        while _estimate_context(context) > self._context.series_tokens and continuity:
+            key = max(continuity)
+            continuity.pop(key)
+            context = context.model_copy(update={"continuity_state": dict(continuity)})
+        while (
+            _estimate_context(context) > self._context.series_tokens
+            and len(context.unresolved_hooks) > 1
+        ):
+            context = context.model_copy(
+                update={"unresolved_hooks": context.unresolved_hooks[1:]}
+            )
+        while (
+            _estimate_context(context) > self._context.series_tokens
+            and len(context.bible) > 1
+        ):
+            context = context.model_copy(update={"bible": context.bible[:-1]})
+
+        if _estimate_context(context) > self._context.series_tokens:
+            raise RuntimeError(
+                "Series prompt context cannot fit configured series_tokens budget"
             )
         return context
 
@@ -172,7 +217,8 @@ class PackPlanner:
                 "scene_ordinals": "contiguous starting from 1",
                 "series_rule": (
                     "If series is supplied, preserve its character set constraints, "
-                    "history, continuity state and unresolved hooks."
+                    "bible, rolling/recent continuity context and unresolved hooks. "
+                    "Output prior_pack_ids must equal recent_prior_pack_ids exactly."
                 ),
             },
         }
@@ -186,8 +232,6 @@ class PackPlanner:
                 content=json.dumps(payload, ensure_ascii=False),
             ),
         )
-
-
 
 def _compact_value(value: Any, limit: int) -> str:
     text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
@@ -205,8 +249,6 @@ def _estimate_context(context: SeriesPromptContext) -> int:
             sort_keys=True,
         )
     )
-
-
 
 def _fit_strings(
     values: tuple[str, ...],
