@@ -52,7 +52,9 @@ class DefaultSignalProvider:
 
         trend = max(
             (
-                trend_by_id[ref].strength * trend_by_id[ref].freshness
+                trend_by_id[ref].strength
+                * trend_by_id[ref].confidence
+                * trend_by_id[ref].freshness
                 for ref in candidate.source_refs
                 if ref in trend_by_id
             ),

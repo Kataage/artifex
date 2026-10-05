@@ -160,6 +160,14 @@ class EvaluationConfig(StrictModel):
     continuity_review_min: float = Field(default=0.55, ge=0, le=1)
 
 
+class TrendConfig(StrictModel):
+    enabled: bool = True
+    default_ttl_hours: float = Field(default=24.0, gt=0)
+    freshness_half_life_hours: float = Field(default=8.0, gt=0)
+    max_summary_signals: int = Field(default=20, ge=1)
+    minimum_effective_strength: float = Field(default=0.05, ge=0, le=1)
+
+
 class DiscordConfig(StrictModel):
     enabled: bool = False
     token_env: str = "ARTIFEX_DISCORD_TOKEN"
@@ -187,6 +195,7 @@ class ArtifexSettings(StrictModel):
     loras: LoRARegistryConfig = Field(default_factory=LoRARegistryConfig)
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    trends: TrendConfig = Field(default_factory=TrendConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
