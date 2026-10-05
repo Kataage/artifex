@@ -35,7 +35,7 @@ class PackPlanner:
         messages = self._messages(concept, series_context)
 
         def validate(plan: ContentPackPlan) -> None:
-            self._validate_plan(plan, concept, series)
+            self._validate_plan(plan, concept, series, series_context)
 
         plan = await self._generator.generate(
             ContentPackPlan,
@@ -71,6 +71,7 @@ class PackPlanner:
         plan: ContentPackPlan,
         concept: SelectedConcept,
         series: SeriesProfile | None,
+        series_context: SeriesPromptContext | None,
     ) -> None:
         candidate = concept.candidate
         if plan.format is not candidate.format:
@@ -92,23 +93,23 @@ class PackPlanner:
                 raise ValueError("non-series pack cannot claim prior series packs")
             return
 
+        if series_context is None:
+            raise ValueError("series prompt context is missing")
         if series.status is not SeriesStatus.ACTIVE:
             raise ValueError(f"series is not active: {series.status.value}")
         if plan.series_id != series.id:
             raise ValueError("pack series_id does not match series")
         if plan.episode_number != series.current_episode + 1:
             raise ValueError("pack episode_number is not the next series episode")
-        expected_prior = series.prior_pack_ids[-self._context.series_recent_pack_ids :]
-        if self._context.series_recent_pack_ids == 0:
-            expected_prior = ()
+        expected_prior = series_context.recent_prior_pack_ids
         if plan.prior_pack_ids != expected_prior:
             raise ValueError("pack prior_pack_ids must match bounded recent series history")
         if set(plan.character_ids) - set(series.character_ids):
             raise ValueError("pack introduces characters outside series configuration")
         if series.preferred_format is not None and plan.format is not series.preferred_format:
             raise ValueError("pack format does not match series preferred_format")
-        if plan.unresolved_hooks_carried != series.unresolved_hooks:
-            raise ValueError("pack must carry the current unresolved series hooks")
+        if plan.unresolved_hooks_carried != series_context.unresolved_hooks:
+            raise ValueError("pack must carry the bounded unresolved series hooks")
 
     def _series_context(self, series: SeriesProfile) -> SeriesPromptContext:
         recent = (
@@ -125,9 +126,11 @@ class PackPlanner:
         }
         summary_budget = max(120, self._context.series_tokens // 2)
         summary = series.rolling_summary[-summary_budget:]
+        hook_budget = max(80, self._context.series_tokens // 4)
+        hooks = _fit_strings(series.unresolved_hooks, hook_budget, item_limit=160)
         context = SeriesPromptContext(
             id=series.id,
-            title=series.title,
+            title=_truncate(series.title, 160),
             current_episode=series.current_episode,
             character_ids=series.character_ids,
             recent_prior_pack_ids=recent,
@@ -136,7 +139,7 @@ class PackPlanner:
             ),
             rolling_summary=summary,
             continuity_state=continuity,
-            unresolved_hooks=series.unresolved_hooks,
+            unresolved_hooks=hooks,
             preferred_format=series.preferred_format,
         )
         while _estimate_context(context) > self._context.series_tokens and continuity:
@@ -202,3 +205,35 @@ def _estimate_context(context: SeriesPromptContext) -> int:
             sort_keys=True,
         )
     )
+
+
+
+def _fit_strings(
+    values: tuple[str, ...],
+    budget: int,
+    *,
+    item_limit: int,
+) -> tuple[str, ...]:
+    if budget <= 0:
+        return ()
+    fitted: list[str] = []
+    used = 0
+    for value in reversed(values):
+        compact = _truncate(value, item_limit)
+        if fitted and used + len(compact) > budget:
+            break
+        if not fitted and len(compact) > budget:
+            compact = _truncate(compact, budget)
+        fitted.append(compact)
+        used += len(compact)
+    return tuple(reversed(fitted))
+
+
+def _truncate(value: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    if len(value) <= limit:
+        return value
+    if limit == 1:
+        return value[:1]
+    return value[: limit - 1].rstrip() + "…"
