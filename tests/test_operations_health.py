@@ -6,6 +6,7 @@ import pytest
 
 from artifex.config.models import ArtifexSettings, StorageConfig
 from artifex.db import Database
+from artifex.discord.models import Notification, NotificationKind
 from artifex.domain import AgentState
 from artifex.operations import ComponentHealth, ComponentState, HealthChecker, HealthReport
 from artifex.operations.supervisor import HealthSupervisor
@@ -21,6 +22,15 @@ class FakeComfy:
 
     async def aclose(self) -> None:
         return None
+
+
+class CaptureNotifications:
+    def __init__(self) -> None:
+        self.items: list[Notification] = []
+
+    async def notify(self, notification: Notification) -> bool:
+        self.items.append(notification)
+        return True
 
 
 class SequencedChecker:
@@ -154,4 +164,46 @@ async def test_watchdog_never_overrides_operator_block(tmp_path: Path) -> None:
 
     assert runtime.get_agent_state() is AgentState.BLOCKED
     assert runtime.get_agent_reason() == "operator_block"
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_persistent_backend_failure_blocks_and_surfaces_backend_alert(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'backend-alert.sqlite3').as_posix()}")
+    database.migrate()
+    runtime = RuntimeStore(database)
+    runtime.set_agent_state(AgentState.STARTING, expected=AgentState.STOPPED)
+    runtime.set_agent_state(AgentState.RUNNING, expected=AgentState.STARTING)
+    telemetry = TelemetryRepository(database)
+    notifications = CaptureNotifications()
+
+    bad = HealthReport(
+        components=(
+            _component("llm", ComponentState.UNHEALTHY),
+            _component("comfyui", ComponentState.HEALTHY),
+            _component("evaluator", ComponentState.HEALTHY),
+            _component("database", ComponentState.HEALTHY),
+            _component("storage", ComponentState.HEALTHY),
+        )
+    )
+    settings = ArtifexSettings()
+    settings.operations.backend_failure_threshold = 2
+    supervisor = HealthSupervisor(
+        SequencedChecker([bad, bad]),  # type: ignore[arg-type]
+        runtime,
+        telemetry,
+        settings.operations,
+        notifications=notifications,
+    )
+
+    await supervisor.maintain(force=True)
+    await supervisor.maintain(force=True)
+
+    assert runtime.get_agent_state() is AgentState.BLOCKED
+    assert any(
+        item.kind is NotificationKind.BACKEND and "llm" in item.title.casefold()
+        for item in notifications.items
+    )
     database.dispose()
