@@ -16,6 +16,16 @@ class SeriesStatus(StrEnum):
     BLOCKED = "blocked"
 
 
+class SeriesEditorialPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    auto_continue: bool = True
+    priority: int = Field(default=100, ge=0, le=1000)
+    min_gap_packs: int = Field(default=1, ge=0, le=100)
+    max_episodes: int | None = Field(default=None, ge=1)
+    bonus_every: int | None = Field(default=None, ge=2)
+
+
 class SeriesPromptContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -48,6 +58,9 @@ class SeriesProfile(BaseModel):
     recent_episode_summaries: tuple[str, ...] = ()
     unresolved_hooks: tuple[str, ...] = ()
     preferred_format: PackFormat | None = None
+    editorial_policy: SeriesEditorialPolicy = Field(
+        default_factory=SeriesEditorialPolicy
+    )
     created_at: datetime
     updated_at: datetime
 

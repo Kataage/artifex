@@ -31,6 +31,7 @@ class ResearchDirector:
         context: PlanningContext,
         *,
         adult: bool = False,
+        topic_hint: str | None = None,
     ) -> PlanningContext:
         if not self._config.enabled:
             if self._config.required_for_ideation:
@@ -48,7 +49,11 @@ class ResearchDirector:
         ):
             return context
 
-        requests = self._query_plan(context, adult=adult)
+        requests = self._query_plan(
+            context,
+            adult=adult,
+            topic_hint=topic_hint,
+        )
         names = ", ".join(
             character.display_name
             for character in sorted(
@@ -60,7 +65,11 @@ class ResearchDirector:
                 ),
             )[:3]
         )
-        topic = f"illustration ideation for {names or 'configured characters'}"
+        topic = (
+            f"illustration ideation for {topic_hint.strip()}"
+            if topic_hint is not None and topic_hint.strip()
+            else f"illustration ideation for {names or 'configured characters'}"
+        )
         brief = await self._service.brief(
             topic,
             requests,
@@ -99,6 +108,7 @@ class ResearchDirector:
         context: PlanningContext,
         *,
         adult: bool,
+        topic_hint: str | None = None,
     ) -> tuple[ResearchSearchRequest, ...]:
         ranked = sorted(
             context.characters,
@@ -109,11 +119,16 @@ class ResearchDirector:
             ),
         )
         names = " ".join(item.display_name for item in ranked[:3])
+        focus = (
+            topic_hint.strip()
+            if topic_hint is not None and topic_hint.strip()
+            else names
+        )
         month = context.as_of.strftime("%B")
         default_safe = SafeSearch(self._config.default_safesearch)
         base: list[ResearchSearchRequest] = [
             ResearchSearchRequest(
-                query=f"{names} fanart illustration ideas trends".strip(),
+                query=f"{focus} fanart illustration ideas trends".strip(),
                 source=SearchSource.WEB,
                 intent=ResearchIntent.CURRENT,
                 max_results=self._config.max_results_per_query,
@@ -122,7 +137,7 @@ class ResearchDirector:
                 timelimit="m",
             ),
             ResearchSearchRequest(
-                query=f"{names} anime illustration composition".strip(),
+                query=f"{focus} anime illustration composition".strip(),
                 source=SearchSource.IMAGES,
                 intent=ResearchIntent.COMPOSITION,
                 max_results=self._config.max_results_per_query,
@@ -140,7 +155,7 @@ class ResearchDirector:
                 timelimit="m",
             ),
             ResearchSearchRequest(
-                query=f"{names} illustration outfit setting ideas".strip(),
+                query=f"{focus} illustration outfit setting ideas".strip(),
                 source=SearchSource.WEB,
                 intent=ResearchIntent.EVERGREEN,
                 max_results=self._config.max_results_per_query,
@@ -150,7 +165,7 @@ class ResearchDirector:
         ]
         if adult:
             base[-1] = ResearchSearchRequest(
-                query=f"{names} adult illustration tags".strip(),
+                query=f"{focus} adult illustration tags".strip(),
                 source=SearchSource.TAGS,
                 intent=ResearchIntent.ADULT,
                 max_results=self._config.max_results_per_query,

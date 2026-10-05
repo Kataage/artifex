@@ -15,6 +15,7 @@ from artifex.config.models import OperationsConfig, ProductionConfig
 from artifex.db import Database
 from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow
 from artifex.domain import PackState, PublicationTier, ResultState, SceneState
+from artifex.editorial import EditorialService, SeriesPlanKind
 from artifex.evaluation import (
     AttemptSelector,
     EvaluationContext,
@@ -27,7 +28,7 @@ from artifex.loras import LoRAPlan, LoRAResolutionError, LoRAResolver
 from artifex.memory import ContextMemoryManager
 from artifex.operations.recovery import RecoveryManager, RecoveryState
 from artifex.packs import PackPlanner, PackRepository, ScenePlan
-from artifex.planner import ConceptRepository, IdeaDirector
+from artifex.planner import ConceptRepository, IdeaDirector, SeriesIdeaDirector
 from artifex.policy import PolicyApplicationService, PolicyOutcome, UseClass
 from artifex.production.backend import GenerationBackend, GenerationRequest
 from artifex.production.context import PlanningContextBuilder
@@ -78,6 +79,8 @@ class ProductionCoordinator:
         *,
         research: ResearchDirector | None = None,
         context_memory: ContextMemoryManager | None = None,
+        series_idea_director: SeriesIdeaDirector | None = None,
+        editorial: EditorialService | None = None,
         seed_factory: Callable[[], int] = _seed,
     ) -> None:
         if production.batch_size != 1:
@@ -112,6 +115,8 @@ class ProductionCoordinator:
         self._operations = operations
         self._research = research
         self._context_memory = context_memory
+        self._series_idea_director = series_idea_director
+        self._editorial = editorial
         self._seed_factory = seed_factory
 
     async def replenish_ideas(self) -> None:
@@ -124,6 +129,8 @@ class ProductionCoordinator:
         if count == 0:
             return
         context = self._context_builder.build()
+        if self._editorial is not None:
+            context = self._editorial.apply_diversity(context)
         if self._context_memory is not None:
             context = self._context_memory.pre_research(context)
         if self._research is not None:
@@ -162,22 +169,148 @@ class ProductionCoordinator:
             {"count": len(selected), "concept_ids": [item.concept_id for item in selected]},
         )
 
-    async def plan_pack(self) -> None:
-        concept = self._concepts.next_idea()
-        if concept is None:
-            return
-        record = await self._pack_planner.plan_and_persist(concept)
-        self._concepts.set_status(concept.concept_id, "planned")
-        self._telemetry.record(
-            "pack.planned",
-            EventSeverity.INFO,
-            {
-                "pack_id": record.pack_id,
-                "concept_id": concept.concept_id,
-                "format": record.plan.format.value,
-                "scene_count": len(record.plan.scenes),
-            },
-        )
+    async def plan_pack(
+        self,
+        concept_id: str | None = None,
+        editorial_decision_id: str | None = None,
+    ) -> None:
+        try:
+            concept = (
+                self._concepts.idea(concept_id)
+                if concept_id is not None
+                else self._concepts.next_idea()
+            )
+            if concept is None:
+                if self._editorial is not None:
+                    self._editorial.fail_decision(
+                        editorial_decision_id,
+                        error="selected standalone concept is unavailable",
+                    )
+                return
+            record = await self._pack_planner.plan_and_persist(concept)
+            self._concepts.set_status(concept.concept_id, "planned")
+            if self._editorial is not None:
+                self._editorial.complete_decision(
+                    editorial_decision_id,
+                    pack_id=record.pack_id,
+                    concept_id=concept.concept_id,
+                )
+            self._telemetry.record(
+                "pack.planned",
+                EventSeverity.INFO,
+                {
+                    "pack_id": record.pack_id,
+                    "concept_id": concept.concept_id,
+                    "format": record.plan.format.value,
+                    "scene_count": len(record.plan.scenes),
+                    "editorial_decision_id": editorial_decision_id,
+                    "editorial_lane": "standalone",
+                },
+            )
+        except Exception as exc:
+            if self._editorial is not None:
+                self._editorial.fail_decision(
+                    editorial_decision_id,
+                    error=str(exc),
+                )
+            raise
+
+    async def plan_series_pack(
+        self,
+        series_id: str,
+        editorial_decision_id: str | None = None,
+        series_plan_kind: str | None = None,
+    ) -> None:
+        if self._series_idea_director is None:
+            raise RuntimeError("Series Idea Director is not configured")
+        try:
+            series = self._series.require(series_id)
+            raw_context = self._context_builder.build()
+            by_id = {item.id: item for item in raw_context.characters}
+            missing = [
+                character_id
+                for character_id in series.character_ids
+                if character_id not in by_id
+            ]
+            if missing:
+                raise RuntimeError(
+                    "Series contains characters that are not production-ready: "
+                    + ", ".join(missing)
+                )
+            context = raw_context.model_copy(
+                update={
+                    "characters": tuple(
+                        by_id[character_id]
+                        for character_id in series.character_ids
+                    ),
+                    "operator_notes": (
+                        f"Series id={series.id}",
+                        f"Series title={series.title}",
+                        f"Next episode={series.current_episode + 1}",
+                        f"Plan kind={series_plan_kind or 'continue'}",
+                    ),
+                }
+            )
+            if self._context_memory is not None:
+                context = self._context_memory.pre_research(context)
+            if self._research is not None:
+                topic_parts = [
+                    f"Series {series.title}",
+                    *series.bible[:3],
+                ]
+                if series.rolling_summary:
+                    topic_parts.append(series.rolling_summary[-400:])
+                context = await self._research.prepare(
+                    context,
+                    topic_hint=" | ".join(topic_parts),
+                )
+            if self._context_memory is not None:
+                context = await self._context_memory.finalize(context)
+
+            kind = (
+                SeriesPlanKind(series_plan_kind)
+                if series_plan_kind is not None
+                else (
+                    SeriesPlanKind.START
+                    if series.current_episode == 0
+                    else SeriesPlanKind.CONTINUE
+                )
+            )
+            concept = await self._series_idea_director.create_concept(
+                context,
+                series,
+                plan_kind=kind,
+            )
+            record = await self._pack_planner.plan_and_persist(
+                concept,
+                series=series,
+            )
+            self._concepts.set_status(concept.concept_id, "planned")
+            if self._editorial is not None:
+                self._editorial.complete_decision(
+                    editorial_decision_id,
+                    pack_id=record.pack_id,
+                    concept_id=concept.concept_id,
+                )
+            self._telemetry.record(
+                "pack.series_planned",
+                EventSeverity.INFO,
+                {
+                    "pack_id": record.pack_id,
+                    "concept_id": concept.concept_id,
+                    "series_id": series.id,
+                    "episode_number": series.current_episode + 1,
+                    "plan_kind": kind.value,
+                    "editorial_decision_id": editorial_decision_id,
+                },
+            )
+        except Exception as exc:
+            if self._editorial is not None:
+                self._editorial.fail_decision(
+                    editorial_decision_id,
+                    error=str(exc),
+                )
+            raise
 
     async def run_pack(self, pack_id: str) -> None:
         pack = self._packs.require(pack_id)
@@ -347,6 +480,15 @@ class ProductionCoordinator:
                 "archive_manifest_sha256": archive.manifest_sha256,
             },
         )
+        if self._editorial is not None:
+            self._editorial.mark_finalized_pack(
+                pack_id,
+                metadata={
+                    "series_id": record.series_id,
+                    "concept_id": record.concept_id,
+                    "format": record.plan.format.value,
+                },
+            )
         self._telemetry.record(
             "pack.finalized",
             EventSeverity.INFO,

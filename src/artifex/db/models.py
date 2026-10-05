@@ -243,3 +243,31 @@ class LlmCallRow(Base):
     error_text: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+
+class PackInventoryRow(Base):
+    __tablename__ = "pack_inventory"
+
+    pack_id: Mapped[str] = mapped_column(ForeignKey("packs.id"), primary_key=True)
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EditorialDecisionRow(Base):
+    __tablename__ = "editorial_decisions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    series_id: Mapped[str | None] = mapped_column(ForeignKey("series.id"), index=True)
+    concept_id: Mapped[str | None] = mapped_column(ForeignKey("concepts.id"), index=True)
+    pack_id: Mapped[str | None] = mapped_column(ForeignKey("packs.id"), index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

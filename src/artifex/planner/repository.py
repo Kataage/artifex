@@ -78,6 +78,19 @@ class ConceptRepository:
             raise KeyError(f"selected candidate was not persisted: {selected_key}")
         return selected_result
 
+    def get_selected(self, concept_id: str) -> SelectedConcept | None:
+        with self._database.session() as session:
+            row = session.get(ConceptRow, concept_id)
+            if row is None:
+                return None
+            return self._selected_from_row(row)
+
+    def require_selected(self, concept_id: str) -> SelectedConcept:
+        selected = self.get_selected(concept_id)
+        if selected is None:
+            raise KeyError(f"unknown selected concept: {concept_id}")
+        return selected
+
     def next_idea(self) -> SelectedConcept | None:
         with self._database.session() as session:
             row = session.scalar(
@@ -88,15 +101,30 @@ class ConceptRepository:
             )
             if row is None:
                 return None
-            raw_candidate = row.payload_json.get("candidate")
-            raw_score = row.payload_json.get("score")
-            if not isinstance(raw_candidate, dict) or not isinstance(raw_score, dict):
-                raise TypeError(f"concept {row.id} is missing candidate/score payload")
-            return SelectedConcept(
-                concept_id=row.id,
-                candidate=ConceptCandidate.model_validate(raw_candidate),
-                score=CandidateScore.model_validate(raw_score),
-            )
+            return self._selected_from_row(row)
+
+    def idea(self, concept_id: str) -> SelectedConcept:
+        with self._database.session() as session:
+            row = session.get(ConceptRow, concept_id)
+            if row is None or row.status != "idea":
+                raise KeyError(f"concept is not an available idea: {concept_id}")
+            session.expunge(row)
+        return self._selected_from_row(row)
+
+    @staticmethod
+    def _selected_from_row(row: ConceptRow) -> SelectedConcept:
+        raw_candidate = row.payload_json.get("candidate")
+        raw_score = row.payload_json.get("score")
+        selected = row.payload_json.get("selected")
+        if selected is not True:
+            raise KeyError(f"concept is not a selected concept: {row.id}")
+        if not isinstance(raw_candidate, dict) or not isinstance(raw_score, dict):
+            raise TypeError(f"concept {row.id} is missing candidate/score payload")
+        return SelectedConcept(
+            concept_id=row.id,
+            candidate=ConceptCandidate.model_validate(raw_candidate),
+            score=CandidateScore.model_validate(raw_score),
+        )
 
     def set_status(self, concept_id: str, status: str) -> None:
         if not status.strip():

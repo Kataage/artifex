@@ -10,7 +10,7 @@ from sqlalchemy import select
 from artifex.db import Database
 from artifex.db.models import SeriesRow
 from artifex.planner.models import PackFormat
-from artifex.series.models import SeriesProfile, SeriesStatus
+from artifex.series.models import SeriesEditorialPolicy, SeriesProfile, SeriesStatus
 
 
 def _new_id() -> str:
@@ -40,6 +40,7 @@ class SeriesRepository:
         continuity_state: Mapping[str, Any] | None = None,
         bible: Sequence[str] = (),
         unresolved_hooks: Sequence[str] = (),
+        editorial_policy: SeriesEditorialPolicy | None = None,
         series_id: str | None = None,
     ) -> SeriesProfile:
         now = datetime.now(UTC)
@@ -51,6 +52,7 @@ class SeriesRepository:
             continuity_state=dict(continuity_state or {}),
             bible=tuple(bible),
             unresolved_hooks=tuple(unresolved_hooks),
+            editorial_policy=editorial_policy or SeriesEditorialPolicy(),
             created_at=now,
             updated_at=now,
         )
@@ -203,6 +205,7 @@ class SeriesRepository:
                 if profile.preferred_format is not None
                 else None
             ),
+            "editorial_policy": profile.editorial_policy.model_dump(mode="json"),
         }
 
     @staticmethod
@@ -224,6 +227,9 @@ class SeriesRepository:
             ),
             unresolved_hooks=tuple(state.get("unresolved_hooks", ())),
             preferred_format=PackFormat(raw_format) if raw_format else None,
+            editorial_policy=SeriesEditorialPolicy.model_validate(
+                state.get("editorial_policy", {})
+            ),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

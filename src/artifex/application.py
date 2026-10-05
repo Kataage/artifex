@@ -15,6 +15,11 @@ from artifex.discord import (
     DailySummaryBuilder,
     DiscordCommandRouter,
 )
+from artifex.editorial import (
+    EditorialRepository,
+    EditorialService,
+    PackInventoryRepository,
+)
 from artifex.evaluation import (
     AttemptSelector,
     EvaluationEngine,
@@ -33,7 +38,7 @@ from artifex.operations import HealthChecker, HealthSupervisor
 from artifex.operations.doctor import DoctorService
 from artifex.operations.recovery import RecoveryManager
 from artifex.packs import PackPlanner, PackRepository
-from artifex.planner import ConceptRepository, IdeaDirector
+from artifex.planner import ConceptRepository, IdeaDirector, SeriesIdeaDirector
 from artifex.planner.scoring import DefaultSignalProvider
 from artifex.policy import (
     PolicyApplicationService,
@@ -82,6 +87,7 @@ class CoreServices:
     database: Database
     runtime: RuntimeStore
     scheduler: Scheduler
+    editorial: EditorialService
     characters: CharacterRegistry
     loras: LoRARegistry
     reviews: ReviewQueueRepository
@@ -113,7 +119,27 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
     ).scan(settings.loras.roots)
 
     runtime = RuntimeStore(database)
-    scheduler = Scheduler(database, runtime, settings.production)
+    series = SeriesRepository(
+        database,
+        rolling_summary_max_chars=settings.context.series_tokens,
+    )
+    inventory = PackInventoryRepository(
+        database,
+        expiry_hours=settings.editorial.inventory_expiry_hours,
+    )
+    editorial = EditorialService(
+        database,
+        settings.editorial,
+        series,
+        inventory,
+        EditorialRepository(database),
+    )
+    scheduler = Scheduler(
+        database,
+        runtime,
+        settings.production,
+        editorial=editorial,
+    )
     telemetry = TelemetryRepository(database)
     research_providers: list[ResearchProvider] = [
         DDGSResearchProvider(settings.research)
@@ -137,13 +163,11 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         database=database,
         runtime=runtime,
         scheduler=scheduler,
+        editorial=editorial,
         characters=characters,
         loras=loras,
         reviews=ReviewQueueRepository(database),
-        series=SeriesRepository(
-            database,
-            rolling_summary_max_chars=settings.context.series_tokens,
-        ),
+        series=series,
         policy_decisions=PolicyDecisionRepository(database),
         telemetry=telemetry,
         research=research,
@@ -250,6 +274,17 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         ),
         require_research=settings.research.required_for_ideation,
     )
+    series_idea_director = SeriesIdeaDirector(
+        generator,
+        concepts,
+        settings.planner,
+        settings.editorial,
+        signal_provider=SimilarityAwareSignalProvider(
+            DefaultSignalProvider(),
+            similarity,
+        ),
+        require_research=settings.research.required_for_ideation,
+    )
     research_director = ResearchDirector(core.research, settings.research)
     context_memory = ContextMemoryManager(
         settings.context,
@@ -327,6 +362,8 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         settings.operations,
         research=research_director,
         context_memory=context_memory,
+        series_idea_director=series_idea_director,
+        editorial=core.editorial,
     )
 
     remote = ArtifexRemoteOperations(

@@ -62,6 +62,9 @@ class PlanningContextBuilder:
                 CharacterOption(
                     id=profile.id,
                     display_name=profile.display_name,
+                    namespace=profile.namespace,
+                    branch=profile.branch,
+                    group=profile.group,
                     readiness=readiness,
                     recent_use_penalty=self._recent_use_penalty(
                         profile.last_used_at,
