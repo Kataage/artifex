@@ -19,6 +19,7 @@ from artifex.evaluation import (
     EvaluationContext,
     EvaluationEngine,
     EvaluationRepository,
+    EvaluationResult,
     GenerationAttemptRepository,
 )
 from artifex.loras import LoRAPlan, LoRAResolutionError, LoRAResolver
@@ -269,7 +270,9 @@ class ProductionCoordinator:
             return
         if any(item is SceneState.REVIEW for item in scene_states):
             self._runtime.transition_pack(pack_id, PackState.REVIEW)
-            self._ensure_review("pack", pack_id, "one or more scenes require review", {})
+            return
+        if any(item is SceneState.REJECTED for item in scene_states):
+            self._runtime.transition_pack(pack_id, PackState.FAILED)
             return
         if not scene_states or any(
             item is not SceneState.ACCEPTED for item in scene_states
@@ -554,7 +557,7 @@ class ProductionCoordinator:
         scene_id: str,
         attempt_id: str,
         image_path: Path,
-    ):
+    ) -> EvaluationResult:
         row = self._scene_row(scene_id)
         plan = self._scene_plan(row)
         attempt = self._attempts.require(attempt_id)
