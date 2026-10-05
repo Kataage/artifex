@@ -38,10 +38,12 @@ def test_nested_environment_override() -> None:
         env={
             "ARTIFEX_PLANNER__CANDIDATE_COUNT": "12",
             "ARTIFEX_DISCORD__ENABLED": "true",
+            "ARTIFEX_DISCORD__ALLOWED_USER_IDS": "[123]",
         }
     )
     assert settings.planner.candidate_count == 12
     assert settings.discord.enabled is True
+    assert settings.discord.allowed_user_ids == (123,)
 
 
 def test_planner_mix_must_sum_to_one() -> None:

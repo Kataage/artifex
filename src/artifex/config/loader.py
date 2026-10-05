@@ -49,8 +49,12 @@ def _load_yaml_path(path: Path) -> dict[str, Any]:
 
 def _parse_env_value(value: str) -> Any:
     parsed = yaml.safe_load(value)
-    if isinstance(parsed, (dict, list)):
+    if isinstance(parsed, dict):
         return value
+    if isinstance(parsed, list):
+        if any(isinstance(item, (dict, list)) for item in parsed):
+            return value
+        return parsed
     return parsed
 
 

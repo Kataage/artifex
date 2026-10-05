@@ -98,9 +98,18 @@ trends:
 discord:
   enabled: false
   token_env: ARTIFEX_DISCORD_TOKEN
+  guild_id: null
+  channel_id: null
+  allowed_user_ids: []
+  allowed_role_ids: []
+  command_prefix: "!artifex "
   notify_completion: true
   notify_review: true
   notify_error: true
+  notify_backend: true
+  notify_disk: true
+  daily_summary_hour_local: 9
+  daily_summary_timezone: Asia/Tokyo
 
 rights:
   enforce: true
