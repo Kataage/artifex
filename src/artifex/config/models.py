@@ -194,6 +194,8 @@ class ResearchConfig(StrictModel):
     max_brief_items: int = Field(default=20, ge=1, le=100)
     max_brief_chars: int = Field(default=12000, ge=1000, le=100000)
     max_snippet_chars: int = Field(default=1200, ge=100, le=10000)
+    max_cycle_seconds: float = Field(default=45.0, gt=0, le=600)
+    daily_request_budget: int = Field(default=200, ge=1, le=10000)
     max_extract_chars: int = Field(default=8000, ge=500, le=100000)
     cache_ttl_hours: float = Field(default=6.0, gt=0)
     current_cache_ttl_hours: float = Field(default=2.0, gt=0)
