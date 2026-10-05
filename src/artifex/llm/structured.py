@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from typing import TypeVar
+from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ValidationError
 
 from artifex.llm.client import ChatMessage, LlmClient
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class StructuredGenerationError(RuntimeError):
@@ -22,34 +19,37 @@ class StructuredGenerator:
         self._client = client
         self._repair_attempts = repair_attempts
 
-    async def generate(
+    async def generate[ModelT: BaseModel](
         self,
         model_type: type[ModelT],
         messages: Sequence[ChatMessage],
         *,
         schema_name: str,
+        post_validator: Callable[[ModelT], None] | None = None,
     ) -> ModelT:
         schema = model_type.model_json_schema()
         current_messages = list(messages)
         last_error: Exception | None = None
-        last_output = ""
 
         for repair_index in range(self._repair_attempts + 1):
-            last_output = await self._client.complete(
+            output = await self._client.complete(
                 current_messages,
                 response_schema=schema,
                 schema_name=schema_name,
             )
             try:
-                data = json.loads(last_output)
-                return model_type.model_validate(data)
-            except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+                data = json.loads(output)
+                result = model_type.model_validate(data)
+                if post_validator is not None:
+                    post_validator(result)
+                return result
+            except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
                 last_error = exc
                 if repair_index >= self._repair_attempts:
                     break
                 current_messages = [
                     *messages,
-                    ChatMessage(role="assistant", content=last_output),
+                    ChatMessage(role="assistant", content=output),
                     ChatMessage(
                         role="user",
                         content=(
