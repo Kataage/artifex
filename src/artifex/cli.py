@@ -46,6 +46,12 @@ llm_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(llm_app, name="llm")
+inventory_app = typer.Typer(
+    name="inventory",
+    help="Inspect and manage finalized Pack inventory lifecycle.",
+    no_args_is_help=True,
+)
+app.add_typer(inventory_app, name="inventory")
 
 ConfigOption = Annotated[
     Path | None,
@@ -99,6 +105,113 @@ def llm_qualify(
     finally:
         asyncio.run(client.aclose())
         database.dispose()
+
+
+@inventory_app.command("list")
+def inventory_list(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List completed Pack inventory and lifecycle states."""
+    core = build_core(_settings(config))
+    try:
+        counts = core.editorial.inventory_counts()
+        from artifex.db.models import PackInventoryRow
+        from sqlalchemy import select
+
+        with core.database.session() as session:
+            rows = session.scalars(
+                select(PackInventoryRow).order_by(
+                    PackInventoryRow.updated_at.desc(),
+                    PackInventoryRow.pack_id.asc(),
+                )
+            ).all()
+            payload = {
+                "counts": counts.model_dump(mode="json"),
+                "items": [
+                    {
+                        "pack_id": row.pack_id,
+                        "state": row.state,
+                        "reserved_at": (
+                            row.reserved_at.isoformat()
+                            if row.reserved_at is not None
+                            else None
+                        ),
+                        "consumed_at": (
+                            row.consumed_at.isoformat()
+                            if row.consumed_at is not None
+                            else None
+                        ),
+                        "expires_at": (
+                            row.expires_at.isoformat()
+                            if row.expires_at is not None
+                            else None
+                        ),
+                        "metadata": dict(row.metadata_json),
+                    }
+                    for row in rows
+                ],
+            }
+        if json_output:
+            _print_payload(payload, as_json=True)
+            return
+        typer.echo(
+            "available={available} reserved={reserved} consumed={consumed} "
+            "expired={expired}".format(**payload["counts"])
+        )
+        for item in payload["items"]:
+            typer.echo(
+                f"{item['pack_id']}\t{item['state']}\t"
+                f"expires={item['expires_at'] or '-'}"
+            )
+    finally:
+        asyncio.run(core.close())
+
+
+def _inventory_transition(
+    pack_id: str,
+    action: str,
+    config: Path | None,
+) -> None:
+    core = build_core(_settings(config))
+    try:
+        if action == "reserve":
+            core.editorial.reserve_pack(pack_id)
+        elif action == "release":
+            core.editorial.release_pack(pack_id)
+        elif action == "consume":
+            core.editorial.consume_pack(pack_id)
+        elif action == "expire":
+            core.editorial.expire_pack(pack_id)
+        else:
+            raise ValueError(f"unknown inventory action: {action}")
+        typer.echo(f"{pack_id}: {action}d")
+    finally:
+        asyncio.run(core.close())
+
+
+@inventory_app.command("reserve")
+def inventory_reserve(pack_id: str, config: ConfigOption = None) -> None:
+    """Reserve an available finalized Pack for publication/delivery."""
+    _inventory_transition(pack_id, "reserve", config)
+
+
+@inventory_app.command("release")
+def inventory_release(pack_id: str, config: ConfigOption = None) -> None:
+    """Release a reserved Pack back to available inventory."""
+    _inventory_transition(pack_id, "release", config)
+
+
+@inventory_app.command("consume")
+def inventory_consume(pack_id: str, config: ConfigOption = None) -> None:
+    """Mark a finalized Pack as consumed/published."""
+    _inventory_transition(pack_id, "consume", config)
+
+
+@inventory_app.command("expire")
+def inventory_expire(pack_id: str, config: ConfigOption = None) -> None:
+    """Explicitly expire a finalized Pack."""
+    _inventory_transition(pack_id, "expire", config)
 
 
 def _timelimit_from_since(value: str | None) -> str | None:
