@@ -4,6 +4,8 @@ import json
 from collections.abc import Sequence
 from typing import Protocol
 
+from pydantic import BaseModel
+
 from artifex.config.models import ContextConfig
 from artifex.evaluation.similarity import cosine_similarity
 from artifex.planner.models import (
@@ -328,10 +330,7 @@ def _concept_text(item: RecentConceptSummary) -> str:
 
 
 def _estimate_model(item: object) -> int:
-    if hasattr(item, "model_dump"):
-        payload = item.model_dump(mode="json")  # type: ignore[attr-defined]
-    else:
-        payload = item
+    payload = item.model_dump(mode="json") if isinstance(item, BaseModel) else item
     return len(
         json.dumps(
             payload,
