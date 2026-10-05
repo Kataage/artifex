@@ -4,7 +4,7 @@ from importlib.resources import files
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text\nfrom sqlalchemy.exc import SQLAlchemyError
 
 
 def alembic_config(database_url: str) -> Config:
@@ -27,7 +27,7 @@ def current_revision(database_url: str) -> str | None:
                 value = connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar_one_or_none()
-            except Exception:
+            except SQLAlchemyError:
                 return None
             return str(value) if value is not None else None
     finally:
