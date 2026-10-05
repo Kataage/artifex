@@ -88,6 +88,13 @@ evaluation:
   technical_review_min: 0.60
   continuity_review_min: 0.55
 
+trends:
+  enabled: true
+  default_ttl_hours: 24
+  freshness_half_life_hours: 8
+  max_summary_signals: 20
+  minimum_effective_strength: 0.05
+
 discord:
   enabled: false
   notify_completion: true
