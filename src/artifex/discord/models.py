@@ -21,6 +21,7 @@ class CommandName(StrEnum):
     REJECT = "reject"
     RETRY = "retry"
     SKIP = "skip"
+    ALTERNATE = "alternate"
     NEXT = "next"
     CHARACTER = "character"
     SERIES = "series"
