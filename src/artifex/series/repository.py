@@ -23,9 +23,13 @@ class SeriesRepository:
         database: Database,
         *,
         id_factory: Callable[[], str] = _new_id,
+        rolling_summary_max_chars: int = 1200,
     ) -> None:
+        if rolling_summary_max_chars < 200:
+            raise ValueError("rolling_summary_max_chars must be at least 200")
         self._database = database
         self._id_factory = id_factory
+        self._rolling_summary_max_chars = rolling_summary_max_chars
 
     def create(
         self,
@@ -164,6 +168,33 @@ class SeriesRepository:
             row.updated_at = now
         return self.require(series_id)
 
+    def _roll_summary(
+        self,
+        previous: str,
+        *,
+        episode_number: int,
+        pack_id: str,
+        continuity_updates: Mapping[str, Any],
+        hooks_added: Sequence[str],
+        hooks_resolved: Sequence[str],
+    ) -> str:
+        fragments = [f"ep{episode_number}:{pack_id}"]
+        if continuity_updates:
+            details = ",".join(
+                f"{key}={continuity_updates[key]!r}"
+                for key in sorted(continuity_updates)
+            )
+            fragments.append(f"continuity[{details}]")
+        if hooks_added:
+            fragments.append("hooks+[" + ",".join(hooks_added) + "]")
+        if hooks_resolved:
+            fragments.append("hooks-[" + ",".join(hooks_resolved) + "]")
+        entry = " ".join(fragments)
+        combined = f"{previous}\n{entry}".strip()
+        if len(combined) <= self._rolling_summary_max_chars:
+            return combined
+        return combined[-self._rolling_summary_max_chars :].lstrip()
+
     @staticmethod
     def _row_from_profile(profile: SeriesProfile) -> SeriesRow:
         return SeriesRow(
@@ -186,6 +217,7 @@ class SeriesRepository:
             "rolling_summary": profile.rolling_summary,
             "recent_episode_summaries": list(profile.recent_episode_summaries),
             "unresolved_hooks": list(profile.unresolved_hooks),
+            "rolling_summary": profile.rolling_summary,
             "preferred_format": (
                 profile.preferred_format.value
                 if profile.preferred_format is not None
@@ -211,6 +243,7 @@ class SeriesRepository:
                 state.get("recent_episode_summaries", ())
             ),
             unresolved_hooks=tuple(state.get("unresolved_hooks", ())),
+            rolling_summary=str(state.get("rolling_summary", "")),
             preferred_format=PackFormat(raw_format) if raw_format else None,
             created_at=row.created_at,
             updated_at=row.updated_at,
