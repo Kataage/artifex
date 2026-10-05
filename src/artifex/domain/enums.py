@@ -13,6 +13,15 @@ class AgentState(StrEnum):
     STOPPED = "stopped"
 
 
+class CharacterStatus(StrEnum):
+    ACTIVE = "active"
+    AFFILIATE = "affiliate"
+    GRADUATED = "graduated"
+    RETIRED = "retired"
+    TERMINATED = "terminated"
+    HISTORICAL = "historical"
+
+
 class PackState(StrEnum):
     IDEA = "idea"
     PLANNED = "planned"
