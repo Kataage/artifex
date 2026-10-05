@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from artifex.db import Database
 from artifex.db.models import ResearchBriefRow, ResearchEvidenceRow, ResearchRunRow
@@ -40,6 +40,17 @@ class ResearchRepository:
 
     def new_id(self) -> str:
         return self._id_factory()
+
+    def count_runs_since(self, since: datetime) -> int:
+        with self._database.session() as session:
+            return int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ResearchRunRow)
+                    .where(ResearchRunRow.requested_at >= since)
+                )
+                or 0
+            )
 
     def create_run(
         self,
