@@ -15,6 +15,7 @@ from artifex.research.models import (
     ResearchRunState,
     ResearchSearchRequest,
     ResearchSearchResponse,
+    SearchSource,
 )
 from artifex.research.security import (
     canonicalize_url,
@@ -332,7 +333,7 @@ class ResearchRepository:
             id=row.id,
             run_id=row.run_id,
             provider=row.provider,
-            source=row.source,
+            source=SearchSource(row.source),
             rank=row.rank,
             url=row.url,
             canonical_url=row.canonical_url,
