@@ -73,6 +73,7 @@ class PlannerConfig(StrictModel):
 
 class ProductionConfig(StrictModel):
     retry_limit: int = Field(default=3, ge=0)
+    infrastructure_retry_limit: int = Field(default=5, ge=0)
     idea_inventory_target: int = Field(default=30, ge=0)
     planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
@@ -153,6 +154,8 @@ class EvaluationConfig(StrictModel):
     accepted_score_min: float = Field(default=0.75, ge=0, le=1)
     review_score_min: float = Field(default=0.55, ge=0, le=1)
     identity_accept_min: float = Field(default=0.75, ge=0, le=1)
+    alignment_review_min: float = Field(default=0.60, ge=0, le=1)
+    face_review_min: float = Field(default=0.60, ge=0, le=1)
     technical_review_min: float = Field(default=0.60, ge=0, le=1)
     continuity_review_min: float = Field(default=0.55, ge=0, le=1)
 
