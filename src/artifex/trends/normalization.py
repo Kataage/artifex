@@ -72,11 +72,7 @@ def merge_signals(
             confidence_product *= 1.0 - item.confidence
         combined_confidence = 1.0 - confidence_product
 
-        best_effective = max(item.strength * item.confidence for item in items)
-        if combined_confidence > 0:
-            combined_strength = min(1.0, best_effective / combined_confidence)
-        else:
-            combined_strength = 0.0
+        combined_strength = max(item.strength for item in items)
 
         sources = tuple(
             TrendSourceReference(
