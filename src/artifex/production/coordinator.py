@@ -245,20 +245,20 @@ class ProductionCoordinator:
 
     async def _continue_pack(self, pack_id: str) -> None:
         for row in self._scene_rows(pack_id):
-            state = SceneState(row.state)
-            if state is SceneState.RETRY:
+            scene_state = SceneState(row.state)
+            if scene_state is SceneState.RETRY:
                 self._runtime.transition_scene(row.id, SceneState.READY)
-                state = SceneState.READY
-            if state is SceneState.READY:
+                scene_state = SceneState.READY
+            if scene_state is SceneState.READY:
                 await self._generate_and_evaluate(row.id)
-            elif state is SceneState.EVALUATING:
+            elif scene_state is SceneState.EVALUATING:
                 await self._evaluate_recovered(row.id)
 
-        state = self._pack_state(pack_id)
-        if state is PackState.GENERATING:
+        pack_state = self._pack_state(pack_id)
+        if pack_state is PackState.GENERATING:
             self._runtime.transition_pack(pack_id, PackState.EVALUATING)
-            state = PackState.EVALUATING
-        if state is not PackState.EVALUATING:
+            pack_state = PackState.EVALUATING
+        if pack_state is not PackState.EVALUATING:
             return
 
         scene_states = [SceneState(row.state) for row in self._scene_rows(pack_id)]
@@ -365,13 +365,15 @@ class ProductionCoordinator:
             )
 
             infrastructure_retries = 0
+
+            def on_submitted(prompt_id: str) -> None:
+                self._record_submission(attempt.id, prompt_id)
+
             while True:
                 try:
                     batch = await self._backend.generate(
                         request,
-                        on_submitted=lambda prompt_id, attempt_id=attempt.id: (
-                            self._record_submission(attempt_id, prompt_id)
-                        ),
+                        on_submitted=on_submitted,
                     )
                     break
                 except ComfyUIError as exc:
