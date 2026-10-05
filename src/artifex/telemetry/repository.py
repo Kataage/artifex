@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from artifex.db import Database
 from artifex.db.models import (
@@ -76,6 +76,23 @@ class TelemetryRepository:
                 )
                 for row in rows
             )
+
+    def prune(self, *, max_rows: int) -> int:
+        if max_rows < 1:
+            raise ValueError("max_rows must be positive")
+        with self._database.session() as session:
+            keep_ids = select(AgentEventRow.id).order_by(
+                AgentEventRow.created_at.desc(),
+                AgentEventRow.id.desc(),
+            ).limit(max_rows)
+            remove_ids = session.scalars(
+                select(AgentEventRow.id).where(AgentEventRow.id.not_in(keep_ids))
+            ).all()
+            if remove_ids:
+                session.execute(
+                    delete(AgentEventRow).where(AgentEventRow.id.in_(remove_ids))
+                )
+            return len(remove_ids)
 
     def heartbeat(self, *, at: datetime | None = None) -> None:
         now = at or datetime.now(UTC)
