@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from artifex.config.models import EditorialConfig
 from artifex.db import Database
-from artifex.db.models import ConceptRow, PackRow
+from artifex.db.models import CharacterRow, ConceptRow, PackRow
 from artifex.domain import PackState
 from artifex.editorial.models import (
     EditorialLane,
@@ -201,6 +201,26 @@ class EditorialService:
 
         return context.model_copy(update={"characters": tuple(adjusted)})
 
+    def mark_finalized_pack(
+        self,
+        pack_id: str,
+        *,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        self._inventory.mark_available(pack_id, metadata=metadata)
+
+    def reserve_pack(self, pack_id: str) -> None:
+        self._inventory.reserve(pack_id)
+
+    def release_pack(self, pack_id: str) -> None:
+        self._inventory.release(pack_id)
+
+    def consume_pack(self, pack_id: str) -> None:
+        self._inventory.consume(pack_id)
+
+    def expire_pack(self, pack_id: str) -> None:
+        self._inventory.expire(pack_id)
+
     def complete_decision(
         self,
         decision_id: str | None,
@@ -350,9 +370,36 @@ class EditorialService:
         self,
         recent: tuple[PackRow, ...],
     ) -> str | None:
+        taxonomy = self._character_taxonomy()
         recent_character_counts: Counter[str] = Counter()
-        for row in recent[: self._config.diversity_window_packs]:
-            recent_character_counts.update(self._pack_character_ids(row))
+        recent_branch_counts: Counter[str] = Counter()
+        recent_group_counts: Counter[str] = Counter()
+        recent_format_counts: Counter[str] = Counter()
+        recent_theme_counts: Counter[str] = Counter()
+        cooldown_ids: set[str] = set()
+
+        for index, row in enumerate(recent[: self._config.diversity_window_packs]):
+            ids = self._pack_character_ids(row)
+            recent_character_counts.update(ids)
+            if index < self._config.character_cooldown_packs:
+                cooldown_ids.update(ids)
+            for character_id in ids:
+                branch, group = taxonomy.get(
+                    character_id,
+                    ("__unknown_branch__", "__unknown_group__"),
+                )
+                recent_branch_counts[branch] += 1
+                recent_group_counts[group] += 1
+            plan = row.payload_json.get("plan")
+            if isinstance(plan, dict):
+                raw_format = plan.get("format")
+                if isinstance(raw_format, str):
+                    recent_format_counts[raw_format] += 1
+            concept = row.payload_json.get("planning_provenance")
+            if isinstance(concept, dict):
+                raw_theme = concept.get("theme")
+                if isinstance(raw_theme, str) and raw_theme.strip():
+                    recent_theme_counts[raw_theme.strip().casefold()] += 1
 
         with self._database.session() as session:
             rows = session.scalars(
@@ -361,7 +408,7 @@ class EditorialService:
                 .order_by(ConceptRow.created_at.asc(), ConceptRow.id.asc())
             ).all()
 
-        ranked: list[tuple[float, float, datetime, str]] = []
+        ranked: list[tuple[int, float, float, datetime, str]] = []
         for row in rows:
             candidate = row.payload_json.get("candidate")
             if not isinstance(candidate, dict):
@@ -372,19 +419,77 @@ class EditorialService:
             ids = tuple(str(value) for value in raw_ids)
             if not ids:
                 continue
-            penalty = max(
+
+            char_penalty = max(
                 (recent_character_counts[character_id] for character_id in ids),
                 default=0,
             )
+            branches = [
+                taxonomy.get(
+                    character_id,
+                    ("__unknown_branch__", "__unknown_group__"),
+                )[0]
+                for character_id in ids
+            ]
+            groups = [
+                taxonomy.get(
+                    character_id,
+                    ("__unknown_branch__", "__unknown_group__"),
+                )[1]
+                for character_id in ids
+            ]
+            branch_penalty = max(
+                (recent_branch_counts[value] for value in branches),
+                default=0,
+            )
+            group_penalty = max(
+                (recent_group_counts[value] for value in groups),
+                default=0,
+            )
+            raw_format = candidate.get("format")
+            format_penalty = (
+                recent_format_counts[str(raw_format)]
+                if isinstance(raw_format, str)
+                else 0
+            )
+            raw_theme = candidate.get("theme")
+            theme_penalty = (
+                recent_theme_counts[raw_theme.strip().casefold()]
+                if isinstance(raw_theme, str)
+                else 0
+            )
+            diversity_penalty = (
+                char_penalty * self._config.character_diversity_weight
+                + branch_penalty * self._config.branch_diversity_weight
+                + group_penalty * self._config.group_diversity_weight
+                + format_penalty * self._config.format_diversity_weight
+                + theme_penalty * self._config.theme_diversity_weight
+            )
+            cooldown = int(any(character_id in cooldown_ids for character_id in ids))
             ranked.append(
                 (
-                    float(penalty),
+                    cooldown,
+                    float(diversity_penalty),
                     -float(row.score or 0.0),
                     _utc(row.created_at),
                     row.id,
                 )
             )
-        return min(ranked)[3] if ranked else None
+        return min(ranked)[4] if ranked else None
+
+    def _character_taxonomy(self) -> dict[str, tuple[str, str]]:
+        with self._database.session() as session:
+            rows = session.scalars(select(CharacterRow)).all()
+        result: dict[str, tuple[str, str]] = {}
+        for row in rows:
+            profile = dict(row.profile_json)
+            branch = profile.get("branch")
+            group = profile.get("group")
+            result[row.id] = (
+                str(branch) if branch else row.namespace or "__unknown_branch__",
+                str(group) if group else row.namespace or "__unknown_group__",
+            )
+        return result
 
     def _recent_packs(self, limit: int) -> tuple[PackRow, ...]:
         if limit <= 0:
