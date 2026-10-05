@@ -99,6 +99,8 @@ class EditorialConfig(StrictModel):
     character_diversity_weight: float = Field(default=0.50, ge=0)
     branch_diversity_weight: float = Field(default=0.30, ge=0)
     group_diversity_weight: float = Field(default=0.20, ge=0)
+    format_diversity_weight: float = Field(default=0.15, ge=0)
+    theme_diversity_weight: float = Field(default=0.15, ge=0)
     series_candidate_count: int = Field(default=4, ge=1, le=16)
 
     @model_validator(mode="after")
@@ -111,6 +113,8 @@ class EditorialConfig(StrictModel):
             self.character_diversity_weight
             + self.branch_diversity_weight
             + self.group_diversity_weight
+            + self.format_diversity_weight
+            + self.theme_diversity_weight
         )
         if total <= 0:
             raise ValueError("editorial diversity weights must have positive total")
