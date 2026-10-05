@@ -121,3 +121,13 @@ storage:
   database_url: sqlite:///data/artifex.sqlite3
   packs_dir: data/packs
   minimum_free_gib: 5
+
+operations:
+  health_interval_seconds: 30
+  backend_failure_threshold: 3
+  heartbeat_interval_seconds: 30
+  heartbeat_stale_seconds: 120
+  sustained_run_cycles: 5
+  max_scenes_per_pack: 12
+  max_attempts_per_scene: 4
+  max_events_per_cycle: 50
