@@ -121,6 +121,8 @@ research:
   max_brief_items: 20
   max_brief_chars: 12000
   max_snippet_chars: 1200
+  max_cycle_seconds: 45
+  daily_request_budget: 200
   max_extract_chars: 8000
   cache_ttl_hours: 6
   current_cache_ttl_hours: 2
