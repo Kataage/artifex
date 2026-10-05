@@ -4,6 +4,7 @@ from artifex.operations.health import (
     HealthChecker,
     HealthReport,
 )
+from artifex.operations.maintenance import MaintenanceGroup, SignalIngestionMaintenance
 from artifex.operations.supervisor import HealthSupervisor
 
 __all__ = [
@@ -12,4 +13,6 @@ __all__ = [
     "HealthChecker",
     "HealthReport",
     "HealthSupervisor",
+    "MaintenanceGroup",
+    "SignalIngestionMaintenance",
 ]

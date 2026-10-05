@@ -202,3 +202,43 @@ async def test_director_rejects_invented_trend_reference(tmp_path: Path) -> None
         await director.create_concept(_context())
 
     database.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_director_rejects_invented_seasonal_reference(
+    tmp_path: Path,
+) -> None:
+    bad_batch = json.dumps(
+        {
+            "candidates": [
+                _candidate("evergreen", "evergreen"),
+                _candidate("trend", "trend", refs=["trend-1"]),
+                _candidate("seasonal", "seasonal", refs=["invented-season"]),
+                _candidate("explore", "exploration"),
+            ]
+        }
+    )
+    client = ScriptedClient([bad_batch])
+    database = Database(
+        f"sqlite:///{(tmp_path / 'invalid-seasonal.sqlite3').as_posix()}"
+    )
+    database.migrate()
+    director = IdeaDirector(
+        StructuredGenerator(client, repair_attempts=0),
+        ConceptRepository(database),
+        PlannerConfig(
+            candidate_count=4,
+            mix=PlannerMixConfig(
+                evergreen=0.25,
+                trend=0.25,
+                seasonal=0.25,
+                exploration=0.25,
+            ),
+        ),
+    )
+
+    with pytest.raises(RuntimeError):
+        await director.create_concept(_context())
+
+    database.dispose()

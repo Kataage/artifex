@@ -34,7 +34,12 @@ from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
 from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
 from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
-from artifex.operations import HealthChecker, HealthSupervisor
+from artifex.operations import (
+    HealthChecker,
+    HealthSupervisor,
+    MaintenanceGroup,
+    SignalIngestionMaintenance,
+)
 from artifex.operations.doctor import DoctorService
 from artifex.operations.recovery import RecoveryManager
 from artifex.packs import PackPlanner, PackRepository
@@ -68,7 +73,20 @@ from artifex.runtime import RuntimeDaemon, RuntimeStore
 from artifex.scheduler import Scheduler
 from artifex.series import SeriesRepository
 from artifex.telemetry import TelemetryRepository
-from artifex.trends import TrendPlannerContext, TrendRepository
+from artifex.trends import (
+    SeasonalCalendarProvider,
+    SeasonalCollector,
+    SeasonalProvider,
+    SeasonalRepository,
+    SignalHealthRepository,
+    SignalIngestionService,
+    TrendCollector,
+    TrendPlannerContext,
+    TrendProvider,
+    TrendRepository,
+    current_web_trend_provider,
+    tag_trend_provider,
+)
 
 
 class DiscordRuntime(Protocol):
@@ -95,6 +113,9 @@ class CoreServices:
     policy_decisions: PolicyDecisionRepository
     telemetry: TelemetryRepository
     research: ResearchService
+    trends: TrendRepository
+    seasonal: SeasonalRepository
+    signals: SignalIngestionService
     comfy: ComfyUIClient
 
     async def close(self) -> None:
@@ -156,6 +177,43 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
             provider_order=settings.research.provider_order,
         ),
     )
+    trend_repository = TrendRepository(database, settings.trends)
+    seasonal_repository = SeasonalRepository(database, settings.trends)
+    trend_providers: list[TrendProvider] = []
+    if settings.trends.current_web_enabled:
+        trend_providers.append(
+            current_web_trend_provider(
+                research,
+                settings.trends,
+                region=settings.research.default_region,
+                safesearch=settings.research.default_safesearch,
+            )
+        )
+    if (
+        settings.trends.tag_trends_enabled
+        and settings.research.gelbooru_enabled
+    ):
+        trend_providers.append(
+            tag_trend_provider(
+                research,
+                settings.trends,
+                region=settings.research.default_region,
+                safesearch=settings.research.default_safesearch,
+            )
+        )
+    seasonal_providers: tuple[SeasonalProvider, ...] = (
+        (SeasonalCalendarProvider(settings.trends),)
+        if settings.trends.seasonal_enabled
+        else ()
+    )
+    signals = SignalIngestionService(
+        TrendCollector(trend_providers, trend_repository, settings.trends),
+        SeasonalCollector(seasonal_providers, seasonal_repository),
+        trend_repository,
+        seasonal_repository,
+        SignalHealthRepository(database),
+        telemetry,
+    )
     comfy = ComfyUIClient(settings.comfyui)
 
     return CoreServices(
@@ -171,6 +229,9 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         policy_decisions=PolicyDecisionRepository(database),
         telemetry=telemetry,
         research=research,
+        trends=trend_repository,
+        seasonal=seasonal_repository,
+        signals=signals,
         comfy=comfy,
     )
 
@@ -254,8 +315,9 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     )
     concepts = ConceptRepository(core.database)
     trends = TrendPlannerContext(
-        TrendRepository(core.database, settings.trends),
+        core.trends,
         settings.trends,
+        seasonal=core.seasonal,
     )
     context_builder = PlanningContextBuilder(
         core.characters,
@@ -374,6 +436,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.characters,
         core.series,
         core.policy_decisions,
+        signals=core.signals,
     )
     router = DiscordCommandRouter(AuthorizationPolicy(settings.discord), remote)
 
@@ -406,12 +469,17 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         settings.operations,
         notifications=discord_runtime,
     )
+    signal_maintenance = SignalIngestionMaintenance(
+        core.signals,
+        core.telemetry,
+        interval_seconds=settings.trends.refresh_interval_seconds,
+    )
     daemon = RuntimeDaemon(
         core.runtime,
         core.scheduler,
         coordinator,
         settings.agent,
-        maintenance=supervisor,
+        maintenance=MaintenanceGroup((supervisor, signal_maintenance)),
     )
     return ArtifexApplication(
         core,

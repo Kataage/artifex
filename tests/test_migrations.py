@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "review_queue",
     "scenes",
     "series",
+    "seasonal_signals",
     "settings",
     "trend_signals",
 }
@@ -42,4 +43,4 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         engine.dispose()
 
     assert EXPECTED_TABLES <= tables
-    assert current_revision(url) == "0004_editorial"
+    assert current_revision(url) == "0005_seasonal_signals"

@@ -251,12 +251,36 @@ class EvaluationConfig(StrictModel):
     continuity_review_min: float = Field(default=0.55, ge=0, le=1)
 
 
+class SeasonalEventConfig(StrictModel):
+    id: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=200)
+    month: int = Field(ge=1, le=12)
+    day: int = Field(ge=1, le=31)
+    relevance: float = Field(default=1.0, ge=0, le=1)
+    lead_days: int = Field(default=30, ge=0, le=120)
+    trail_days: int = Field(default=3, ge=0, le=30)
+
+
 class TrendConfig(StrictModel):
     enabled: bool = True
+    refresh_interval_seconds: float = Field(default=1800.0, gt=0)
     default_ttl_hours: float = Field(default=24.0, gt=0)
     freshness_half_life_hours: float = Field(default=8.0, gt=0)
     max_summary_signals: int = Field(default=20, ge=1)
     minimum_effective_strength: float = Field(default=0.05, ge=0, le=1)
+    max_provider_results: int = Field(default=8, ge=1, le=30)
+    max_external_topic_chars: int = Field(default=180, ge=40, le=300)
+    current_web_enabled: bool = True
+    tag_trends_enabled: bool = True
+    current_queries: tuple[str, ...] = (
+        "hololive fanart illustration trends",
+        "hololive fanart",
+        "vtuber anime illustration trends",
+    )
+    tag_queries: tuple[str, ...] = ("hololive%", "virtual_youtuber%")
+    seasonal_enabled: bool = True
+    max_seasonal_events: int = Field(default=12, ge=1, le=50)
+    custom_seasonal_events: tuple[SeasonalEventConfig, ...] = ()
 
 
 class ResearchConfig(StrictModel):

@@ -292,6 +292,13 @@ class ArtifexDiscordClient(discord.Client):
         async def series(interaction: discord.Interaction, series_id: str) -> None:
             await self._route(interaction, "series", series_id)
 
+        @self._group.command(
+            name="signals",
+            description="Inspect Trend/Seasonal signals and source health.",
+        )
+        async def signals(interaction: discord.Interaction) -> None:
+            await self._route(interaction, "signals")
+
     async def _daily_summary_loop(self) -> None:
         timezone = ZoneInfo(self._config.daily_summary_timezone)
         while not self.is_closed():

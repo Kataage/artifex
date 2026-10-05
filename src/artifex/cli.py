@@ -48,6 +48,12 @@ llm_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(llm_app, name="llm")
+signals_app = typer.Typer(
+    name="signals",
+    help="Inspect and refresh Trend/Seasonal signal sources.",
+    no_args_is_help=True,
+)
+app.add_typer(signals_app, name="signals")
 inventory_app = typer.Typer(
     name="inventory",
     help="Inspect and manage finalized Pack inventory lifecycle.",
@@ -74,6 +80,7 @@ def _remote(core: CoreServices) -> ArtifexRemoteOperations:
         core.characters,
         SeriesRepository(core.database),
         PolicyDecisionRepository(core.database),
+        signals=core.signals,
     )
 
 
@@ -107,6 +114,76 @@ def llm_qualify(
     finally:
         asyncio.run(client.aclose())
         database.dispose()
+
+
+@signals_app.command("status")
+def signals_status(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show current signal counts and persisted provider health."""
+    core = build_core(_settings(config))
+    try:
+        snapshot = core.signals.snapshot()
+        if json_output:
+            _print_payload(snapshot.model_dump(mode="json"), as_json=True)
+            return
+        typer.echo(
+            f"trends={len(snapshot.trends)} seasonal={len(snapshot.seasonal)}"
+        )
+        if not snapshot.sources:
+            typer.echo("source-health: no collection run recorded yet")
+        for source in snapshot.sources:
+            typer.echo(
+                f"{source.kind}/{source.provider}\t{source.state}\t"
+                f"count={source.last_count}\t"
+                f"failures={source.consecutive_failures}\t"
+                f"error={source.last_error or '-'}"
+            )
+    finally:
+        asyncio.run(core.close())
+
+
+@signals_app.command("list")
+def signals_list(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List active Trend and Seasonal signals."""
+    core = build_core(_settings(config))
+    try:
+        snapshot = core.signals.snapshot()
+        if json_output:
+            _print_payload(snapshot.model_dump(mode="json"), as_json=True)
+            return
+        for signal in snapshot.trends:
+            typer.echo(
+                f"trend\t{signal.id}\t{signal.topic}\t"
+                f"strength={signal.strength:.2f}\t"
+                f"confidence={signal.confidence:.2f}\t"
+                f"freshness={signal.freshness:.2f}"
+            )
+        for event in snapshot.seasonal:
+            typer.echo(
+                f"seasonal\t{event.id}\t{event.title}\t"
+                f"relevance={event.relevance:.2f}\tprovider={event.provider}"
+            )
+    finally:
+        asyncio.run(core.close())
+
+
+@signals_app.command("refresh")
+def signals_refresh(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Force an immediate Trend/Seasonal collection cycle."""
+    core = build_core(_settings(config))
+    try:
+        report = asyncio.run(core.signals.refresh())
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    finally:
+        asyncio.run(core.close())
 
 
 @inventory_app.command("list")
