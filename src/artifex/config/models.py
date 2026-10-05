@@ -36,6 +36,8 @@ class PlannerConfig(StrictModel):
 
 class ProductionConfig(StrictModel):
     retry_limit: int = Field(default=3, ge=0)
+    idea_inventory_target: int = Field(default=30, ge=0)
+    planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
 
 
