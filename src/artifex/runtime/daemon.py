@@ -9,6 +9,10 @@ from artifex.runtime.store import RuntimeStore
 from artifex.scheduler import Scheduler, SchedulerAction, SchedulerDecision
 
 
+class RuntimeMaintenance(Protocol):
+    async def maintain(self) -> object: ...
+
+
 class RuntimeHandler(Protocol):
     async def replenish_ideas(self) -> None: ...
 
@@ -26,11 +30,14 @@ class RuntimeDaemon:
         scheduler: Scheduler,
         handler: RuntimeHandler,
         config: AgentConfig,
+        *,
+        maintenance: RuntimeMaintenance | None = None,
     ) -> None:
         self._runtime = runtime
         self._scheduler = scheduler
         self._handler = handler
         self._config = config
+        self._maintenance = maintenance
         self._stop_requested = False
 
     def start(self) -> AgentState:
@@ -86,6 +93,8 @@ class RuntimeDaemon:
         self.start()
         try:
             while not self._stop_requested:
+                if self._maintenance is not None:
+                    await self._maintenance.maintain()
                 await self.run_once()
                 await asyncio.sleep(self._config.poll_interval_seconds)
         finally:
