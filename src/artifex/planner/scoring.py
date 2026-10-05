@@ -6,11 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import PlannerConfig
 from artifex.planner.models import (
+    CandidateScore,
     ConceptCandidate,
     IdeaSource,
     PlanningContext,
     ScoredConcept,
-    CandidateScore,
 )
 
 
