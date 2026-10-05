@@ -63,3 +63,8 @@ The primary development environment is Windows with `uv` for Python dependency m
 ## Development status
 
 Repository bootstrap is in progress. The implementation specification is tracked under `docs/` and GitHub Issues.
+
+
+## Initial Complete acceptance
+
+The normative acceptance criteria and automated evidence matrix are documented in [`docs/acceptance.md`](docs/acceptance.md). Real local backend qualification is tracked separately from the reproducible CI acceptance tier.
