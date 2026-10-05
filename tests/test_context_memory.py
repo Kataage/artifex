@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 from artifex.config.models import ContextConfig
-from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
 from artifex.db import Database
 from artifex.db.models import ConceptRow
 from artifex.evaluation.local_similarity import LocalSimilarityEmbeddingProvider
+from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
 from artifex.planner import ConceptRepository
 from artifex.planner.models import (
     CharacterOption,
