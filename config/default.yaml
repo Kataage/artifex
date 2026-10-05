@@ -103,6 +103,9 @@ discord:
 
 rights:
   enforce: true
+  default_profile: unconfigured
+  profile_dirs:
+    - profiles/policies
 
 storage:
   database_url: sqlite:///data/artifex.sqlite3

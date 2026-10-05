@@ -1,0 +1,20 @@
+{
+  "id": "unconfigured",
+  "version": "1",
+  "use_rules": {
+    "private": "allow",
+    "public_free": "review",
+    "paid_membership": "review",
+    "commercial": "review"
+  },
+  "tier_rules": {
+    "public": "review",
+    "member": "review",
+    "private_review": "allow",
+    "blocked": "block"
+  },
+  "content_label_rules": {},
+  "notes": [
+    "Conservative fallback profile. Configure an explicit versioned policy profile for intended publication or commercial use."
+  ]
+}
