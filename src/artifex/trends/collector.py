@@ -20,6 +20,7 @@ class TrendCollectionReport(BaseModel):
     persisted_normalized: int
     expired: int
     provider_failures: dict[str, str]
+    provider_counts: dict[str, int]
     active_signals: tuple[TrendSignalSummary, ...]
 
 
@@ -37,6 +38,7 @@ class TrendCollector:
     async def collect(self, *, as_of: datetime) -> TrendCollectionReport:
         raw: list[RawTrendSignal] = []
         failures: dict[str, str] = {}
+        counts: dict[str, int] = {}
 
         if self._config.enabled:
             for provider in self._providers:
@@ -47,6 +49,7 @@ class TrendCollector:
                     # trend source must never stop evergreen/seasonal production.
                     failures[provider.name] = str(exc)
                     continue
+                counts[provider.name] = len(signals)
                 raw.extend(signals)
 
         normalized = merge_signals(raw, self._config)
@@ -59,5 +62,6 @@ class TrendCollector:
             persisted_normalized=persisted,
             expired=expired,
             provider_failures=failures,
+            provider_counts=counts,
             active_signals=active,
         )
