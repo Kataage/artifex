@@ -108,6 +108,12 @@ class LoRARegistryConfig(StrictModel):
 
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    execution_timeout_seconds: float = Field(default=900.0, gt=0)
+    poll_interval_seconds: float = Field(default=1.0, gt=0)
+    request_attempts: int = Field(default=3, ge=1)
+    reconnect_backoff_seconds: float = Field(default=1.0, ge=0)
+    default_template: str = "ilxl_base_v1"
 
 
 class DiscordConfig(StrictModel):
