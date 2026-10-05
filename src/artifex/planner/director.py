@@ -50,6 +50,7 @@ class IdeaDirector:
 
         def validate_batch(batch: ConceptCandidateBatch) -> None:
             self._validate_batch(batch, context, quotas)
+            self._validate_candidate_research(batch, context)
 
         batch = await self._generator.generate(
             ConceptCandidateBatch,
@@ -57,7 +58,6 @@ class IdeaDirector:
             schema_name="artifex_concept_candidates",
             post_validator=validate_batch,
         )
-        self._validate_candidate_research(batch, context)
 
         scored: list[ScoredConcept] = []
         for candidate in batch.candidates:
