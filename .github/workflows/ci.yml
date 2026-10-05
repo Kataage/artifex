@@ -17,10 +17,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev
-      - name: Diagnose Ruff autofix
-        run: |
-          uv run ruff check src/artifex/characters/catalog.py --fix
-          git diff -- src/artifex/characters/catalog.py
       - run: uv run ruff check .
       - run: uv run mypy src
       - run: uv run pytest
