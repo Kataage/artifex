@@ -75,7 +75,10 @@ class HealthSupervisor:
 
             if component.name in {"database", "storage"} and component.state is ComponentState.UNHEALTHY:
                 immediate_block = True
-            elif component.name in {"llm", "comfyui"} and component.state is ComponentState.UNHEALTHY:
+            elif (
+                component.name in {"llm", "comfyui", "evaluator"}
+                and component.state is ComponentState.UNHEALTHY
+            ):
                 if self._failures[component.name] >= self._config.backend_failure_threshold:
                     backend_block = True
                 else:
