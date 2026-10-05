@@ -5,6 +5,7 @@ description = "Autonomous Illustration Production System"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.16.0",
     "httpx>=0.28.0",
     "pydantic>=2.11.0",
     "pydantic-settings>=2.10.0",
