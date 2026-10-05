@@ -169,3 +169,54 @@ class SettingRow(Base):
     key: Mapped[str] = mapped_column(String(200), primary_key=True)
     value_json: Mapped[Any] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchRunRow(Base):
+    __tablename__ = "research_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    query: Mapped[str] = mapped_column(Text)
+    normalized_query: Mapped[str] = mapped_column(String(500), index=True)
+    intent: Mapped[str] = mapped_column(String(64), index=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str | None] = mapped_column(String(100), index=True)
+    safesearch: Mapped[str] = mapped_column(String(16))
+    adult: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class ResearchEvidenceRow(Base):
+    __tablename__ = "research_evidence"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("research_runs.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(100), index=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    rank: Mapped[int] = mapped_column(Integer)
+    url: Mapped[str] = mapped_column(Text)
+    canonical_url: Mapped[str] = mapped_column(Text, index=True)
+    title: Mapped[str] = mapped_column(Text)
+    snippet: Mapped[str] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    adult: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class ResearchBriefRow(Base):
+    __tablename__ = "research_briefs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    topic: Mapped[str] = mapped_column(Text)
+    cache_key: Mapped[str] = mapped_column(String(128), index=True)
+    adult: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
