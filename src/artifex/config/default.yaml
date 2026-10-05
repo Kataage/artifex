@@ -54,6 +54,7 @@ llm:
   token_count_mode: llama_cpp
 
 context:
+  version: context-v1
   max_characters: 18
   max_recent_concepts: 12
   max_long_term_concepts: 8
