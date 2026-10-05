@@ -57,6 +57,8 @@ class ArtifexRemoteOperations:
                 return self._retry(self._one_arg(request, "review or scene id"))
             case CommandName.SKIP:
                 return self._skip(self._one_arg(request, "review or subject id"))
+            case CommandName.ALTERNATE:
+                return self._alternate(self._one_arg(request, "review id"))
             case CommandName.NEXT:
                 return self._next_review()
             case CommandName.CHARACTER:
@@ -270,6 +272,34 @@ class ArtifexRemoteOperations:
         if item is not None:
             self._reviews.resolve(item.id, ReviewState.SKIPPED)
         return CommandResponse(ok=True, message=f"Skipped {subject_type} {subject_id}.")
+
+    def _alternate(self, review_id: str) -> CommandResponse:
+        item = self._reviews.require(review_id)
+        self._require_open(item)
+
+        if item.subject_type == "pack":
+            pack_id = item.subject_id
+        elif item.subject_type == "scene":
+            with self._database.session() as session:
+                scene = session.get(SceneRow, item.subject_id)
+                if scene is None:
+                    raise KeyError(f"unknown scene: {item.subject_id}")
+                pack_id = scene.pack_id
+        else:
+            raise ValueError(
+                f"alternate idea unsupported for subject type: {item.subject_type}"
+            )
+
+        self._skip_pack(pack_id)
+        self._reviews.resolve(
+            review_id,
+            ReviewState.SKIPPED,
+            payload_patch={"alternate_idea_requested": True},
+        )
+        return CommandResponse(
+            ok=True,
+            message=f"Alternate idea requested; Pack {pack_id} retired.",
+        )
 
     def _next_review(self) -> CommandResponse:
         item = self._reviews.next_open()
