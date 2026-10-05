@@ -59,14 +59,17 @@ class TrendRepository:
 
     def expire(self, *, as_of: datetime) -> int:
         cutoff = as_utc(as_of).replace(tzinfo=None)
+        predicate = (
+            TrendSignalRow.expires_at.is_not(None),
+            TrendSignalRow.expires_at <= cutoff,
+        )
         with self._database.session() as session:
-            result = session.execute(
-                delete(TrendSignalRow).where(
-                    TrendSignalRow.expires_at.is_not(None),
-                    TrendSignalRow.expires_at <= cutoff,
-                )
-            )
-            return int(result.rowcount or 0)
+            expired_ids = session.scalars(
+                select(TrendSignalRow.id).where(*predicate)
+            ).all()
+            if expired_ids:
+                session.execute(delete(TrendSignalRow).where(*predicate))
+            return len(expired_ids)
 
     def active_summaries(
         self,
