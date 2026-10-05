@@ -96,3 +96,20 @@ Adult-rated research is disabled by default (`research.adult_enabled: false`).
 When deliberately enabled, it remains a separate mode; adult evidence is
 metadata-only for page inspection and does not enable raw explicit page
 extraction.
+
+## Hololive character catalog
+
+The requested Hololive roster is maintained as a versioned, provenance-bearing
+catalog rather than hand-authored one-off profiles. It covers current and historical
+Hololive JP/ID/EN/DEV_IS/ASOBI talents plus historical hololive China while
+deliberately excluding HOLOSTARS, holoAN and office staff.
+
+```powershell
+uv run artifex characters bootstrap-hololive --json
+uv run artifex characters audit --json
+```
+
+The catalog keeps lifecycle status, canonical identity tags, aliases, wardrobe
+records, local reference-image slots and source provenance. See
+[`docs/hololive-catalog.md`](docs/hololive-catalog.md) for update policy and scope.
+
