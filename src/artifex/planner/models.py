@@ -35,6 +35,9 @@ class PackFormat(StrEnum):
 class CharacterOption(PlannerModel):
     id: str = Field(min_length=1)
     display_name: str = Field(min_length=1)
+    namespace: str = ""
+    branch: str | None = None
+    group: str | None = None
     readiness: float = Field(default=1.0, ge=0, le=1)
     recent_use_penalty: float = Field(default=0.0, ge=0, le=1)
     historical_performance: float = Field(default=0.5, ge=0, le=1)
