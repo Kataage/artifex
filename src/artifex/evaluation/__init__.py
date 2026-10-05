@@ -6,12 +6,12 @@ from artifex.evaluation.models import (
     RawEvaluationSignals,
 )
 from artifex.evaluation.repository import EvaluationRepository, GenerationAttemptRepository
+from artifex.evaluation.selection import AttemptSelector, SelectionResult
 from artifex.evaluation.similarity import (
     EmbeddingProvider,
     SimilarityAwareSignalProvider,
     SimilarityService,
 )
-from artifex.evaluation.selection import AttemptSelector, SelectionResult
 
 __all__ = [
     "AttemptSelector",
