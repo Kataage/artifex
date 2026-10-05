@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import httpx
+import pytest
+
+from artifex.comfy import (
+    ComfyErrorKind,
+    ComfyUIClient,
+    ComfyUIError,
+    WorkflowPatchRequest,
+    WorkflowTemplateRegistry,
+)
+from artifex.config.models import ComfyUiConfig
+
+
+def _config(**updates: Any) -> ComfyUiConfig:
+    values: dict[str, Any] = {
+        "base_url": "http://comfy.test",
+        "request_attempts": 2,
+        "reconnect_backoff_seconds": 0,
+        "poll_interval_seconds": 0.001,
+        "execution_timeout_seconds": 0.05,
+    }
+    values.update(updates)
+    return ComfyUiConfig(**values)
+
+
+@pytest.mark.asyncio
+async def test_health_parses_current_comfy_system_stats() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/system_stats"
+        return httpx.Response(
+            200,
+            json={
+                "system": {"comfyui_version": "0.9.0"},
+                "devices": [{"name": "RTX 3060"}],
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+
+    health = await client.health()
+
+    assert health.available is True
+    assert health.version == "0.9.0"
+    assert health.devices == ("RTX 3060",)
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_submit_classifies_invalid_workflow() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/prompt"
+        return httpx.Response(
+            400,
+            json={
+                "error": {"type": "prompt_outputs_failed_validation"},
+                "node_errors": {"5": {"errors": ["bad sampler"]}},
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+
+    with pytest.raises(ComfyUIError) as exc_info:
+        await client.submit({"1": {"class_type": "Bad", "inputs": {}}})
+
+    assert exc_info.value.kind is ComfyErrorKind.INVALID_WORKFLOW
+    assert exc_info.value.retryable is False
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_request_retries_transient_connection_failure() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ConnectError("temporary", request=request)
+        return httpx.Response(200, json={"system": {}, "devices": []})
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(request_attempts=2), client=http_client)
+
+    health = await client.health()
+
+    assert health.available is True
+    assert calls == 2
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_execute_submits_tracks_and_discovers_outputs() -> None:
+    submitted_graph: dict[str, Any] = {}
+    history_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal history_calls
+        if request.url.path == "/prompt":
+            payload = json.loads(request.content)
+            submitted_graph.update(payload["prompt"])
+            return httpx.Response(
+                200,
+                json={"prompt_id": "prompt-1", "number": 4, "node_errors": {}},
+            )
+        if request.url.path == "/history/prompt-1":
+            history_calls += 1
+            if history_calls == 1:
+                return httpx.Response(200, json={})
+            return httpx.Response(
+                200,
+                json={
+                    "prompt-1": {
+                        "status": {
+                            "status_str": "success",
+                            "completed": True,
+                            "messages": [],
+                        },
+                        "outputs": {
+                            "7": {
+                                "images": [
+                                    {
+                                        "filename": "scene_00001_.png",
+                                        "subfolder": "ARTIFEX/pack-1",
+                                        "type": "output",
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                },
+            )
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+    template = WorkflowTemplateRegistry.with_packaged_templates().require("ilxl_base_v1")
+    patch = WorkflowPatchRequest(
+        positive_prompt="amane_kanata",
+        negative_prompt="bad_hands",
+        checkpoint="model.safetensors",
+        seed=7,
+        width=1024,
+        height=1024,
+        output_prefix="ARTIFEX/pack-1/scene-1",
+    )
+
+    result = await client.execute(template, patch)
+
+    assert submitted_graph["2"]["inputs"]["text"] == "amane_kanata"
+    assert result.completed is True
+    assert result.status == "success"
+    assert len(result.outputs) == 1
+    assert result.outputs[0].filename == "scene_00001_.png"
+    assert history_calls == 2
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancel_uses_queue_delete_and_targeted_interrupt() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.url.path, json.loads(request.content or b"{}")))
+        return httpx.Response(200)
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+
+    await client.cancel("prompt-1")
+
+    assert calls == [
+        ("/queue", {"delete": ["prompt-1"]}),
+        ("/interrupt", {"prompt_id": "prompt-1"}),
+    ]
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_wait_timeout_is_retryable_infrastructure_failure() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/history/prompt-1"
+        return httpx.Response(200, json={})
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+
+    with pytest.raises(ComfyUIError) as exc_info:
+        await client.wait_for_completion("prompt-1", timeout_seconds=0.003)
+
+    assert exc_info.value.kind is ComfyErrorKind.TIMEOUT
+    assert exc_info.value.retryable is True
+    await http_client.aclose()

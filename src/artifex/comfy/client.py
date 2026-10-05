@@ -1,0 +1,309 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from collections.abc import Mapping
+from typing import Any
+
+import httpx
+
+from artifex.comfy.errors import (
+    ComfyErrorKind,
+    ComfyUIError,
+    ComfyUIExecutionError,
+    ComfyUIProtocolError,
+    ComfyUITimeoutError,
+)
+from artifex.comfy.models import (
+    ComfyExecutionResult,
+    ComfyHealth,
+    ComfyOutput,
+    QueueReceipt,
+    WorkflowPatchRequest,
+)
+from artifex.comfy.templates import WorkflowTemplate
+from artifex.config.models import ComfyUiConfig
+
+
+class ComfyUIClient:
+    def __init__(
+        self,
+        config: ComfyUiConfig,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._config = config
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(
+            base_url=config.base_url.rstrip("/"),
+            timeout=httpx.Timeout(config.timeout_seconds),
+        )
+
+    async def health(self) -> ComfyHealth:
+        try:
+            body = await self._request_json("GET", "/system_stats")
+        except ComfyUIError as exc:
+            return ComfyHealth(available=False, detail=str(exc))
+
+        system = body.get("system")
+        devices_raw = body.get("devices", ())
+        version: str | None = None
+        devices: list[str] = []
+
+        if isinstance(system, Mapping):
+            raw_version = system.get("comfyui_version")
+            if raw_version is not None:
+                version = str(raw_version)
+        if isinstance(devices_raw, list):
+            for device in devices_raw:
+                if isinstance(device, Mapping) and device.get("name") is not None:
+                    devices.append(str(device["name"]))
+
+        return ComfyHealth(
+            available=True,
+            version=version,
+            devices=tuple(devices),
+        )
+
+    async def submit(
+        self,
+        graph: dict[str, dict[str, Any]],
+        *,
+        client_id: str | None = None,
+    ) -> QueueReceipt:
+        payload: dict[str, Any] = {"prompt": graph}
+        if client_id is not None:
+            payload["client_id"] = client_id
+
+        body = await self._request_json("POST", "/prompt", json=payload)
+
+        raw_error = body.get("error")
+        node_errors = body.get("node_errors")
+        if raw_error or (isinstance(node_errors, Mapping) and node_errors):
+            detail = raw_error if raw_error else node_errors
+            raise ComfyUIError(
+                ComfyErrorKind.INVALID_WORKFLOW,
+                f"ComfyUI rejected workflow: {detail}",
+                retryable=False,
+            )
+
+        prompt_id = body.get("prompt_id")
+        if not isinstance(prompt_id, str) or not prompt_id:
+            raise ComfyUIProtocolError("ComfyUI /prompt response missing prompt_id")
+
+        queue_number_raw = body.get("number")
+        queue_number = (
+            float(queue_number_raw)
+            if isinstance(queue_number_raw, (int, float))
+            else None
+        )
+        return QueueReceipt(prompt_id=prompt_id, queue_number=queue_number)
+
+    async def execute(
+        self,
+        template: WorkflowTemplate,
+        patch: WorkflowPatchRequest,
+        *,
+        client_id: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> ComfyExecutionResult:
+        graph = template.patch(patch)
+        receipt = await self.submit(graph, client_id=client_id)
+        return await self.wait_for_completion(
+            receipt.prompt_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    async def get_history(
+        self,
+        prompt_id: str,
+    ) -> ComfyExecutionResult | None:
+        body = await self._request_json("GET", f"/history/{prompt_id}")
+        raw_entry = body.get(prompt_id)
+        if raw_entry is None:
+            return None
+        if not isinstance(raw_entry, Mapping):
+            raise ComfyUIProtocolError(
+                f"history entry for {prompt_id} must be an object"
+            )
+
+        raw_status = raw_entry.get("status", {})
+        if not isinstance(raw_status, Mapping):
+            raise ComfyUIProtocolError(
+                f"history status for {prompt_id} must be an object"
+            )
+        status = str(raw_status.get("status_str", "unknown"))
+        completed = bool(raw_status.get("completed", False))
+
+        if status.casefold() in {"error", "failed"}:
+            raise ComfyUIExecutionError(
+                self._execution_error_message(prompt_id, raw_status)
+            )
+
+        outputs = self._discover_outputs(raw_entry.get("outputs", {}))
+        return ComfyExecutionResult(
+            prompt_id=prompt_id,
+            completed=completed,
+            status=status,
+            outputs=outputs,
+            raw_status=dict(raw_status),
+        )
+
+    async def wait_for_completion(
+        self,
+        prompt_id: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> ComfyExecutionResult:
+        timeout = (
+            self._config.execution_timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        )
+        if timeout <= 0:
+            raise ValueError("timeout_seconds must be positive")
+
+        deadline = time.monotonic() + timeout
+        while True:
+            result = await self.get_history(prompt_id)
+            if result is not None and result.completed:
+                return result
+            if time.monotonic() >= deadline:
+                raise ComfyUITimeoutError(
+                    f"ComfyUI execution timed out: {prompt_id}"
+                )
+            await asyncio.sleep(self._config.poll_interval_seconds)
+
+    async def cancel(self, prompt_id: str) -> None:
+        # Pending work is removed from the queue; the targeted interrupt handles
+        # the same prompt if it is already running.
+        await self._request_no_content(
+            "POST",
+            "/queue",
+            json={"delete": [prompt_id]},
+        )
+        await self._request_no_content(
+            "POST",
+            "/interrupt",
+            json={"prompt_id": prompt_id},
+        )
+
+    async def queue_snapshot(self) -> dict[str, Any]:
+        return await self._request_json("GET", "/queue")
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response = await self._request(method, path, json=json)
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ComfyUIProtocolError(
+                f"ComfyUI returned non-JSON response for {path}"
+            ) from exc
+        if not isinstance(body, dict):
+            raise ComfyUIProtocolError(
+                f"ComfyUI returned non-object JSON for {path}"
+            )
+        return body
+
+    async def _request_no_content(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+    ) -> None:
+        await self._request(method, path, json=json)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None,
+    ) -> httpx.Response:
+        last_error: Exception | None = None
+
+        for attempt in range(self._config.request_attempts):
+            try:
+                response = await self._client.request(method, path, json=json)
+                if response.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"ComfyUI server error {response.status_code}",
+                        request=response.request,
+                        response=response,
+                    )
+                if response.status_code >= 400:
+                    if path == "/prompt":
+                        # Preserve the structured validation body for submit().
+                        return response
+                    response.raise_for_status()
+                return response
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+                last_error = exc
+                if attempt + 1 >= self._config.request_attempts:
+                    break
+                await asyncio.sleep(
+                    self._config.reconnect_backoff_seconds * (attempt + 1)
+                )
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if attempt + 1 >= self._config.request_attempts:
+                    break
+                await asyncio.sleep(
+                    self._config.reconnect_backoff_seconds * (attempt + 1)
+                )
+
+        assert last_error is not None
+        raise ComfyUIError(
+            ComfyErrorKind.CONNECTION,
+            f"ComfyUI request failed after retries: {method} {path}: {last_error}",
+            retryable=True,
+        ) from last_error
+
+    @staticmethod
+    def _discover_outputs(raw_outputs: object) -> tuple[ComfyOutput, ...]:
+        if not isinstance(raw_outputs, Mapping):
+            raise ComfyUIProtocolError("ComfyUI history outputs must be an object")
+
+        outputs: list[ComfyOutput] = []
+        for raw_node_id, raw_node in raw_outputs.items():
+            if not isinstance(raw_node, Mapping):
+                continue
+            images = raw_node.get("images", ())
+            if not isinstance(images, list):
+                continue
+            for image in images:
+                if not isinstance(image, Mapping):
+                    continue
+                filename = image.get("filename")
+                if not isinstance(filename, str) or not filename:
+                    continue
+                outputs.append(
+                    ComfyOutput(
+                        node_id=str(raw_node_id),
+                        filename=filename,
+                        subfolder=str(image.get("subfolder", "")),
+                        output_type=str(image.get("type", "output")),
+                    )
+                )
+        return tuple(outputs)
+
+    @staticmethod
+    def _execution_error_message(
+        prompt_id: str,
+        status: Mapping[str, Any],
+    ) -> str:
+        messages = status.get("messages")
+        if isinstance(messages, list) and messages:
+            return f"ComfyUI execution failed for {prompt_id}: {messages[-1]}"
+        return f"ComfyUI execution failed for {prompt_id}"

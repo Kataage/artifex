@@ -1,0 +1,87 @@
+{
+  "template_id": "ilxl_base_v1",
+  "version": 1,
+  "model_family": "ilxl",
+  "prompt": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "__CHECKPOINT__"
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "__POSITIVE_PROMPT__",
+        "clip": ["1", 1]
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "__NEGATIVE_PROMPT__",
+        "clip": ["1", 1]
+      }
+    },
+    "4": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "5": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 0,
+        "steps": 30,
+        "cfg": 5.5,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "normal",
+        "denoise": 1.0,
+        "model": ["1", 0],
+        "positive": ["2", 0],
+        "negative": ["3", 0],
+        "latent_image": ["4", 0]
+      }
+    },
+    "6": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": ["5", 0],
+        "vae": ["1", 2]
+      }
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "__OUTPUT_PREFIX__",
+        "images": ["6", 0]
+      }
+    }
+  },
+  "patches": {
+    "positive_prompt": {"node": "2", "input": "text"},
+    "negative_prompt": {"node": "3", "input": "text"},
+    "checkpoint": {"node": "1", "input": "ckpt_name"},
+    "seed": {"node": "5", "input": "seed"},
+    "width": {"node": "4", "input": "width"},
+    "height": {"node": "4", "input": "height"},
+    "batch_size": {"node": "4", "input": "batch_size"},
+    "output_prefix": {"node": "7", "input": "filename_prefix"}
+  },
+  "lora_chain": {
+    "checkpoint_node": "1",
+    "model_output_index": 0,
+    "clip_output_index": 1,
+    "model_consumers": [
+      {"node": "5", "input": "model"}
+    ],
+    "clip_consumers": [
+      {"node": "2", "input": "clip"},
+      {"node": "3", "input": "clip"}
+    ],
+    "start_node_id": 1000
+  }
+}
