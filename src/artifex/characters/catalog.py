@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict
 from artifex.characters.registry import CharacterRegistry
 from artifex.domain import CharacterProfile
 
-
 _CATALOG_FILENAME = "hololive_2026_10_06.json"
 
 
