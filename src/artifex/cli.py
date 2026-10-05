@@ -6,8 +6,9 @@ from typing import Annotated
 
 import typer
 
-from artifex.application import build_application, build_core, build_doctor
+from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.config import load_settings
+from artifex.config.models import ArtifexSettings
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.policy import PolicyDecisionRepository
 from artifex.review import ReviewQueueRepository
@@ -25,11 +26,11 @@ ConfigOption = Annotated[
 ]
 
 
-def _settings(config: Path | None):
+def _settings(config: Path | None) -> ArtifexSettings:
     return load_settings(user_config=config)
 
 
-def _remote(core):
+def _remote(core: CoreServices) -> ArtifexRemoteOperations:
     return ArtifexRemoteOperations(
         core.database,
         core.runtime,
