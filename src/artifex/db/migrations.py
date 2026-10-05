@@ -4,7 +4,8 @@ from importlib.resources import files
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text\nfrom sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 
 def alembic_config(database_url: str) -> Config:
