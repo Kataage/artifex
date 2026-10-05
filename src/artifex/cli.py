@@ -10,7 +10,14 @@ import typer
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
+from artifex.db import Database
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
+from artifex.llm import (
+    LlmCallRepository,
+    LlmQualificationService,
+    OpenAICompatibleClient,
+    StructuredGenerator,
+)
 from artifex.policy import PolicyDecisionRepository
 from artifex.research import (
     ResearchIntent,
@@ -33,6 +40,12 @@ research_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(research_app, name="research")
+llm_app = typer.Typer(
+    name="llm",
+    help="Local LLM diagnostics and qualification.",
+    no_args_is_help=True,
+)
+app.add_typer(llm_app, name="llm")
 
 ConfigOption = Annotated[
     Path | None,
@@ -56,6 +69,36 @@ def _remote(core: CoreServices) -> ArtifexRemoteOperations:
     )
 
 
+
+
+@llm_app.command("qualify")
+def llm_qualify(
+    samples: Annotated[int, typer.Option("--samples", min=1, max=100)] = 8,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+    config: ConfigOption = None,
+) -> None:
+    """Run a real structured-output/context qualification against the configured LLM."""
+    settings = _settings(config)
+    database = Database(settings.storage.database_url)
+    database.migrate()
+    provenance = LlmCallRepository(database)
+    client = OpenAICompatibleClient(settings.llm, provenance=provenance)
+    generator = StructuredGenerator(
+        client,
+        repair_attempts=settings.llm.structured_repair_attempts,
+    )
+    try:
+        report = asyncio.run(
+            LlmQualificationService(
+                settings.llm,
+                generator,
+                provenance,
+            ).run(samples=samples)
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    finally:
+        asyncio.run(client.aclose())
+        database.dispose()
 
 
 def _timelimit_from_since(value: str | None) -> str | None:
