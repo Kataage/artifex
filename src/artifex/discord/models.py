@@ -25,6 +25,7 @@ class CommandName(StrEnum):
     NEXT = "next"
     CHARACTER = "character"
     SERIES = "series"
+    SIGNALS = "signals"
     DETAILS = "details"
 
 
