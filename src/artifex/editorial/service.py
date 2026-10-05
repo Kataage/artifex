@@ -428,15 +428,15 @@ class EditorialService:
                     recent_theme_counts[raw_theme.strip().casefold()] += 1
 
         with self._database.session() as session:
-            rows = session.scalars(
+            concept_rows = session.scalars(
                 select(ConceptRow)
                 .where(ConceptRow.status == "idea")
                 .order_by(ConceptRow.created_at.asc(), ConceptRow.id.asc())
             ).all()
 
         ranked: list[tuple[int, float, float, datetime, str]] = []
-        for row in rows:
-            candidate = row.payload_json.get("candidate")
+        for concept_row in concept_rows:
+            candidate = concept_row.payload_json.get("candidate")
             if not isinstance(candidate, dict):
                 continue
             raw_ids = candidate.get("character_ids", ())
@@ -496,9 +496,9 @@ class EditorialService:
                 (
                     cooldown,
                     float(diversity_penalty),
-                    -float(row.score or 0.0),
-                    _utc(row.created_at),
-                    row.id,
+                    -float(concept_row.score or 0.0),
+                    _utc(concept_row.created_at),
+                    concept_row.id,
                 )
             )
         return min(ranked)[4] if ranked else None
