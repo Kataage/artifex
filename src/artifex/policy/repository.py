@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from artifex.db import Database
 from artifex.db.models import PolicyDecisionRow
+from artifex.domain import PublicationTier
 from artifex.policy.models import (
     OperatorReviewOutcome,
     PolicyDecision,
@@ -79,7 +80,7 @@ class PolicyDecisionRepository:
         effective_tier = (
             original.requested_tier
             if approved
-            else original.effective_tier.__class__.BLOCKED
+            else PublicationTier.BLOCKED
         )
         review = (
             OperatorReviewOutcome.APPROVED
