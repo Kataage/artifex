@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.16.0",
+    "ddgs>=9.16.0,<10",
     "httpx>=0.28.0",
     "pillow>=11.0.0",
     "pydantic>=2.11.0",
@@ -51,5 +52,5 @@ python_version = "3.12"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["alembic", "alembic.*"]
+module = ["alembic", "alembic.*", "ddgs", "ddgs.*"]
 ignore_missing_imports = true
