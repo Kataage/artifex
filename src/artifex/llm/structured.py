@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from pydantic import BaseModel, ValidationError
 
 from artifex.llm.client import ChatMessage, LlmClient
+from artifex.llm.prompts import REPAIR_PROMPT
 
 
 class StructuredGenerationError(RuntimeError):
@@ -53,9 +54,7 @@ class StructuredGenerator:
                     ChatMessage(
                         role="user",
                         content=(
-                            "The previous response failed strict JSON/schema validation. "
-                            "Return a corrected JSON object only, with no markdown or commentary. "
-                            f"Validation error: {exc}"
+                            f"{REPAIR_PROMPT.text} Validation error: {exc}"
                         ),
                     ),
                 ]

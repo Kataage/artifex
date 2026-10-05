@@ -220,3 +220,26 @@ class ResearchBriefRow(Base):
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class LlmCallRow(Base):
+    __tablename__ = "llm_calls"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    backend: Mapped[str] = mapped_column(String(64), index=True)
+    model: Mapped[str] = mapped_column(String(240), index=True)
+    runtime_version: Mapped[str | None] = mapped_column(String(240))
+    schema_name: Mapped[str] = mapped_column(String(160), index=True)
+    context_digest: Mapped[str] = mapped_column(String(64), index=True)
+    schema_digest: Mapped[str] = mapped_column(String(64), index=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    repair_index: Mapped[int] = mapped_column(Integer, default=0)
+    temperature: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    request_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    response_text: Mapped[str | None] = mapped_column(Text)
+    response_digest: Mapped[str | None] = mapped_column(String(64), index=True)
+    error_text: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

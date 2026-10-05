@@ -96,6 +96,47 @@ class LlmConfig(StrictModel):
     retry_backoff_seconds: float = Field(default=1.0, ge=0)
     structured_repair_attempts: int = Field(default=2, ge=0)
     api_key_env: str | None = None
+    context_window_tokens: int = Field(default=8192, ge=2048)
+    reserved_output_tokens: int = Field(default=1536, ge=256)
+    repair_headroom_tokens: int = Field(default=512, ge=0)
+    enforce_token_budget: bool = True
+    token_count_mode: Literal["llama_cpp", "estimate", "disabled"] = "llama_cpp"
+
+    @model_validator(mode="after")
+    def validate_context_budget(self) -> LlmConfig:
+        reserved = self.reserved_output_tokens + self.repair_headroom_tokens
+        if reserved >= self.context_window_tokens:
+            raise ValueError(
+                "LLM reserved output + repair headroom must be below context window"
+            )
+        return self
+
+    @property
+    def max_input_tokens(self) -> int:
+        return (
+            self.context_window_tokens
+            - self.reserved_output_tokens
+            - self.repair_headroom_tokens
+        )
+
+
+class ContextConfig(StrictModel):
+    version: str = "context-v1"
+    max_characters: int = Field(default=18, ge=1, le=100)
+    max_recent_concepts: int = Field(default=12, ge=0, le=100)
+    max_long_term_concepts: int = Field(default=8, ge=0, le=100)
+    max_research_items: int = Field(default=12, ge=0, le=100)
+    max_trend_signals: int = Field(default=12, ge=0, le=100)
+    character_tokens: int = Field(default=900, ge=100)
+    research_tokens: int = Field(default=1400, ge=100)
+    recent_history_tokens: int = Field(default=700, ge=0)
+    long_term_tokens: int = Field(default=700, ge=0)
+    trend_tokens: int = Field(default=500, ge=0)
+    evergreen_tokens: int = Field(default=300, ge=0)
+    operator_tokens: int = Field(default=200, ge=0)
+    series_tokens: int = Field(default=1200, ge=200)
+    series_recent_pack_ids: int = Field(default=3, ge=0, le=20)
+    long_term_candidate_limit: int = Field(default=500, ge=1, le=10000)
 
 
 class CharacterRegistryConfig(StrictModel):
@@ -267,6 +308,7 @@ class ArtifexSettings(StrictModel):
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
     production: ProductionConfig = Field(default_factory=ProductionConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
     characters: CharacterRegistryConfig = Field(default_factory=CharacterRegistryConfig)
     loras: LoRARegistryConfig = Field(default_factory=LoRARegistryConfig)
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
@@ -277,3 +319,20 @@ class ArtifexSettings(StrictModel):
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     operations: OperationsConfig = Field(default_factory=OperationsConfig)
+
+    @model_validator(mode="after")
+    def validate_context_sections(self) -> ArtifexSettings:
+        sections = (
+            self.context.character_tokens
+            + self.context.research_tokens
+            + self.context.recent_history_tokens
+            + self.context.long_term_tokens
+            + self.context.trend_tokens
+            + self.context.evergreen_tokens
+            + self.context.operator_tokens
+        )
+        if sections >= self.llm.max_input_tokens:
+            raise ValueError(
+                "context section budgets must leave headroom for system/schema overhead"
+            )
+        return self

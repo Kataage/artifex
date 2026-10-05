@@ -63,6 +63,14 @@ class RecentConceptSummary(PlannerModel):
     visual_hook: str
 
 
+class ContextProvenance(PlannerModel):
+    version: str = Field(min_length=1)
+    estimator: str = Field(min_length=1)
+    section_estimated_tokens: dict[str, int]
+    omitted_counts: dict[str, int]
+    long_term_retrieval: str = Field(min_length=1)
+
+
 class ResearchEvidenceSummary(PlannerModel):
     evidence_id: str = Field(min_length=1)
     source: str
@@ -100,9 +108,11 @@ class PlanningContext(PlannerModel):
     trend_signals: tuple[TrendSignalSummary, ...] = ()
     seasonal_events: tuple[SeasonalEventSummary, ...] = ()
     recent_concepts: tuple[RecentConceptSummary, ...] = ()
+    long_term_concepts: tuple[RecentConceptSummary, ...] = ()
     evergreen_prompts: tuple[str, ...] = ()
     operator_notes: tuple[str, ...] = ()
     research_brief: ResearchBriefSummary | None = None
+    context_provenance: ContextProvenance | None = None
 
     @model_validator(mode="after")
     def require_characters(self) -> PlanningContext:

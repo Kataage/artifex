@@ -24,6 +24,7 @@ from artifex.evaluation import (
     GenerationAttemptRepository,
 )
 from artifex.loras import LoRAPlan, LoRAResolutionError, LoRAResolver
+from artifex.memory import ContextMemoryManager
 from artifex.operations.recovery import RecoveryManager, RecoveryState
 from artifex.packs import PackPlanner, PackRepository, ScenePlan
 from artifex.planner import ConceptRepository, IdeaDirector
@@ -76,6 +77,7 @@ class ProductionCoordinator:
         operations: OperationsConfig,
         *,
         research: ResearchDirector | None = None,
+        context_memory: ContextMemoryManager | None = None,
         seed_factory: Callable[[], int] = _seed,
     ) -> None:
         if production.batch_size != 1:
@@ -109,6 +111,7 @@ class ProductionCoordinator:
         self._production = production
         self._operations = operations
         self._research = research
+        self._context_memory = context_memory
         self._seed_factory = seed_factory
 
     async def replenish_ideas(self) -> None:
@@ -121,6 +124,8 @@ class ProductionCoordinator:
         if count == 0:
             return
         context = self._context_builder.build()
+        if self._context_memory is not None:
+            context = self._context_memory.pre_research(context)
         if self._research is not None:
             context = await self._research.prepare(context)
             brief = context.research_brief
@@ -131,6 +136,23 @@ class ProductionCoordinator:
                     "brief_id": brief.id if brief is not None else None,
                     "evidence_count": len(brief.evidence_ids) if brief is not None else 0,
                     "degraded": brief.degraded if brief is not None else True,
+                },
+            )
+        if self._context_memory is not None:
+            context = await self._context_memory.finalize(context)
+            self._telemetry.record(
+                "context.planning_ready",
+                EventSeverity.INFO,
+                {
+                    "characters": len(context.characters),
+                    "recent_concepts": len(context.recent_concepts),
+                    "long_term_concepts": len(context.long_term_concepts),
+                    "research_items": (
+                        len(context.research_brief.items)
+                        if context.research_brief is not None
+                        else 0
+                    ),
+                    "trend_signals": len(context.trend_signals),
                 },
             )
         selected = await self._idea_director.replenish(context, count=count)

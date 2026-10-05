@@ -108,13 +108,19 @@ class ConceptRepository:
             row.status = status
 
     def recent_summaries(self, *, limit: int = 30) -> tuple[RecentConceptSummary, ...]:
+        return self.historical_summaries(limit=limit)
+
+    def historical_summaries(
+        self,
+        *,
+        limit: int = 500,
+    ) -> tuple[RecentConceptSummary, ...]:
         if limit < 1:
             return ()
 
         with self._database.session() as session:
             rows = session.scalars(
                 select(ConceptRow)
-                .where(ConceptRow.status == "idea")
                 .order_by(ConceptRow.created_at.desc(), ConceptRow.id.desc())
                 .limit(limit)
             ).all()
@@ -122,7 +128,8 @@ class ConceptRepository:
         summaries: list[RecentConceptSummary] = []
         for row in rows:
             raw_candidate = row.payload_json.get("candidate")
-            if not isinstance(raw_candidate, dict):
+            selected = row.payload_json.get("selected")
+            if selected is not True or not isinstance(raw_candidate, dict):
                 continue
             try:
                 summaries.append(

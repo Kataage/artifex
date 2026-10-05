@@ -12,6 +12,7 @@ EXPECTED_TABLES = {
     "concepts",
     "evaluations",
     "generation_attempts",
+    "llm_calls",
     "loras",
     "packs",
     "policy_decisions",
@@ -39,4 +40,4 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         engine.dispose()
 
     assert EXPECTED_TABLES <= tables
-    assert current_revision(url) == "0002_research"
+    assert current_revision(url) == "0003_llm_provenance"

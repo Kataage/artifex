@@ -16,6 +16,23 @@ class SeriesStatus(StrEnum):
     BLOCKED = "blocked"
 
 
+class SeriesPromptContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    title: str
+    current_episode: int
+    character_ids: tuple[str, ...]
+    bible: tuple[str, ...] = ()
+    recent_prior_pack_ids: tuple[str, ...] = ()
+    omitted_prior_pack_count: int = Field(default=0, ge=0)
+    rolling_summary: str = ""
+    recent_episode_summaries: tuple[str, ...] = ()
+    continuity_state: dict[str, Any] = Field(default_factory=dict)
+    unresolved_hooks: tuple[str, ...] = ()
+    preferred_format: PackFormat | None = None
+
+
 class SeriesProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -26,6 +43,9 @@ class SeriesProfile(BaseModel):
     prior_pack_ids: tuple[str, ...] = ()
     character_ids: tuple[str, ...] = Field(min_length=1)
     continuity_state: dict[str, Any] = Field(default_factory=dict)
+    bible: tuple[str, ...] = ()
+    rolling_summary: str = ""
+    recent_episode_summaries: tuple[str, ...] = ()
     unresolved_hooks: tuple[str, ...] = ()
     preferred_format: PackFormat | None = None
     created_at: datetime

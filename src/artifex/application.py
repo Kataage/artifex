@@ -26,7 +26,9 @@ from artifex.evaluation import (
     SimilarityService,
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
+from artifex.llm.provenance import LlmCallRepository
 from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
+from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
 from artifex.operations import HealthChecker, HealthSupervisor
 from artifex.operations.doctor import DoctorService
 from artifex.operations.recovery import RecoveryManager
@@ -138,7 +140,10 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         characters=characters,
         loras=loras,
         reviews=ReviewQueueRepository(database),
-        series=SeriesRepository(database),
+        series=SeriesRepository(
+            database,
+            rolling_summary_max_chars=settings.context.series_tokens,
+        ),
         policy_decisions=PolicyDecisionRepository(database),
         telemetry=telemetry,
         research=research,
@@ -215,7 +220,10 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     local_embeddings = LocalSimilarityEmbeddingProvider()
     similarity = SimilarityService(local_embeddings)
 
-    llm = OpenAICompatibleClient(settings.llm)
+    llm = OpenAICompatibleClient(
+        settings.llm,
+        provenance=LlmCallRepository(core.database),
+    )
     generator = StructuredGenerator(
         llm,
         repair_attempts=settings.llm.structured_repair_attempts,
@@ -243,9 +251,13 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         require_research=settings.research.required_for_ideation,
     )
     research_director = ResearchDirector(core.research, settings.research)
+    context_memory = ContextMemoryManager(
+        settings.context,
+        ConceptMemoryRetriever(concepts, local_embeddings),
+    )
 
     packs = PackRepository(core.database)
-    pack_planner = PackPlanner(generator, packs)
+    pack_planner = PackPlanner(generator, packs, settings.context)
 
     policy_registry = PolicyRegistry.with_packaged_defaults()
     policy_registry.load_directories(settings.rights.profile_dirs)
@@ -314,6 +326,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         settings.production,
         settings.operations,
         research=research_director,
+        context_memory=context_memory,
     )
 
     remote = ArtifexRemoteOperations(
