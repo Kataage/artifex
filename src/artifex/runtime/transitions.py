@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import TypeVar
-
 from artifex.domain import AgentState, PackState, SceneState
-
-StateT = TypeVar("StateT", bound=StrEnum)
-
 
 class InvalidTransition(ValueError):
     def __init__(self, entity: str, current: StrEnum, target: StrEnum) -> None:
@@ -143,7 +138,7 @@ SCENE_TRANSITIONS: Mapping[SceneState, frozenset[SceneState]] = {
 }
 
 
-def _validate(
+def _validate[StateT: StrEnum](
     entity: str,
     current: StateT,
     target: StateT,
