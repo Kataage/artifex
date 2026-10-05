@@ -73,7 +73,7 @@ class SearXNGResearchProvider:
             raise RuntimeError(f"SearXNG search failed: {exc}") from exc
         raw_results = body.get("results", ())
         if not isinstance(raw_results, list):
-            raise RuntimeError("SearXNG response is missing results list")
+            raise TypeError("SearXNG response is missing results list")
 
         results: list[ProviderResult] = []
         for raw in raw_results[: request.max_results]:
@@ -140,6 +140,6 @@ def _parse_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
-        return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        return datetime.fromisoformat(value.strip())
     except ValueError:
         return None
