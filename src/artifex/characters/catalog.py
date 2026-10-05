@@ -52,11 +52,11 @@ class HololiveCatalog:
         sources_raw = manifest.get("sources")
         characters_raw = manifest.get("characters")
         if not isinstance(defaults_raw, dict):
-            raise ValueError("catalog defaults must be an object")
+            raise TypeError("catalog defaults must be an object")
         if not isinstance(sources_raw, dict):
-            raise ValueError("catalog sources must be an object")
+            raise TypeError("catalog sources must be an object")
         if not isinstance(characters_raw, list):
-            raise ValueError("catalog characters must be a list")
+            raise TypeError("catalog characters must be a list")
 
         defaults = deepcopy(defaults_raw)
         reference_template = str(
@@ -70,7 +70,7 @@ class HololiveCatalog:
 
         for item_raw in characters_raw:
             if not isinstance(item_raw, dict):
-                raise ValueError("catalog character entry must be an object")
+                raise TypeError("catalog character entry must be an object")
             item = deepcopy(item_raw)
             source_refs = tuple(str(ref) for ref in item.pop("source_refs", ()))
             extra_notes = tuple(
@@ -99,7 +99,7 @@ class HololiveCatalog:
             for source_ref in source_refs:
                 source = sources_raw.get(source_ref)
                 if not isinstance(source, dict):
-                    raise ValueError(
+                    raise TypeError(
                         f"unknown catalog source {source_ref!r} for {character_id}"
                     )
                 provenance.append(deepcopy(source))
@@ -127,7 +127,7 @@ class HololiveCatalog:
         )
         raw = json.loads(resource.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise ValueError("packaged Hololive catalog root must be an object")
+            raise TypeError("packaged Hololive catalog root must be an object")
         return cls(raw)
 
     @property
