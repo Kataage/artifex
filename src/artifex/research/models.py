@@ -43,6 +43,7 @@ class ProviderState(StrEnum):
 
 
 class ResearchRunState(StrEnum):
+    RUNNING = "running"
     COMPLETED = "completed"
     DEGRADED = "degraded"
     FAILED = "failed"
