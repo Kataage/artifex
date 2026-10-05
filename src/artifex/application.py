@@ -76,10 +76,10 @@ from artifex.telemetry import TelemetryRepository
 from artifex.trends import (
     SeasonalCalendarProvider,
     SeasonalCollector,
+    SeasonalProvider,
     SeasonalRepository,
     SignalHealthRepository,
     SignalIngestionService,
-    SeasonalProvider,
     TrendCollector,
     TrendPlannerContext,
     TrendProvider,
