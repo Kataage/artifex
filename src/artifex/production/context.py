@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import math
+from datetime import UTC, datetime
 
 from artifex.characters import CharacterRegistry
 from artifex.config.models import CharacterRegistryConfig
