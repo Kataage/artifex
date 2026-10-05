@@ -94,13 +94,16 @@ class LlmQualificationService:
                 limit=max(100, samples * (self._config.structured_repair_attempts + 2))
             )
             if row["schema_name"].startswith("artifex_llm_qualification@")
-            and row["started_at"] >= started
+            and _utc(row["started_at"]) >= started
         )
 
         latencies = [
             max(
                 0.0,
-                (row["completed_at"] - row["started_at"]).total_seconds() * 1000.0,
+                (
+                    _utc(row["completed_at"]) - _utc(row["started_at"])
+                ).total_seconds()
+                * 1000.0,
             )
             for row in rows
             if row["completed_at"] is not None
@@ -149,3 +152,10 @@ def _repetition_pct(digests: list[str]) -> float:
         return 0.0
     unique = len(set(digests))
     return max(0.0, 100.0 * (1.0 - (unique / len(digests))))
+
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
