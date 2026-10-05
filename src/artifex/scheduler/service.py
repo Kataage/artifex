@@ -6,6 +6,7 @@ from artifex.config.models import ProductionConfig
 from artifex.db import Database
 from artifex.db.models import ConceptRow, PackRow
 from artifex.domain import AgentState, PackState
+from artifex.editorial import EditorialLane, EditorialService
 from artifex.runtime.store import RuntimeStore
 from artifex.scheduler.models import InventorySnapshot, SchedulerAction, SchedulerDecision
 
@@ -16,12 +17,39 @@ class Scheduler:
         database: Database,
         runtime: RuntimeStore,
         production: ProductionConfig,
+        *,
+        editorial: EditorialService | None = None,
     ) -> None:
         self._database = database
         self._runtime = runtime
         self._production = production
+        self._editorial = editorial
 
     def inventory(self) -> InventorySnapshot:
+        if self._editorial is not None:
+            counts = self._editorial.inventory_counts()
+            with self._database.session() as session:
+                idea_count = len(
+                    session.scalars(
+                        select(ConceptRow).where(ConceptRow.status == "idea")
+                    ).all()
+                )
+                planned_count = len(
+                    session.scalars(
+                        select(PackRow).where(
+                            PackRow.state == PackState.PLANNED.value
+                        )
+                    ).all()
+                )
+            return InventorySnapshot(
+                ideas=idea_count,
+                planned=planned_count,
+                completed_available=counts.available,
+                completed_reserved=counts.reserved,
+                completed_consumed=counts.consumed,
+                completed_expired=counts.expired,
+            )
+
         with self._database.session() as session:
             idea_rows = session.scalars(
                 select(ConceptRow).where(ConceptRow.status == "idea")
@@ -77,6 +105,66 @@ class Scheduler:
             )
 
         inventory = self.inventory()
+
+        if self._editorial is not None:
+            allowed, production_reason = self._editorial.production_allowed()
+            if not allowed:
+                return SchedulerDecision(
+                    SchedulerAction.IDLE,
+                    production_reason,
+                )
+
+            if inventory.planned < self._production.planned_inventory_target:
+                plan = self._editorial.decide_plan(
+                    has_ideas=inventory.ideas > 0
+                )
+                if plan.lane is EditorialLane.SERIES:
+                    if plan.series_id is None:
+                        raise RuntimeError(
+                            "Series editorial decision is missing series_id"
+                        )
+                    return SchedulerDecision(
+                        SchedulerAction.PLAN_SERIES_PACK,
+                        plan.reason,
+                        series_id=plan.series_id,
+                        editorial_decision_id=plan.decision_id,
+                        series_plan_kind=(
+                            plan.series_plan_kind.value
+                            if plan.series_plan_kind is not None
+                            else None
+                        ),
+                    )
+                if plan.concept_id is None:
+                    return SchedulerDecision(
+                        SchedulerAction.REPLENISH_IDEAS,
+                        plan.reason,
+                    )
+                return SchedulerDecision(
+                    SchedulerAction.PLAN_PACK,
+                    plan.reason,
+                    concept_id=plan.concept_id,
+                    editorial_decision_id=plan.decision_id,
+                )
+
+            pack_id = self.next_runnable_pack_id()
+            if pack_id is not None:
+                return SchedulerDecision(
+                    SchedulerAction.RUN_PACK,
+                    "runnable pack available",
+                    pack_id,
+                )
+
+            if inventory.ideas < self._production.idea_inventory_target:
+                return SchedulerDecision(
+                    SchedulerAction.REPLENISH_IDEAS,
+                    "idea inventory below target",
+                )
+
+            return SchedulerDecision(
+                SchedulerAction.IDLE,
+                "editorial inventory is healthy and no runnable work exists",
+            )
+
         completed_target = self._production.completed_inventory_target
         if (
             completed_target is not None
