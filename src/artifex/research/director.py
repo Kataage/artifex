@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import UTC
 
 from artifex.config.models import ResearchConfig
-from artifex.planner.models import PlanningContext, ResearchBriefSummary
+from artifex.planner.models import (
+    PlanningContext,
+    ResearchBriefSummary,
+    ResearchEvidenceSummary,
+)
 from artifex.research.models import (
     ResearchIntent,
     ResearchSearchRequest,
@@ -71,6 +75,16 @@ class ResearchDirector:
                     research_run_ids=brief.research_run_ids,
                     evidence_ids=brief.evidence_ids,
                     key_findings=brief.key_findings,
+                    items=tuple(
+                        ResearchEvidenceSummary(
+                            evidence_id=item.evidence_id,
+                            source=item.source.value,
+                            provider=item.provider,
+                            title=item.title,
+                            finding=item.finding,
+                        )
+                        for item in brief.items
+                    ),
                     generated_at=brief.generated_at,
                     expires_at=brief.expires_at,
                     freshness_confidence=brief.freshness_confidence,
