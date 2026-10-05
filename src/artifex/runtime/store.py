@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 
 from artifex.db import Database
-from artifex.db.models import PackRow, SceneRow, SettingRow
+from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow, SettingRow
 from artifex.domain import AgentState, PackState, SceneState
 from artifex.runtime.transitions import (
     validate_agent_transition,
@@ -141,6 +141,36 @@ class RuntimeStore:
             row.state = target.value
             if payload_patch:
                 row.payload_json = {**row.payload_json, **payload_patch}
+        return target
+
+    def select_scene_attempt(
+        self,
+        scene_id: str,
+        attempt_id: str | None,
+        target: SceneState,
+    ) -> SceneState:
+        if target not in {
+            SceneState.ACCEPTED,
+            SceneState.REVIEW,
+            SceneState.REJECTED,
+        }:
+            raise ValueError("scene selection target must be accepted, review, or rejected")
+
+        with self._database.session() as session:
+            scene = session.get(SceneRow, scene_id)
+            if scene is None:
+                raise KeyError(f"unknown scene: {scene_id}")
+            if attempt_id is not None:
+                attempt = session.get(GenerationAttemptRow, attempt_id)
+                if attempt is None:
+                    raise KeyError(f"unknown generation attempt: {attempt_id}")
+                if attempt.scene_id != scene_id:
+                    raise ValueError("selected attempt belongs to a different scene")
+
+            current = SceneState(scene.state)
+            validate_scene_transition(current, target)
+            scene.state = target.value
+            scene.selected_attempt_id = attempt_id
         return target
 
     def recoverable_pack_ids(self) -> tuple[str, ...]:
