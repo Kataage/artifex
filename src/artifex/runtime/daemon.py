@@ -16,7 +16,18 @@ class RuntimeMaintenance(Protocol):
 class RuntimeHandler(Protocol):
     async def replenish_ideas(self) -> None: ...
 
-    async def plan_pack(self) -> None: ...
+    async def plan_pack(
+        self,
+        concept_id: str | None = None,
+        editorial_decision_id: str | None = None,
+    ) -> None: ...
+
+    async def plan_series_pack(
+        self,
+        series_id: str,
+        editorial_decision_id: str | None = None,
+        series_plan_kind: str | None = None,
+    ) -> None: ...
 
     async def run_pack(self, pack_id: str) -> None: ...
 
@@ -78,7 +89,26 @@ class RuntimeDaemon:
         if decision.action is SchedulerAction.REPLENISH_IDEAS:
             await self._handler.replenish_ideas()
         elif decision.action is SchedulerAction.PLAN_PACK:
-            await self._handler.plan_pack()
+            if (
+                decision.concept_id is None
+                and decision.editorial_decision_id is None
+            ):
+                await self._handler.plan_pack()
+            else:
+                await self._handler.plan_pack(
+                    decision.concept_id,
+                    decision.editorial_decision_id,
+                )
+        elif decision.action is SchedulerAction.PLAN_SERIES_PACK:
+            if decision.series_id is None:
+                raise RuntimeError(
+                    "PLAN_SERIES_PACK decision missing series_id"
+                )
+            await self._handler.plan_series_pack(
+                decision.series_id,
+                decision.editorial_decision_id,
+                decision.series_plan_kind,
+            )
         elif decision.action is SchedulerAction.RUN_PACK:
             if decision.pack_id is None:
                 raise RuntimeError("RUN_PACK decision missing pack_id")
