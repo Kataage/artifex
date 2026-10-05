@@ -379,3 +379,58 @@ def test_series_advances_again_after_autonomous_standalone_gap(
     assert second.series_plan_kind is not None
     assert second.series_plan_kind.value == "continue"
     db.dispose()
+
+
+
+def test_series_with_open_pack_is_not_planned_twice(
+    tmp_path: Path,
+) -> None:
+    db = _database(tmp_path)
+    now = datetime.now(UTC)
+    series = SeriesRepository(db)
+    series.create(
+        title="Single Outstanding Episode",
+        character_ids=("char-a",),
+        editorial_policy=SeriesEditorialPolicy(min_gap_packs=0),
+        series_id="series-1",
+    )
+    with db.session() as session:
+        session.add(
+            _pack(
+                "planned-series",
+                when=now,
+                state=PackState.PLANNED,
+                series_id="series-1",
+                character_ids=("char-a",),
+                format_type="continuation",
+            )
+        )
+        session.add(
+            ConceptRow(
+                id="fallback-idea",
+                status="idea",
+                payload_json={
+                    "candidate": {
+                        "character_ids": ["char-b"],
+                        "format": "single_feature",
+                        "theme": "fallback",
+                    }
+                },
+                score=0.5,
+                created_at=now,
+            )
+        )
+
+    editorial = _editorial(
+        db,
+        EditorialConfig(
+            mode="continuous",
+            series_target_share=1.0,
+        ),
+        series=series,
+    )
+    decision = editorial.decide_plan(has_ideas=True)
+
+    assert decision.series_id is None
+    assert decision.concept_id == "fallback-idea"
+    db.dispose()
