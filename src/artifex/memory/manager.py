@@ -76,7 +76,7 @@ class ContextMemoryManager:
             self._config.operator_tokens,
             str,
         )
-        return context.model_copy(
+        compacted = context.model_copy(
             update={
                 "characters": tuple(shortlisted),
                 "recent_concepts": tuple(recent),
@@ -84,12 +84,62 @@ class ContextMemoryManager:
                 "trend_signals": tuple(trends),
                 "evergreen_prompts": tuple(evergreen),
                 "operator_notes": tuple(operator),
-                "context_provenance": None,
+            }
+        )
+        return compacted.model_copy(
+            update={
+                "context_provenance": ContextProvenance(
+                    version=self._config.version,
+                    estimator="conservative-json-char/2",
+                    section_estimated_tokens={
+                        "characters": _estimated_tokens(
+                            [item.model_dump(mode="json") for item in compacted.characters]
+                        ),
+                        "recent_concepts": _estimated_tokens(
+                            [item.model_dump(mode="json") for item in compacted.recent_concepts]
+                        ),
+                        "long_term_concepts": 0,
+                        "trend_signals": _estimated_tokens(
+                            [item.model_dump(mode="json") for item in compacted.trend_signals]
+                        ),
+                        "research": (
+                            _estimated_tokens(
+                                compacted.research_brief.model_dump(mode="json")
+                            )
+                            if compacted.research_brief is not None
+                            else 0
+                        ),
+                        "evergreen": _estimated_tokens(compacted.evergreen_prompts),
+                        "operator": _estimated_tokens(compacted.operator_notes),
+                    },
+                    omitted_counts={
+                        "characters": max(
+                            0, len(context.characters) - len(compacted.characters)
+                        ),
+                        "recent_concepts": max(
+                            0,
+                            len(context.recent_concepts)
+                            - len(compacted.recent_concepts),
+                        ),
+                        "long_term_concepts": 0,
+                        "trend_signals": max(
+                            0,
+                            len(context.trend_signals)
+                            - len(compacted.trend_signals),
+                        ),
+                        "research_items": 0,
+                    },
+                    long_term_retrieval="pending",
+                )
             }
         )
 
     async def finalize(self, context: PlanningContext) -> PlanningContext:
-        working = self.pre_research(context)
+        working = (
+            context
+            if context.context_provenance is not None
+            else self.pre_research(context)
+        )
         candidate_count = self._memory.candidate_count(
             working,
             candidate_limit=self._config.long_term_candidate_limit,
@@ -133,27 +183,34 @@ class ContextMemoryManager:
             "evergreen": _estimated_tokens(compacted.evergreen_prompts),
             "operator": _estimated_tokens(compacted.operator_notes),
         }
+        prior_omitted = (
+            working.context_provenance.omitted_counts
+            if working.context_provenance is not None
+            else {}
+        )
         omitted = {
-            "characters": max(0, len(context.characters) - len(compacted.characters)),
-            "recent_concepts": max(
-                0, len(context.recent_concepts) - len(compacted.recent_concepts)
+            "characters": int(prior_omitted.get("characters", 0)),
+            "recent_concepts": int(prior_omitted.get("recent_concepts", 0)),
+            "long_term_concepts": (
+                int(prior_omitted.get("long_term_concepts", 0))
+                + max(0, candidate_count - len(long_term))
             ),
-            "long_term_concepts": max(0, candidate_count - len(long_term)),
-            "trend_signals": max(
-                0, len(context.trend_signals) - len(compacted.trend_signals)
-            ),
-            "research_items": max(
-                0,
-                (
-                    len(context.research_brief.items)
-                    if context.research_brief is not None
-                    else 0
+            "trend_signals": int(prior_omitted.get("trend_signals", 0)),
+            "research_items": (
+                int(prior_omitted.get("research_items", 0))
+                + max(
+                    0,
+                    (
+                        len(working.research_brief.items)
+                        if working.research_brief is not None
+                        else 0
+                    )
+                    - (
+                        len(compacted.research_brief.items)
+                        if compacted.research_brief is not None
+                        else 0
+                    ),
                 )
-                - (
-                    len(compacted.research_brief.items)
-                    if compacted.research_brief is not None
-                    else 0
-                ),
             ),
         }
         return compacted.model_copy(
