@@ -20,7 +20,7 @@ def _utc(value: datetime) -> datetime:
 
 
 def _stable_id(provider: str, external_id: str) -> str:
-    raw = f"{provider}:{external_id}".encode("utf-8")
+    raw = f"{provider}:{external_id}".encode()
     return "seasonal_" + hashlib.sha256(raw).hexdigest()[:24]
 
 
