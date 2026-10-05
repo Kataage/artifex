@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local configuration / secrets
+.env
+.env.*
+!.env.example
+config/local.yaml
+config/secrets.yaml
+
+# Runtime data
+data/
+output/
+outputs/
+logs/
+cache/
+checkpoints/
+*.sqlite
+*.sqlite3
+*.db
+
+# Models / generated media
+models/
+*.safetensors
+*.ckpt
+*.gguf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+*.webm
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build
+build/
+dist/
+*.egg-info/
