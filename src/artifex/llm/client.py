@@ -137,7 +137,7 @@ class OpenAICompatibleClient:
                         content,
                         headers,
                     )
-                if call_id is not None:
+                if call_id is not None and self._provenance is not None:
                     self._provenance.succeed(
                         call_id,
                         response_text=content,
@@ -160,7 +160,7 @@ class OpenAICompatibleClient:
                 )
 
         assert last_error is not None
-        if call_id is not None:
+        if call_id is not None and self._provenance is not None:
             self._provenance.fail(call_id, error_text=str(last_error))
         raise RuntimeError("LLM request failed after configured attempts") from last_error
 
