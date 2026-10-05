@@ -67,6 +67,7 @@ class HealthChecker:
         comfy: ComfyUIClient | None = None,
         discord_connected: DiscordConnectionProbe | None = None,
         llm_probe: Callable[[], Awaitable[ComponentHealth]] | None = None,
+        evaluator_probe: Callable[[], Awaitable[ComponentHealth]] | None = None,
     ) -> None:
         self._settings = settings
         self._database = database
@@ -74,6 +75,7 @@ class HealthChecker:
         self._comfy = comfy
         self._discord_connected = discord_connected
         self._llm_probe = llm_probe
+        self._evaluator_probe = evaluator_probe
 
     async def check_all(self, *, include_worker: bool = True) -> HealthReport:
         components = [
@@ -146,6 +148,9 @@ class HealthChecker:
         )
 
     async def _check_evaluator(self) -> ComponentHealth:
+        if self._evaluator_probe is not None:
+            return await self._evaluator_probe()
+
         config = self._settings.evaluation
         if not config.vision_base_url or not config.vision_model:
             return ComponentHealth(
