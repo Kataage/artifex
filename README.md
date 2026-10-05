@@ -1,0 +1,65 @@
+# Artifex
+
+**Artifex — Autonomous Illustration Production System**
+
+Artifex is a local-first autonomous illustration production agent built around ComfyUI and a local LLM.
+
+The target workflow is not “generate one image on request”. Artifex continuously plans content, resolves character/LoRA requirements, builds multi-image content packs, submits production workflows to ComfyUI, evaluates results, retries failures, archives provenance, and reports review items through Discord.
+
+## Initial Complete scope
+
+The first complete release includes the scope previously split across v1, v1.5, and v2:
+
+- autonomous planner and idea queue
+- trend / evergreen / seasonal / exploration idea sources
+- character registry
+- LoRA registry, discovery, selection, validation, and readiness scoring
+- single / duo / group planning
+- multi-scene Content Packs and Series continuity
+- ILXL-oriented prompt compiler with pluggable model-family adapters
+- ComfyUI API integration using stable production workflow templates
+- image and concept similarity checks
+- quality evaluation, selection, and reason-aware retries
+- SQLite persistence and checkpoints
+- long-running daemon with watchdog/recovery behavior
+- Discord bot notifications, review, approval, retry, reject, pause/resume and status controls
+- publication / rights gates as independent policy layers
+- daily summaries and operational telemetry
+
+## Design principles
+
+1. **Autonomous by default** — the system keeps working without requiring a new user instruction for every pack.
+2. **Pack-first production** — one job represents a coherent multi-image content pack, not a single disconnected image.
+3. **Stable workflows** — the LLM does not rewrite ComfyUI graphs at runtime; Artifex patches validated templates.
+4. **Character-aware generation** — character identity and LoRA requirements are explicit data, not prompt-time guesses.
+5. **Recoverable operation** — every long-running job is checkpointed and can resume after process or machine failure.
+6. **Human review by exception** — Discord should surface decisions only when automation cannot meet confidence thresholds.
+7. **Policy separation** — generation capability, publication classification, and rights/commercial-use decisions are separate layers.
+
+## Planned local topology
+
+```text
+Local LLM / llama.cpp
+        |
+        v
+Artifex daemon
+  |-- Planner / Idea Director
+  |-- Character + LoRA Registry
+  |-- Pack / Series Engine
+  |-- Prompt Compiler
+  |-- Evaluator / Retry Policy
+  |-- SQLite / Archive
+  |-- Discord Bot
+        |
+        v
+ComfyUI API
+        |
+        v
+Production outputs
+```
+
+The primary development environment is Windows with `uv` for Python dependency management.
+
+## Development status
+
+Repository bootstrap is in progress. The implementation specification is tracked under `docs/` and GitHub Issues.
