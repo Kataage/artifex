@@ -6,11 +6,27 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from artifex.domain.enums import LoRAPolicy, LoRAState
+from artifex.domain.enums import CharacterStatus, LoRAPolicy, LoRAState
 
 
 class DomainModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class CharacterOutfit(DomainModel):
+    id: str = Field(min_length=1)
+    display_name: str = Field(min_length=1)
+    canonical_tags: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+    preferred_lora_ids: tuple[str, ...] = ()
+    generation_notes: tuple[str, ...] = ()
+
+
+class CharacterSource(DomainModel):
+    kind: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    checked_at: datetime | None = None
+    note: str | None = None
 
 
 class CharacterProfile(DomainModel):
@@ -18,6 +34,7 @@ class CharacterProfile(DomainModel):
     display_name: str = Field(min_length=1)
     namespace: str = Field(min_length=1)
     enabled: bool = True
+    status: CharacterStatus = CharacterStatus.ACTIVE
     branch: str | None = None
     group: str | None = None
     generation: str | None = None
@@ -28,6 +45,9 @@ class CharacterProfile(DomainModel):
     preferred_lora_ids: tuple[str, ...] = ()
     readiness: float = Field(default=0.0, ge=0.0, le=1.0)
     policy_profile: str | None = None
+    outfits: tuple[CharacterOutfit, ...] = ()
+    reference_image_dirs: tuple[Path, ...] = ()
+    provenance: tuple[CharacterSource, ...] = ()
     generation_notes: tuple[str, ...] = ()
     last_used_at: datetime | None = None
     total_generated: int = Field(default=0, ge=0)
