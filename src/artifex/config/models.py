@@ -85,6 +85,38 @@ class ProductionConfig(StrictModel):
     batch_size: int = Field(default=1, ge=1, le=64)
 
 
+class EditorialConfig(StrictModel):
+    mode: Literal["continuous", "watermark"] = "watermark"
+    inventory_low_watermark: int = Field(default=3, ge=0)
+    inventory_high_watermark: int = Field(default=7, ge=1)
+    inventory_expiry_hours: float | None = Field(default=168.0, gt=0)
+    series_target_share: float = Field(default=0.35, ge=0, le=1)
+    cadence_window_packs: int = Field(default=10, ge=1, le=100)
+    max_consecutive_series: int = Field(default=2, ge=1, le=20)
+    max_consecutive_standalone: int = Field(default=4, ge=1, le=20)
+    diversity_window_packs: int = Field(default=12, ge=1, le=100)
+    character_cooldown_packs: int = Field(default=2, ge=0, le=20)
+    character_diversity_weight: float = Field(default=0.50, ge=0)
+    branch_diversity_weight: float = Field(default=0.30, ge=0)
+    group_diversity_weight: float = Field(default=0.20, ge=0)
+    series_candidate_count: int = Field(default=4, ge=1, le=16)
+
+    @model_validator(mode="after")
+    def validate_editorial(self) -> EditorialConfig:
+        if self.inventory_low_watermark >= self.inventory_high_watermark:
+            raise ValueError(
+                "editorial inventory_low_watermark must be below high watermark"
+            )
+        total = (
+            self.character_diversity_weight
+            + self.branch_diversity_weight
+            + self.group_diversity_weight
+        )
+        if total <= 0:
+            raise ValueError("editorial diversity weights must have positive total")
+        return self
+
+
 class LlmConfig(StrictModel):
     backend: Literal["llama_cpp", "openai_compatible"] = "llama_cpp"
     base_url: str = "http://127.0.0.1:8080"
@@ -307,6 +339,7 @@ class ArtifexSettings(StrictModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
     production: ProductionConfig = Field(default_factory=ProductionConfig)
+    editorial: EditorialConfig = Field(default_factory=EditorialConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     characters: CharacterRegistryConfig = Field(default_factory=CharacterRegistryConfig)
