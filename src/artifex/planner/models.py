@@ -63,12 +63,21 @@ class RecentConceptSummary(PlannerModel):
     visual_hook: str
 
 
+class ResearchEvidenceSummary(PlannerModel):
+    evidence_id: str = Field(min_length=1)
+    source: str
+    provider: str
+    title: str
+    finding: str
+
+
 class ResearchBriefSummary(PlannerModel):
     id: str = Field(min_length=1)
     topic: str
     research_run_ids: tuple[str, ...]
     evidence_ids: tuple[str, ...]
     key_findings: tuple[str, ...]
+    items: tuple[ResearchEvidenceSummary, ...] = ()
     generated_at: datetime
     expires_at: datetime
     freshness_confidence: float = Field(ge=0, le=1)
