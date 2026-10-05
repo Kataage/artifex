@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -35,7 +36,9 @@ def _utc(value: datetime) -> datetime:
 
 
 class PackInventoryRepository:
-    _ALLOWED: dict[PackInventoryState, frozenset[PackInventoryState]] = {
+    _ALLOWED: ClassVar[
+        dict[PackInventoryState, frozenset[PackInventoryState]]
+    ] = {
         PackInventoryState.AVAILABLE: frozenset(
             {
                 PackInventoryState.RESERVED,
