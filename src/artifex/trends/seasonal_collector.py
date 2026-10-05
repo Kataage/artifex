@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -10,11 +11,10 @@ from artifex.trends.models import RawSeasonalEvent
 from artifex.trends.seasonal_repository import SeasonalRepository
 
 
-class SeasonalProvider:
+class SeasonalProvider(Protocol):
     name: str
 
-    async def collect(self, *, as_of: datetime) -> tuple[RawSeasonalEvent, ...]:
-        raise NotImplementedError
+    async def collect(self, *, as_of: datetime) -> tuple[RawSeasonalEvent, ...]: ...
 
 
 class SeasonalCollectionReport(BaseModel):
