@@ -178,6 +178,8 @@ class DiscordConfig(StrictModel):
 
 class RightsConfig(StrictModel):
     enforce: bool = True
+    default_profile: str = "unconfigured"
+    profile_dirs: tuple[Path, ...] = (Path("profiles/policies"),)
 
 
 class StorageConfig(StrictModel):
