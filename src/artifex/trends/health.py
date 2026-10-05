@@ -24,7 +24,6 @@ class SignalHealthRepository:
         at: datetime,
     ) -> SignalSourceHealth:
         current = _utc(at)
-        previous = self.get(provider, kind=kind)
         health = SignalSourceHealth(
             provider=provider,
             kind=kind,
@@ -65,7 +64,7 @@ class SignalHealthRepository:
             consecutive_failures=failures,
             last_count=previous.last_count if previous is not None else 0,
         )
-        self._write(health, previous=previous)
+        self._write(health)
         return health
 
     def get(self, provider: str, *, kind: str) -> SignalSourceHealth | None:
