@@ -91,6 +91,21 @@ class LlmConfig(StrictModel):
     api_key_env: str | None = None
 
 
+class CharacterRegistryConfig(StrictModel):
+    profile_dirs: tuple[Path, ...] = (Path("profiles/characters"),)
+    minimum_readiness: float = Field(default=0.0, ge=0, le=1)
+
+
+class LoRARegistryConfig(StrictModel):
+    roots: tuple[Path, ...] = (Path("models/loras"),)
+    extensions: tuple[str, ...] = (".safetensors",)
+    metadata_header_max_mib: int = Field(default=16, ge=1)
+    production_identity_threshold: float = Field(default=0.80, ge=0, le=1)
+    production_quality_threshold: float = Field(default=0.70, ge=0, le=1)
+    production_flexibility_threshold: float = Field(default=0.50, ge=0, le=1)
+    maximum_character_loras_per_scene: int = Field(default=4, ge=1)
+
+
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
 
@@ -118,6 +133,8 @@ class ArtifexSettings(StrictModel):
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
     production: ProductionConfig = Field(default_factory=ProductionConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
+    characters: CharacterRegistryConfig = Field(default_factory=CharacterRegistryConfig)
+    loras: LoRARegistryConfig = Field(default_factory=LoRARegistryConfig)
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)

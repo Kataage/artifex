@@ -41,6 +41,22 @@ llm:
   structured_repair_attempts: 2
   api_key_env: null
 
+characters:
+  profile_dirs:
+    - profiles/characters
+  minimum_readiness: 0.0
+
+loras:
+  roots:
+    - models/loras
+  extensions:
+    - .safetensors
+  metadata_header_max_mib: 16
+  production_identity_threshold: 0.80
+  production_quality_threshold: 0.70
+  production_flexibility_threshold: 0.50
+  maximum_character_loras_per_scene: 4
+
 comfyui:
   base_url: http://127.0.0.1:8188
 
