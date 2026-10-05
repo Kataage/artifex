@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.db import Database
+from artifex.db.models import PackInventoryRow
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.llm import (
     LlmCallRepository,
@@ -116,9 +118,6 @@ def inventory_list(
     core = build_core(_settings(config))
     try:
         counts = core.editorial.inventory_counts()
-        from artifex.db.models import PackInventoryRow
-        from sqlalchemy import select
-
         with core.database.session() as session:
             rows = session.scalars(
                 select(PackInventoryRow).order_by(
