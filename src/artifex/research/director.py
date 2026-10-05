@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC
 
 from artifex.config.models import ResearchConfig
-from artifex.planner.models import PlanningContext
+from artifex.planner.models import PlanningContext, ResearchBriefSummary
 from artifex.research.models import (
-    ResearchBriefSummary,
     ResearchIntent,
     ResearchSearchRequest,
     SafeSearch,
@@ -65,7 +64,20 @@ class ResearchDirector:
             now=now,
         )
         return context.model_copy(
-            update={"research_brief": ResearchBriefSummary.from_brief(brief)}
+            update={
+                "research_brief": ResearchBriefSummary(
+                    id=brief.id,
+                    topic=brief.topic,
+                    research_run_ids=brief.research_run_ids,
+                    evidence_ids=brief.evidence_ids,
+                    key_findings=brief.key_findings,
+                    generated_at=brief.generated_at,
+                    expires_at=brief.expires_at,
+                    freshness_confidence=brief.freshness_confidence,
+                    degraded=brief.degraded,
+                    adult=brief.adult,
+                )
+            }
         )
 
     def _query_plan(
