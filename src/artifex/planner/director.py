@@ -8,7 +8,6 @@ from artifex.config.models import PlannerConfig
 from artifex.llm import ChatMessage, StructuredGenerator
 from artifex.planner.allocation import source_quotas
 from artifex.planner.models import (
-    ConceptCandidate,
     ConceptCandidateBatch,
     IdeaSource,
     PlanningContext,
@@ -139,11 +138,13 @@ class IdeaDirector:
                     raise ValueError(
                         "trend candidates must reference only supplied trend signal ids"
                     )
-            elif candidate.idea_source is IdeaSource.SEASONAL:
-                if not refs or not refs <= seasonal_ids:
-                    raise ValueError(
-                        "seasonal candidates must reference only supplied seasonal event ids"
-                    )
+            elif (
+                candidate.idea_source is IdeaSource.SEASONAL
+                and (not refs or not refs <= seasonal_ids)
+            ):
+                raise ValueError(
+                    "seasonal candidates must reference only supplied seasonal event ids"
+                )
 
     @staticmethod
     def _messages(
