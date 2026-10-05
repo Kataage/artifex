@@ -122,6 +122,12 @@ class ResearchService:
             payload["extracted_text"] = ""
             payload["extraction_note"] = "tag metadata evidence does not fetch post content"
             return payload
+        if evidence.adult:
+            payload["extracted_text"] = ""
+            payload["extraction_note"] = (
+                "adult-rated evidence is metadata-only; raw page extraction is disabled"
+            )
+            return payload
 
         url = validate_external_url(evidence.canonical_url, self._config)
         try:
