@@ -347,6 +347,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         discord_connected=(
             discord_runtime.is_ready if discord_runtime is not None else None
         ),
+        research_probe=core.research.health,
     )
     supervisor = HealthSupervisor(
         checker,
