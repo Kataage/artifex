@@ -9,6 +9,19 @@ planner:
     trend: 0.30
     seasonal: 0.20
     exploration: 0.10
+  score_weights:
+    trend: 0.15
+    evergreen: 0.10
+    character_fit: 0.15
+    novelty: 0.15
+    visual_strength: 0.15
+    historical_performance: 0.10
+    seasonality: 0.10
+    series_potential: 0.05
+    readiness: 0.05
+  similarity_penalty_weight: 0.35
+  recent_character_penalty_weight: 0.15
+  hard_similarity_threshold: 0.90
 
 production:
   retry_limit: 3
@@ -20,6 +33,13 @@ llm:
   backend: llama_cpp
   base_url: http://127.0.0.1:8080
   model: spark-x2.5-4b-heretic-jp
+  structured_output: json_schema
+  temperature: 0.9
+  timeout_seconds: 180
+  request_attempts: 2
+  retry_backoff_seconds: 1
+  structured_repair_attempts: 2
+  api_key_env: null
 
 comfyui:
   base_url: http://127.0.0.1:8188

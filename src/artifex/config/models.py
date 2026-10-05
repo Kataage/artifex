@@ -29,9 +29,46 @@ class PlannerMixConfig(StrictModel):
         return self
 
 
+class PlannerScoreWeightsConfig(StrictModel):
+    trend: float = Field(default=0.15, ge=0)
+    evergreen: float = Field(default=0.10, ge=0)
+    character_fit: float = Field(default=0.15, ge=0)
+    novelty: float = Field(default=0.15, ge=0)
+    visual_strength: float = Field(default=0.15, ge=0)
+    historical_performance: float = Field(default=0.10, ge=0)
+    seasonality: float = Field(default=0.10, ge=0)
+    series_potential: float = Field(default=0.05, ge=0)
+    readiness: float = Field(default=0.05, ge=0)
+
+    @model_validator(mode="after")
+    def validate_total(self) -> PlannerScoreWeightsConfig:
+        total = sum(
+            (
+                self.trend,
+                self.evergreen,
+                self.character_fit,
+                self.novelty,
+                self.visual_strength,
+                self.historical_performance,
+                self.seasonality,
+                self.series_potential,
+                self.readiness,
+            )
+        )
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError("planner positive score weights must sum to 1.0")
+        return self
+
+
 class PlannerConfig(StrictModel):
     candidate_count: int = Field(default=8, ge=1)
     mix: PlannerMixConfig = Field(default_factory=PlannerMixConfig)
+    score_weights: PlannerScoreWeightsConfig = Field(
+        default_factory=PlannerScoreWeightsConfig
+    )
+    similarity_penalty_weight: float = Field(default=0.35, ge=0)
+    recent_character_penalty_weight: float = Field(default=0.15, ge=0)
+    hard_similarity_threshold: float = Field(default=0.90, ge=0, le=1)
 
 
 class ProductionConfig(StrictModel):
@@ -45,6 +82,13 @@ class LlmConfig(StrictModel):
     backend: Literal["llama_cpp", "openai_compatible"] = "llama_cpp"
     base_url: str = "http://127.0.0.1:8080"
     model: str = "spark-x2.5-4b-heretic-jp"
+    structured_output: Literal["json_schema", "json_object"] = "json_schema"
+    temperature: float = Field(default=0.9, ge=0, le=2)
+    timeout_seconds: float = Field(default=180.0, gt=0)
+    request_attempts: int = Field(default=2, ge=1)
+    retry_backoff_seconds: float = Field(default=1.0, ge=0)
+    structured_repair_attempts: int = Field(default=2, ge=0)
+    api_key_env: str | None = None
 
 
 class ComfyUiConfig(StrictModel):
