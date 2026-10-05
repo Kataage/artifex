@@ -80,8 +80,10 @@ class ArtifexRemoteOperations:
         state = self._runtime.get_agent_state()
         message = (
             f"Artifex: {state.value} | ideas={inventory.ideas} "
-            f"planned={inventory.planned} completed={inventory.completed_available} "
-            f"reviews={len(reviews)}"
+            f"planned={inventory.planned} available={inventory.completed_available} "
+            f"reserved={inventory.completed_reserved} "
+            f"consumed={inventory.completed_consumed} "
+            f"expired={inventory.completed_expired} reviews={len(reviews)}"
         )
         return CommandResponse(
             ok=True,
@@ -91,6 +93,9 @@ class ArtifexRemoteOperations:
                 "ideas": inventory.ideas,
                 "planned": inventory.planned,
                 "completed_available": inventory.completed_available,
+                "completed_reserved": inventory.completed_reserved,
+                "completed_consumed": inventory.completed_consumed,
+                "completed_expired": inventory.completed_expired,
                 "open_reviews": len(reviews),
             },
         )
