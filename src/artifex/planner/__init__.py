@@ -10,6 +10,7 @@ from artifex.planner.models import (
     TrendSignalSummary,
 )
 from artifex.planner.repository import ConceptRepository
+from artifex.planner.series_director import SeriesIdeaDirector
 from artifex.planner.scoring import CandidateSignals, ConceptScorer, DefaultSignalProvider
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "PackFormat",
     "PlanningContext",
     "SeasonalEventSummary",
+    "SeriesIdeaDirector",
     "SelectedConcept",
     "TrendSignalSummary",
 ]
