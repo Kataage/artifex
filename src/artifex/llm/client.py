@@ -82,6 +82,8 @@ class OpenAICompatibleClient:
             ]
         )
         schema_digest = _digest_json(response_schema)
+        config_digest = _digest_json(self._config.model_dump(mode="json"))
+        schema_version, prompt_version = _schema_metadata(schema_name)
         repair_index = sum(
             1 for message in messages if message.role == "assistant"
         )
@@ -106,6 +108,13 @@ class OpenAICompatibleClient:
                     "response_schema": response_schema,
                     "max_tokens": self._config.reserved_output_tokens,
                     "token_count_source": count_source,
+                    "config_digest": config_digest,
+                    "schema_version": schema_version,
+                    "prompt_version": prompt_version,
+                    "context_window_tokens": self._config.context_window_tokens,
+                    "max_input_tokens": self._config.max_input_tokens,
+                    "reserved_output_tokens": self._config.reserved_output_tokens,
+                    "repair_headroom_tokens": self._config.repair_headroom_tokens,
                 },
             )
 
@@ -302,3 +311,15 @@ def _digest_json(payload: object) -> str:
 
 def _digest_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+
+
+
+def _schema_metadata(schema_name: str) -> tuple[str | None, str | None]:
+    schema_version: str | None = None
+    prompt_version: str | None = None
+    for part in schema_name.split("@")[1:]:
+        if part.startswith("schema="):
+            schema_version = part.removeprefix("schema=") or None
+        elif part.startswith("prompt="):
+            prompt_version = part.removeprefix("prompt=") or None
+    return schema_version, prompt_version
