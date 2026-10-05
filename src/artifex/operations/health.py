@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from artifex.comfy import ComfyUIClient
 from artifex.config.models import ArtifexSettings
 from artifex.db import Database
+from artifex.research.models import ProviderHealth, ProviderState, SearchSource
 from artifex.telemetry import TelemetryRepository
 
 
@@ -68,6 +69,7 @@ class HealthChecker:
         discord_connected: DiscordConnectionProbe | None = None,
         llm_probe: Callable[[], Awaitable[ComponentHealth]] | None = None,
         evaluator_probe: Callable[[], Awaitable[ComponentHealth]] | None = None,
+        research_probe: Callable[[], Awaitable[tuple[ProviderHealth, ...]]] | None = None,
     ) -> None:
         self._settings = settings
         self._database = database
@@ -76,12 +78,14 @@ class HealthChecker:
         self._discord_connected = discord_connected
         self._llm_probe = llm_probe
         self._evaluator_probe = evaluator_probe
+        self._research_probe = research_probe
 
     async def check_all(self, *, include_worker: bool = True) -> HealthReport:
         components = [
             await self._check_llm(),
             await self._check_comfy(),
             await self._check_evaluator(),
+            await self._check_research(),
             self._check_database(),
             self._check_storage(),
             self._check_discord(),
@@ -187,6 +191,66 @@ class HealthChecker:
             state=ComponentState.HEALTHY,
             detail=f"Vision evaluator is ready: {config.vision_model}.",
             blocking=True,
+        )
+
+    async def _check_research(self) -> ComponentHealth:
+        config = self._settings.research
+        if not config.enabled:
+            return ComponentHealth(
+                name="research",
+                state=ComponentState.DISABLED,
+                detail="Research integration is disabled.",
+                blocking=config.required_for_ideation,
+            )
+        if self._research_probe is None:
+            return ComponentHealth(
+                name="research",
+                state=ComponentState.DEGRADED,
+                detail="Research provider health probe is not attached.",
+                blocking=False,
+            )
+
+        reports = await self._research_probe()
+        healthy = [
+            report for report in reports
+            if report.state is ProviderState.HEALTHY
+        ]
+        capabilities = {
+            capability
+            for report in healthy
+            for capability in report.capabilities
+        }
+        required = {SearchSource.WEB, SearchSource.IMAGES}
+        missing = required - capabilities
+        if missing:
+            return ComponentHealth(
+                name="research",
+                state=ComponentState.UNHEALTHY,
+                detail=(
+                    "No healthy provider covers required ideation capabilities: "
+                    + ", ".join(sorted(item.value for item in missing))
+                ),
+                blocking=config.required_for_ideation,
+                metrics={"healthy_providers": len(healthy)},
+            )
+
+        degraded = any(
+            report.state is ProviderState.DEGRADED
+            for report in reports
+        )
+        return ComponentHealth(
+            name="research",
+            state=(
+                ComponentState.DEGRADED
+                if degraded
+                else ComponentState.HEALTHY
+            ),
+            detail=(
+                f"{len(healthy)} healthy research provider(s); "
+                "native web/image research is available."
+            ),
+            blocking=config.required_for_ideation,
+            metrics={"healthy_providers": len(healthy)},
         )
 
     def _check_database(self) -> ComponentHealth:
