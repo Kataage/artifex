@@ -144,8 +144,10 @@ async def test_context_compaction_is_deterministic(tmp_path: Path) -> None:
     database.migrate()
     manager = ContextMemoryManager(
         ContextConfig(max_characters=2, character_tokens=500),
-        ConceptRepository(database),
-        LocalSimilarityEmbeddingProvider(),
+        ConceptMemoryRetriever(
+            ConceptRepository(database),
+            LocalSimilarityEmbeddingProvider(),
+        ),
     )
     now = datetime(2026, 10, 6, 1, tzinfo=UTC)
     context = PlanningContext(
