@@ -29,6 +29,12 @@ production:
   idea_inventory_target: 30
   planned_inventory_target: 10
   completed_inventory_target: 7
+  idea_replenish_batch: 3
+  model_family: ilxl
+  checkpoint: null
+  width: 1024
+  height: 1536
+  batch_size: 1
 
 llm:
   backend: llama_cpp
@@ -60,6 +66,7 @@ loras:
 
 comfyui:
   base_url: http://127.0.0.1:8188
+  output_dir: null
   timeout_seconds: 30
   execution_timeout_seconds: 900
   poll_interval_seconds: 1
@@ -97,9 +104,19 @@ trends:
 
 discord:
   enabled: false
+  token_env: ARTIFEX_DISCORD_TOKEN
+  guild_id: null
+  channel_id: null
+  allowed_user_ids: []
+  allowed_role_ids: []
+  command_prefix: "!artifex "
   notify_completion: true
   notify_review: true
   notify_error: true
+  notify_backend: true
+  notify_disk: true
+  daily_summary_hour_local: 9
+  daily_summary_timezone: Asia/Tokyo
 
 rights:
   enforce: true
@@ -110,6 +127,7 @@ rights:
 storage:
   database_url: sqlite:///data/artifex.sqlite3
   packs_dir: data/packs
+  minimum_free_gib: 5
 
 operations:
   health_interval_seconds: 30
@@ -120,3 +138,4 @@ operations:
   max_scenes_per_pack: 12
   max_attempts_per_scene: 4
   max_events_per_cycle: 50
+  event_retention_rows: 10000
