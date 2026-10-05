@@ -25,6 +25,7 @@ planner:
 
 production:
   retry_limit: 3
+  infrastructure_retry_limit: 5
   idea_inventory_target: 30
   planned_inventory_target: 10
   completed_inventory_target: 7
@@ -65,6 +66,27 @@ comfyui:
   request_attempts: 3
   reconnect_backoff_seconds: 1
   default_template: ilxl_base_v1
+
+evaluation:
+  weights:
+    identity: 0.25
+    alignment: 0.15
+    face_quality: 0.15
+    technical_quality: 0.15
+    aesthetic: 0.10
+    novelty: 0.08
+    continuity: 0.07
+    integrity: 0.05
+  identity_hard_min: 0.60
+  integrity_hard_min: 0.80
+  similarity_hard_max: 0.92
+  accepted_score_min: 0.75
+  review_score_min: 0.55
+  identity_accept_min: 0.75
+  alignment_review_min: 0.60
+  face_review_min: 0.60
+  technical_review_min: 0.60
+  continuity_review_min: 0.55
 
 discord:
   enabled: false

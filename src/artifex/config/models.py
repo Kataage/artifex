@@ -73,6 +73,7 @@ class PlannerConfig(StrictModel):
 
 class ProductionConfig(StrictModel):
     retry_limit: int = Field(default=3, ge=0)
+    infrastructure_retry_limit: int = Field(default=5, ge=0)
     idea_inventory_target: int = Field(default=30, ge=0)
     planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
@@ -116,6 +117,49 @@ class ComfyUiConfig(StrictModel):
     default_template: str = "ilxl_base_v1"
 
 
+class EvaluationWeightsConfig(StrictModel):
+    identity: float = Field(default=0.25, ge=0)
+    alignment: float = Field(default=0.15, ge=0)
+    face_quality: float = Field(default=0.15, ge=0)
+    technical_quality: float = Field(default=0.15, ge=0)
+    aesthetic: float = Field(default=0.10, ge=0)
+    novelty: float = Field(default=0.08, ge=0)
+    continuity: float = Field(default=0.07, ge=0)
+    integrity: float = Field(default=0.05, ge=0)
+
+    @model_validator(mode="after")
+    def validate_total(self) -> EvaluationWeightsConfig:
+        total = sum(
+            (
+                self.identity,
+                self.alignment,
+                self.face_quality,
+                self.technical_quality,
+                self.aesthetic,
+                self.novelty,
+                self.continuity,
+                self.integrity,
+            )
+        )
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError("evaluation weights must sum to 1.0")
+        return self
+
+
+class EvaluationConfig(StrictModel):
+    weights: EvaluationWeightsConfig = Field(default_factory=EvaluationWeightsConfig)
+    identity_hard_min: float = Field(default=0.60, ge=0, le=1)
+    integrity_hard_min: float = Field(default=0.80, ge=0, le=1)
+    similarity_hard_max: float = Field(default=0.92, ge=0, le=1)
+    accepted_score_min: float = Field(default=0.75, ge=0, le=1)
+    review_score_min: float = Field(default=0.55, ge=0, le=1)
+    identity_accept_min: float = Field(default=0.75, ge=0, le=1)
+    alignment_review_min: float = Field(default=0.60, ge=0, le=1)
+    face_review_min: float = Field(default=0.60, ge=0, le=1)
+    technical_review_min: float = Field(default=0.60, ge=0, le=1)
+    continuity_review_min: float = Field(default=0.55, ge=0, le=1)
+
+
 class DiscordConfig(StrictModel):
     enabled: bool = False
     token_env: str = "ARTIFEX_DISCORD_TOKEN"
@@ -142,6 +186,7 @@ class ArtifexSettings(StrictModel):
     characters: CharacterRegistryConfig = Field(default_factory=CharacterRegistryConfig)
     loras: LoRARegistryConfig = Field(default_factory=LoRARegistryConfig)
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
