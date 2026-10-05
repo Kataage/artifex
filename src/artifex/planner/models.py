@@ -63,6 +63,37 @@ class RecentConceptSummary(PlannerModel):
     visual_hook: str
 
 
+class ResearchEvidenceSummary(PlannerModel):
+    evidence_id: str = Field(min_length=1)
+    source: str
+    provider: str
+    title: str
+    finding: str
+
+
+class ResearchBriefSummary(PlannerModel):
+    id: str = Field(min_length=1)
+    topic: str
+    research_run_ids: tuple[str, ...]
+    evidence_ids: tuple[str, ...]
+    key_findings: tuple[str, ...]
+    items: tuple[ResearchEvidenceSummary, ...] = ()
+    generated_at: datetime
+    expires_at: datetime
+    freshness_confidence: float = Field(ge=0, le=1)
+    degraded: bool
+    adult: bool
+
+    def fresh_at(self, when: datetime) -> bool:
+        left = self.expires_at
+        right = when
+        if left.tzinfo is None and right.tzinfo is not None:
+            left = left.replace(tzinfo=right.tzinfo)
+        if right.tzinfo is None and left.tzinfo is not None:
+            right = right.replace(tzinfo=left.tzinfo)
+        return left > right
+
+
 class PlanningContext(PlannerModel):
     as_of: datetime
     characters: tuple[CharacterOption, ...]
@@ -71,6 +102,7 @@ class PlanningContext(PlannerModel):
     recent_concepts: tuple[RecentConceptSummary, ...] = ()
     evergreen_prompts: tuple[str, ...] = ()
     operator_notes: tuple[str, ...] = ()
+    research_brief: ResearchBriefSummary | None = None
 
     @model_validator(mode="after")
     def require_characters(self) -> PlanningContext:
@@ -102,6 +134,9 @@ class ConceptCandidate(PlannerModel):
     target_scene_count: int = Field(ge=1, le=12)
     continuity_requirements: tuple[str, ...] = ()
     source_refs: tuple[str, ...] = ()
+    research_run_ids: tuple[str, ...] = ()
+    research_evidence_ids: tuple[str, ...] = ()
+    research_notes: tuple[str, ...] = ()
     assessment: CreativeAssessment
 
     @model_validator(mode="after")

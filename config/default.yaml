@@ -109,6 +109,39 @@ trends:
   max_summary_signals: 20
   minimum_effective_strength: 0.05
 
+research:
+  enabled: true
+  required_for_ideation: true
+  adult_enabled: false
+  default_region: jp-jp
+  default_safesearch: moderate
+  adult_safesearch: "off"
+  max_queries_per_cycle: 4
+  max_results_per_query: 8
+  max_brief_items: 20
+  max_brief_chars: 12000
+  max_snippet_chars: 1200
+  max_cycle_seconds: 45
+  daily_request_budget: 200
+  max_extract_chars: 8000
+  cache_ttl_hours: 6
+  current_cache_ttl_hours: 2
+  evergreen_cache_ttl_hours: 72
+  timeout_seconds: 10
+  provider_order:
+    - ddgs
+    - searxng
+    - gelbooru
+  ddgs_backend: auto
+  searxng_base_url: null
+  gelbooru_enabled: true
+  gelbooru_base_url: https://gelbooru.com
+  gelbooru_api_key_env: null
+  gelbooru_user_id_env: null
+  allow_private_network: false
+  allowed_domains: []
+  blocked_domains: []
+
 discord:
   enabled: false
   token_env: ARTIFEX_DISCORD_TOKEN

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -11,6 +12,13 @@ from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.policy import PolicyDecisionRepository
+from artifex.research import (
+    ResearchIntent,
+    ResearchProviderError,
+    ResearchSearchRequest,
+    SafeSearch,
+    SearchSource,
+)
 from artifex.review import ReviewQueueRepository
 from artifex.series import SeriesRepository
 
@@ -19,6 +27,12 @@ app = typer.Typer(
     help="Autonomous Illustration Production System",
     no_args_is_help=True,
 )
+research_app = typer.Typer(
+    name="research",
+    help="Search and inspect bounded external research evidence.",
+    no_args_is_help=True,
+)
+app.add_typer(research_app, name="research")
 
 ConfigOption = Annotated[
     Path | None,
@@ -40,6 +54,242 @@ def _remote(core: CoreServices) -> ArtifexRemoteOperations:
         SeriesRepository(core.database),
         PolicyDecisionRepository(core.database),
     )
+
+
+
+
+def _timelimit_from_since(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().casefold()
+    direct = {"d": "d", "w": "w", "m": "m", "y": "y"}
+    if normalized in direct:
+        return direct[normalized]
+    if normalized.endswith("d") and normalized[:-1].isdigit():
+        days = int(normalized[:-1])
+        if days <= 1:
+            return "d"
+        if days <= 7:
+            return "w"
+        if days <= 31:
+            return "m"
+        return "y"
+    raise typer.BadParameter("--since must be d/w/m/y or a value such as 1d, 7d, 30d")
+
+
+def _print_payload(payload: object, *, as_json: bool) -> None:
+    if as_json:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(str(payload))
+
+
+@research_app.command("status")
+def research_status(
+    config: ConfigOption = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    """Show configured research providers and health."""
+    core = build_core(_settings(config))
+    try:
+        reports = asyncio.run(core.research.health())
+        payload = [report.model_dump(mode="json") for report in reports]
+        if json_output:
+            _print_payload(payload, as_json=True)
+            return
+        for report in reports:
+            capabilities = ",".join(item.value for item in report.capabilities) or "-"
+            typer.echo(
+                f"{report.provider}\t{report.state.value}\t"
+                f"capabilities={capabilities}\t{report.detail}"
+            )
+    finally:
+        asyncio.run(core.close())
+
+
+@research_app.command("sources")
+def research_sources(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Alias for provider/capability status."""
+    research_status(config=config, json_output=json_output)
+
+
+@research_app.command("search")
+def research_search(
+    query: str,
+    source: Annotated[str, typer.Option("--source")] = "web",
+    intent: Annotated[str, typer.Option("--intent")] = "evergreen",
+    limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 8,
+    region: Annotated[str | None, typer.Option("--region")] = None,
+    safe_search: Annotated[str | None, typer.Option("--safe-search")] = None,
+    since: Annotated[str | None, typer.Option("--since")] = None,
+    adult: Annotated[bool, typer.Option("--adult")] = False,
+    backend: Annotated[str | None, typer.Option("--backend")] = None,
+    no_cache: Annotated[bool, typer.Option("--no-cache")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+    config: ConfigOption = None,
+) -> None:
+    """Search web/images/news/videos/tags through the stable Artifex contract."""
+    settings = _settings(config)
+    core = build_core(settings)
+    try:
+        request = ResearchSearchRequest(
+            query=query,
+            source=SearchSource(source.casefold()),
+            intent=ResearchIntent(intent.casefold()),
+            max_results=limit,
+            region=region or settings.research.default_region,
+            safesearch=SafeSearch(
+                (safe_search or settings.research.default_safesearch).casefold()
+            ),
+            timelimit=_timelimit_from_since(since),
+            adult=adult,
+            backend=backend,
+        )
+        response = asyncio.run(
+            core.research.search(request, use_cache=not no_cache)
+        )
+        payload = response.model_dump(mode="json")
+        if json_output:
+            _print_payload(payload, as_json=True)
+            return
+        typer.echo(
+            f"run={response.run_id} cached={response.cached} "
+            f"degraded={response.degraded}"
+        )
+        for item in response.evidence:
+            typer.echo(
+                f"{item.id}\t[{item.provider}/{item.source.value}] "
+                f"{item.title}\t{item.canonical_url}"
+            )
+    except (ResearchProviderError, RuntimeError, ValueError) as exc:
+        typer.echo(f"research error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
+
+
+@research_app.command("tags")
+def research_tags(
+    query: str,
+    limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 10,
+    adult: Annotated[bool, typer.Option("--adult")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+    config: ConfigOption = None,
+) -> None:
+    """Search structured tag metadata using an approved specialist provider."""
+    settings = _settings(config)
+    core = build_core(settings)
+    try:
+        response = asyncio.run(
+            core.research.search(
+                ResearchSearchRequest(
+                    query=query,
+                    source=SearchSource.TAGS,
+                    intent=(
+                        ResearchIntent.ADULT
+                        if adult
+                        else ResearchIntent.EVERGREEN
+                    ),
+                    max_results=limit,
+                    region=settings.research.default_region,
+                    safesearch=SafeSearch(
+                        settings.research.adult_safesearch
+                        if adult
+                        else settings.research.default_safesearch
+                    ),
+                    adult=adult,
+                )
+            )
+        )
+        payload = response.model_dump(mode="json")
+        if json_output:
+            _print_payload(payload, as_json=True)
+            return
+        for item in response.evidence:
+            typer.echo(f"{item.id}\t{item.title}\t{item.snippet}")
+    except (ResearchProviderError, RuntimeError, ValueError) as exc:
+        typer.echo(f"research error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
+
+
+@research_app.command("inspect")
+def research_inspect(
+    evidence_id: str,
+    extract: Annotated[bool, typer.Option("--extract")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+    config: ConfigOption = None,
+) -> None:
+    """Inspect persisted evidence; optionally fetch bounded untrusted page text."""
+    core = build_core(_settings(config))
+    try:
+        payload = asyncio.run(
+            core.research.inspect(evidence_id, extract=extract)
+        )
+        _print_payload(payload, as_json=json_output)
+    finally:
+        asyncio.run(core.close())
+
+
+@research_app.command("brief")
+def research_brief(
+    topic: Annotated[str, typer.Option("--topic")],
+    adult: Annotated[bool, typer.Option("--adult")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+    config: ConfigOption = None,
+) -> None:
+    """Build a bounded evidence-backed ResearchBrief for an explicit topic."""
+    settings = _settings(config)
+    core = build_core(settings)
+    try:
+        requests = [
+            ResearchSearchRequest(
+                query=topic,
+                source=SearchSource.WEB,
+                intent=ResearchIntent.CURRENT,
+                max_results=settings.research.max_results_per_query,
+                region=settings.research.default_region,
+                safesearch=SafeSearch(settings.research.default_safesearch),
+                timelimit="m",
+                adult=adult,
+            ),
+            ResearchSearchRequest(
+                query=topic,
+                source=SearchSource.IMAGES,
+                intent=ResearchIntent.COMPOSITION,
+                max_results=settings.research.max_results_per_query,
+                region=settings.research.default_region,
+                safesearch=SafeSearch(settings.research.default_safesearch),
+                timelimit="m",
+                adult=adult,
+            ),
+        ]
+        if adult:
+            requests.append(
+                ResearchSearchRequest(
+                    query=topic,
+                    source=SearchSource.TAGS,
+                    intent=ResearchIntent.ADULT,
+                    max_results=settings.research.max_results_per_query,
+                    region=settings.research.default_region,
+                    safesearch=SafeSearch(settings.research.adult_safesearch),
+                    adult=True,
+                )
+            )
+        brief = asyncio.run(core.research.brief(topic, requests, adult=adult))
+        _print_payload(brief.model_dump(mode="json"), as_json=json_output)
+    except (ResearchProviderError, RuntimeError, ValueError) as exc:
+        typer.echo(f"research error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
 
 
 def _run_remote(name: CommandName, config: Path | None, *args: str) -> None:

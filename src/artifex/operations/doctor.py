@@ -75,6 +75,21 @@ class DoctorService:
                 ),
             ),
             DoctorCheck(
+                name="native_research_provider",
+                ready=(
+                    not self._settings.research.required_for_ideation
+                    or (
+                        self._settings.research.enabled
+                        and "ddgs" in self._settings.research.provider_order
+                    )
+                ),
+                detail=(
+                    "Windows-native DDGS provider is configured"
+                    if "ddgs" in self._settings.research.provider_order
+                    else "DDGS is missing from research.provider_order"
+                ),
+            ),
+            DoctorCheck(
                 name="character_catalog",
                 ready=bool(self._characters.list(enabled_only=True)),
                 detail=(

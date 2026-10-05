@@ -182,6 +182,37 @@ class TrendConfig(StrictModel):
     minimum_effective_strength: float = Field(default=0.05, ge=0, le=1)
 
 
+class ResearchConfig(StrictModel):
+    enabled: bool = True
+    required_for_ideation: bool = True
+    adult_enabled: bool = False
+    default_region: str = "jp-jp"
+    default_safesearch: Literal["on", "moderate", "off"] = "moderate"
+    adult_safesearch: Literal["on", "moderate", "off"] = "off"
+    max_queries_per_cycle: int = Field(default=4, ge=1, le=20)
+    max_results_per_query: int = Field(default=8, ge=1, le=50)
+    max_brief_items: int = Field(default=20, ge=1, le=100)
+    max_brief_chars: int = Field(default=12000, ge=1000, le=100000)
+    max_snippet_chars: int = Field(default=1200, ge=100, le=10000)
+    max_cycle_seconds: float = Field(default=45.0, gt=0, le=600)
+    daily_request_budget: int = Field(default=200, ge=1, le=10000)
+    max_extract_chars: int = Field(default=8000, ge=500, le=100000)
+    cache_ttl_hours: float = Field(default=6.0, gt=0)
+    current_cache_ttl_hours: float = Field(default=2.0, gt=0)
+    evergreen_cache_ttl_hours: float = Field(default=72.0, gt=0)
+    timeout_seconds: int = Field(default=10, ge=1, le=120)
+    provider_order: tuple[str, ...] = ("ddgs", "searxng", "gelbooru")
+    ddgs_backend: str = "auto"
+    searxng_base_url: str | None = None
+    gelbooru_enabled: bool = True
+    gelbooru_base_url: str = "https://gelbooru.com"
+    gelbooru_api_key_env: str | None = None
+    gelbooru_user_id_env: str | None = None
+    allow_private_network: bool = False
+    allowed_domains: tuple[str, ...] = ()
+    blocked_domains: tuple[str, ...] = ()
+
+
 class DiscordConfig(StrictModel):
     enabled: bool = False
     token_env: str = "ARTIFEX_DISCORD_TOKEN"
@@ -241,6 +272,7 @@ class ArtifexSettings(StrictModel):
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     trends: TrendConfig = Field(default_factory=TrendConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
