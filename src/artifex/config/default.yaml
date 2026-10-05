@@ -1,0 +1,38 @@
+agent:
+  autonomous: true
+  poll_interval_seconds: 10
+
+planner:
+  candidate_count: 8
+  mix:
+    evergreen: 0.40
+    trend: 0.30
+    seasonal: 0.20
+    exploration: 0.10
+
+production:
+  retry_limit: 3
+  completed_inventory_target: 7
+
+llm:
+  backend: llama_cpp
+  base_url: http://127.0.0.1:8080
+  model: spark-x2.5-4b-heretic-jp
+
+comfyui:
+  base_url: http://127.0.0.1:8188
+
+discord:
+  enabled: false
+  token_env: ARTIFEX_DISCORD_TOKEN
+  notify_completion: true
+  notify_review: true
+  notify_error: true
+
+rights:
+  enforce: true
+
+storage:
+  database_url: sqlite:///data/artifex.sqlite3
+  packs_dir: data/packs
+  minimum_free_gib: 5
