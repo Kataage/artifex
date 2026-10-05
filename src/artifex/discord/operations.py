@@ -361,9 +361,9 @@ class ArtifexRemoteOperations:
                 scene = session.get(SceneRow, item.subject_id)
                 if scene is None:
                     raise KeyError(f"unknown scene: {item.subject_id}")
-                state = SceneState(scene.state)
+                scene_state = SceneState(scene.state)
                 attempt_id = self._attempt_id(item, scene.selected_attempt_id)
-            if state is SceneState.REVIEW:
+            if scene_state is SceneState.REVIEW:
                 self._runtime.select_scene_attempt(
                     item.subject_id,
                     attempt_id,
@@ -374,8 +374,8 @@ class ArtifexRemoteOperations:
                 pack = session.get(PackRow, item.subject_id)
                 if pack is None:
                     raise KeyError(f"unknown pack: {item.subject_id}")
-                state = PackState(pack.state)
-            if state is PackState.REVIEW:
+                pack_state = PackState(pack.state)
+            if pack_state is PackState.REVIEW:
                 self._runtime.transition_pack(item.subject_id, PackState.FINALIZED)
 
     def _reject_subject(self, item: ReviewItem) -> None:
@@ -384,9 +384,9 @@ class ArtifexRemoteOperations:
                 scene = session.get(SceneRow, item.subject_id)
                 if scene is None:
                     raise KeyError(f"unknown scene: {item.subject_id}")
-                state = SceneState(scene.state)
+                scene_state = SceneState(scene.state)
                 attempt_id = self._attempt_id(item, scene.selected_attempt_id)
-            if state in {SceneState.REVIEW, SceneState.EVALUATING}:
+            if scene_state in {SceneState.REVIEW, SceneState.EVALUATING}:
                 self._runtime.select_scene_attempt(
                     item.subject_id,
                     attempt_id,
@@ -397,8 +397,8 @@ class ArtifexRemoteOperations:
                 pack = session.get(PackRow, item.subject_id)
                 if pack is None:
                     raise KeyError(f"unknown pack: {item.subject_id}")
-                state = PackState(pack.state)
-            if state is PackState.REVIEW:
+                pack_state = PackState(pack.state)
+            if pack_state is PackState.REVIEW:
                 self._runtime.transition_pack(item.subject_id, PackState.FAILED)
 
     @staticmethod
