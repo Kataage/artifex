@@ -221,7 +221,7 @@ def test_post_generation_label_can_reclassify_to_private_review(tmp_path: Path) 
                             "negative_constraints": [],
                         },
                         "publication_tier": "public",
-                        "transition_from_previous": null,
+                        "transition_from_previous": None,
                         "series_state_updates": {},
                         "unresolved_hooks_added": [],
                         "unresolved_hooks_resolved": [],
