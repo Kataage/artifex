@@ -50,6 +50,8 @@ editorial:
   character_diversity_weight: 0.50
   branch_diversity_weight: 0.30
   group_diversity_weight: 0.20
+  format_diversity_weight: 0.15
+  theme_diversity_weight: 0.15
   series_candidate_count: 4
 
 llm:
