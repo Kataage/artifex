@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from artifex.config.models import PlannerConfig
 from artifex.llm import ChatMessage, StructuredGenerator
+from artifex.llm.prompts import IDEA_DIRECTOR_PROMPT
 from artifex.planner.allocation import source_quotas
 from artifex.planner.models import (
     ConceptCandidateBatch,
@@ -55,7 +56,9 @@ class IdeaDirector:
         batch = await self._generator.generate(
             ConceptCandidateBatch,
             messages,
-            schema_name="artifex_concept_candidates",
+            schema_name=IDEA_DIRECTOR_PROMPT.schema_name(
+                "artifex_concept_candidates"
+            ),
             post_validator=validate_batch,
         )
 
@@ -208,16 +211,7 @@ class IdeaDirector:
         return (
             ChatMessage(
                 role="system",
-                content=(
-                    "You are the concept-planning component of Artifex, an autonomous "
-                    "illustration production system. Design coherent multi-image content "
-                    "pack concepts, not final image prompts or tag strings. Make candidates "
-                    "meaningfully distinct in setting, composition hook, mood, progression, "
-                    "and format. Use only character ids and source reference ids supplied by "
-                    "the user. A trend concept must be grounded in supplied trend signals; "
-                    "a seasonal concept must be grounded in supplied seasonal events. Do not "
-                    "invent external trends. Return only the requested structured JSON."
-                ),
+                content=IDEA_DIRECTOR_PROMPT.text,
             ),
             ChatMessage(
                 role="user",
