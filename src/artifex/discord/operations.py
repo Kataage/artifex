@@ -14,6 +14,7 @@ from artifex.review import ReviewItem, ReviewQueueRepository, ReviewState
 from artifex.runtime import RuntimeStore
 from artifex.scheduler import Scheduler
 from artifex.series import SeriesRepository
+from artifex.trends import SignalIngestionService
 
 
 class ArtifexRemoteOperations:
@@ -26,6 +27,8 @@ class ArtifexRemoteOperations:
         characters: CharacterRegistry,
         series: SeriesRepository,
         policy_decisions: PolicyDecisionRepository,
+        *,
+        signals: SignalIngestionService | None = None,
     ) -> None:
         self._database = database
         self._runtime = runtime
@@ -34,6 +37,7 @@ class ArtifexRemoteOperations:
         self._characters = characters
         self._series = series
         self._policy_decisions = policy_decisions
+        self._signals = signals
 
     def execute(self, request: CommandRequest) -> CommandResponse:
         match request.name:
@@ -65,6 +69,8 @@ class ArtifexRemoteOperations:
                 return self._character(self._one_arg(request, "character id"))
             case CommandName.SERIES:
                 return self._series_info(self._one_arg(request, "series id"))
+            case CommandName.SIGNALS:
+                return self._signals_status()
             case CommandName.DETAILS:
                 return self._details(self._one_arg(request, "review id"))
 
@@ -345,6 +351,33 @@ class ArtifexRemoteOperations:
                 f"readiness={profile.readiness:.2f} LoRA={profile.lora_policy.value}"
             ),
             data=profile.model_dump(mode="json"),
+        )
+
+    def _signals_status(self) -> CommandResponse:
+        if self._signals is None:
+            return CommandResponse(
+                ok=False,
+                message="Signal inspection is not configured.",
+            )
+        snapshot = self._signals.snapshot()
+        degraded = [
+            source
+            for source in snapshot.sources
+            if source.state != "healthy"
+        ]
+        source_text = ", ".join(
+            f"{source.provider}:{source.state}"
+            for source in snapshot.sources
+        ) or "no source health yet"
+        message = (
+            f"Signals: trends={len(snapshot.trends)} "
+            f"seasonal={len(snapshot.seasonal)} "
+            f"degraded_sources={len(degraded)} | {source_text}"
+        )
+        return CommandResponse(
+            ok=True,
+            message=message,
+            data=snapshot.model_dump(mode="json"),
         )
 
     def _series_info(self, series_id: str) -> CommandResponse:
