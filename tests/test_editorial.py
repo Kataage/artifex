@@ -283,3 +283,99 @@ def test_full_roster_diversity_prefers_unused_branch_and_group(
     assert decision.concept_id == "idea-b"
     assert "diversity-ranked" in decision.reason
     db.dispose()
+
+
+
+def test_series_advances_again_after_autonomous_standalone_gap(
+    tmp_path: Path,
+) -> None:
+    db = _database(tmp_path)
+    now = datetime.now(UTC)
+    series = SeriesRepository(db)
+    series.create(
+        title="Long Arc",
+        character_ids=("char-a",),
+        editorial_policy=SeriesEditorialPolicy(
+            min_gap_packs=1,
+            priority=100,
+        ),
+        series_id="series-1",
+    )
+    config = EditorialConfig(
+        mode="continuous",
+        series_target_share=0.75,
+        max_consecutive_series=2,
+        max_consecutive_standalone=4,
+    )
+    editorial = _editorial(db, config, series=series)
+
+    first = editorial.decide_plan(has_ideas=False)
+    assert first.series_id == "series-1"
+    assert first.series_plan_kind is not None
+    assert first.series_plan_kind.value == "start"
+
+    with db.session() as session:
+        session.add(
+            _pack(
+                "series-pack-1",
+                when=now,
+                series_id="series-1",
+                character_ids=("char-a",),
+                format_type="continuation",
+                theme="episode one",
+            )
+        )
+        session.add(
+            ConceptRow(
+                id="standalone-idea",
+                status="idea",
+                payload_json={
+                    "candidate": {
+                        "character_ids": ["char-b"],
+                        "format": "single_feature",
+                        "theme": "standalone",
+                    }
+                },
+                score=0.8,
+                created_at=now + timedelta(seconds=1),
+            )
+        )
+    series.record_completed_pack(
+        "series-1",
+        pack_id="series-pack-1",
+        episode_number=1,
+    )
+    editorial.complete_decision(
+        first.decision_id,
+        pack_id="series-pack-1",
+        concept_id=None,
+    )
+
+    middle = editorial.decide_plan(has_ideas=True)
+    assert middle.series_id is None
+    assert middle.concept_id == "standalone-idea"
+
+    with db.session() as session:
+        session.add(
+            _pack(
+                "standalone-pack",
+                when=now + timedelta(seconds=2),
+                character_ids=("char-b",),
+                theme="standalone",
+            )
+        )
+    editorial.complete_decision(
+        middle.decision_id,
+        pack_id="standalone-pack",
+        concept_id="standalone-idea",
+    )
+    with db.session() as session:
+        concept = session.get(ConceptRow, "standalone-idea")
+        assert concept is not None
+        concept.status = "planned"
+
+    second = editorial.decide_plan(has_ideas=False)
+    assert second.series_id == "series-1"
+    assert second.series_plan_kind is not None
+    assert second.series_plan_kind.value == "continue"
+    db.dispose()
