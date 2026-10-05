@@ -1,0 +1,1622 @@
+{
+  "catalog_id": "hololive",
+  "catalog_version": "2026.10.06.1",
+  "checked_at": "2026-10-06T03:00:00+09:00",
+  "scope": {
+    "include": [
+      "hololive Japan",
+      "hololive Indonesia",
+      "hololive English",
+      "hololive DEV_IS",
+      "ASOBI★MAWARI-TAI!",
+      "historical hololive China",
+      "graduated, Affiliate, and contract-ended hololive talents"
+    ],
+    "exclude": [
+      "HOLOSTARS",
+      "HOLOSTARS English",
+      "holoAN",
+      "office staff"
+    ]
+  },
+  "defaults": {
+    "namespace": "hololive",
+    "enabled": true,
+    "status": "active",
+    "model_families": [
+      "ilxl"
+    ],
+    "lora_policy": "optional",
+    "preferred_lora_ids": [],
+    "readiness": 0.5,
+    "policy_profile": "unconfigured",
+    "outfits": [
+      {
+        "id": "default",
+        "display_name": "Default / primary outfit",
+        "canonical_tags": [],
+        "aliases": [],
+        "preferred_lora_ids": [],
+        "generation_notes": [
+          "Use character-specific validated wardrobe tags/LoRA when available."
+        ]
+      }
+    ],
+    "generation_notes": [
+      "Bundled catalog identity metadata; production identity must still pass local model/LoRA evaluation."
+    ],
+    "reference_image_dir_template": "references/characters/{id}"
+  },
+  "sources": {
+    "roster": {
+      "kind": "official_roster",
+      "url": "https://hololive.hololivepro.com/en/talents",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "Official hololive production TALENTS roster. Used as the primary source for current talents, Affiliates, and Alums."
+    },
+    "aloe_graduation": {
+      "kind": "official_notice",
+      "url": "https://cover-corp.com/news/detail/2570",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "COVER official notice for Mano Aloe graduation."
+    },
+    "rushia_termination": {
+      "kind": "official_notice",
+      "url": "https://cover-corp.com/en/news/detail/20220224b",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "COVER official notice for Uruha Rushia contract termination."
+    },
+    "mel_termination": {
+      "kind": "official_notice",
+      "url": "https://cover-corp.com/en/news/detail/20240116",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "COVER official notice for Yozora Mel contract termination."
+    },
+    "cn_graduation": {
+      "kind": "official_notice",
+      "url": "https://cover-corp.com/news/detail/20201112",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "COVER official notice for hololive China graduation."
+    },
+    "cn_graduation_followup": {
+      "kind": "official_notice",
+      "url": "https://cover-corp.com/news/detail/20201116",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "COVER follow-up notice updating hololive China graduation dates."
+    },
+    "hitomi_archive": {
+      "kind": "secondary_archive",
+      "url": "https://www.vtub0.com/news/7309",
+      "checked_at": "2026-10-06T03:00:00+09:00",
+      "note": "Contemporary archive reproducing the 2018 official operations statement about Hitomi Chris; retained because the original announcement is no longer available on the current official site."
+    }
+  },
+  "characters": [
+    {
+      "id": "tokino_sora",
+      "display_name": "ときのそら",
+      "branch": "jp",
+      "group": "gen0",
+      "status": "active",
+      "canonical_tags": [
+        "tokino_sora"
+      ],
+      "aliases": [
+        "Tokino Sora"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "0"
+    },
+    {
+      "id": "robocosan",
+      "display_name": "ロボ子さん",
+      "branch": "jp",
+      "group": "gen0",
+      "status": "active",
+      "canonical_tags": [
+        "robocosan"
+      ],
+      "aliases": [
+        "Robocosan",
+        "Roboco-san",
+        "Roboco"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "0"
+    },
+    {
+      "id": "sakura_miko",
+      "display_name": "さくらみこ",
+      "branch": "jp",
+      "group": "gen0",
+      "status": "active",
+      "canonical_tags": [
+        "sakura_miko"
+      ],
+      "aliases": [
+        "Sakura Miko"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "0"
+    },
+    {
+      "id": "hoshimachi_suisei",
+      "display_name": "星街すいせい",
+      "branch": "jp",
+      "group": "gen0",
+      "status": "active",
+      "canonical_tags": [
+        "hoshimachi_suisei"
+      ],
+      "aliases": [
+        "Hoshimachi Suisei"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "0"
+    },
+    {
+      "id": "azki",
+      "display_name": "AZKi",
+      "branch": "jp",
+      "group": "gen0",
+      "status": "active",
+      "canonical_tags": [
+        "azki"
+      ],
+      "aliases": [
+        "AZKi"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "0"
+    },
+    {
+      "id": "aki_rosenthal",
+      "display_name": "アキ・ローゼンタール",
+      "branch": "jp",
+      "group": "gen1",
+      "status": "active",
+      "canonical_tags": [
+        "aki_rosenthal"
+      ],
+      "aliases": [
+        "Aki Rosenthal"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "akai_haato",
+      "display_name": "赤井はあと",
+      "branch": "jp",
+      "group": "gen1",
+      "status": "active",
+      "canonical_tags": [
+        "akai_haato"
+      ],
+      "aliases": [
+        "Akai Haato",
+        "Haachama"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "shirakami_fubuki",
+      "display_name": "白上フブキ",
+      "branch": "jp",
+      "group": "gen1",
+      "status": "active",
+      "canonical_tags": [
+        "shirakami_fubuki"
+      ],
+      "aliases": [
+        "Shirakami Fubuki"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1",
+      "generation_notes_extra": [
+        "Also affiliated with hololive GAMERS; gen1 is retained as the primary catalog group."
+      ]
+    },
+    {
+      "id": "natsuiro_matsuri",
+      "display_name": "夏色まつり",
+      "branch": "jp",
+      "group": "gen1",
+      "status": "active",
+      "canonical_tags": [
+        "natsuiro_matsuri"
+      ],
+      "aliases": [
+        "Natsuiro Matsuri"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "yozora_mel",
+      "display_name": "夜空メル",
+      "branch": "jp",
+      "group": "gen1",
+      "status": "terminated",
+      "canonical_tags": [
+        "yozora_mel"
+      ],
+      "aliases": [
+        "Yozora Mel"
+      ],
+      "source_refs": [
+        "roster",
+        "mel_termination"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "hitomi_chris",
+      "display_name": "人見クリス",
+      "branch": "jp",
+      "group": "gen1",
+      "status": "terminated",
+      "canonical_tags": [
+        "hitomi_chris"
+      ],
+      "aliases": [
+        "Hitomi Chris",
+        "Hitomi Kurisu",
+        "Kurisu Hitomi"
+      ],
+      "source_refs": [
+        "hitomi_archive"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "minato_aqua",
+      "display_name": "湊あくあ",
+      "branch": "jp",
+      "group": "gen2",
+      "status": "graduated",
+      "canonical_tags": [
+        "minato_aqua"
+      ],
+      "aliases": [
+        "Minato Aqua"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "murasaki_shion",
+      "display_name": "紫咲シオン",
+      "branch": "jp",
+      "group": "gen2",
+      "status": "graduated",
+      "canonical_tags": [
+        "murasaki_shion"
+      ],
+      "aliases": [
+        "Murasaki Shion"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "nakiri_ayame",
+      "display_name": "百鬼あやめ",
+      "branch": "jp",
+      "group": "gen2",
+      "status": "active",
+      "canonical_tags": [
+        "nakiri_ayame"
+      ],
+      "aliases": [
+        "Nakiri Ayame"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "yuzuki_choco",
+      "display_name": "癒月ちょこ",
+      "branch": "jp",
+      "group": "gen2",
+      "status": "active",
+      "canonical_tags": [
+        "yuzuki_choco"
+      ],
+      "aliases": [
+        "Yuzuki Choco"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "oozora_subaru",
+      "display_name": "大空スバル",
+      "branch": "jp",
+      "group": "gen2",
+      "status": "active",
+      "canonical_tags": [
+        "oozora_subaru"
+      ],
+      "aliases": [
+        "Oozora Subaru",
+        "Ozora Subaru"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "ookami_mio",
+      "display_name": "大神ミオ",
+      "branch": "jp",
+      "group": "gamers",
+      "status": "active",
+      "canonical_tags": [
+        "ookami_mio"
+      ],
+      "aliases": [
+        "Ookami Mio",
+        "Okami Mio"
+      ],
+      "source_refs": [
+        "roster"
+      ]
+    },
+    {
+      "id": "nekomata_okayu",
+      "display_name": "猫又おかゆ",
+      "branch": "jp",
+      "group": "gamers",
+      "status": "active",
+      "canonical_tags": [
+        "nekomata_okayu"
+      ],
+      "aliases": [
+        "Nekomata Okayu"
+      ],
+      "source_refs": [
+        "roster"
+      ]
+    },
+    {
+      "id": "inugami_korone",
+      "display_name": "戌神ころね",
+      "branch": "jp",
+      "group": "gamers",
+      "status": "active",
+      "canonical_tags": [
+        "inugami_korone"
+      ],
+      "aliases": [
+        "Inugami Korone"
+      ],
+      "source_refs": [
+        "roster"
+      ]
+    },
+    {
+      "id": "usada_pekora",
+      "display_name": "兎田ぺこら",
+      "branch": "jp",
+      "group": "gen3",
+      "status": "active",
+      "canonical_tags": [
+        "usada_pekora"
+      ],
+      "aliases": [
+        "Usada Pekora"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "shiranui_flare",
+      "display_name": "不知火フレア",
+      "branch": "jp",
+      "group": "gen3",
+      "status": "active",
+      "canonical_tags": [
+        "shiranui_flare"
+      ],
+      "aliases": [
+        "Shiranui Flare"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "shirogane_noel",
+      "display_name": "白銀ノエル",
+      "branch": "jp",
+      "group": "gen3",
+      "status": "active",
+      "canonical_tags": [
+        "shirogane_noel"
+      ],
+      "aliases": [
+        "Shirogane Noel"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "houshou_marine",
+      "display_name": "宝鐘マリン",
+      "branch": "jp",
+      "group": "gen3",
+      "status": "active",
+      "canonical_tags": [
+        "houshou_marine"
+      ],
+      "aliases": [
+        "Houshou Marine",
+        "Hoshou Marine"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "uruha_rushia",
+      "display_name": "潤羽るしあ",
+      "branch": "jp",
+      "group": "gen3",
+      "status": "terminated",
+      "canonical_tags": [
+        "uruha_rushia"
+      ],
+      "aliases": [
+        "Uruha Rushia"
+      ],
+      "source_refs": [
+        "rushia_termination"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "tsunomaki_watame",
+      "display_name": "角巻わため",
+      "branch": "jp",
+      "group": "gen4",
+      "status": "active",
+      "canonical_tags": [
+        "tsunomaki_watame"
+      ],
+      "aliases": [
+        "Tsunomaki Watame"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "tokoyami_towa",
+      "display_name": "常闇トワ",
+      "branch": "jp",
+      "group": "gen4",
+      "status": "active",
+      "canonical_tags": [
+        "tokoyami_towa"
+      ],
+      "aliases": [
+        "Tokoyami Towa"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "himemori_luna",
+      "display_name": "姫森ルーナ",
+      "branch": "jp",
+      "group": "gen4",
+      "status": "active",
+      "canonical_tags": [
+        "himemori_luna"
+      ],
+      "aliases": [
+        "Himemori Luna"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "kiryu_coco",
+      "display_name": "桐生ココ",
+      "branch": "jp",
+      "group": "gen4",
+      "status": "graduated",
+      "canonical_tags": [
+        "kiryu_coco"
+      ],
+      "aliases": [
+        "Kiryu Coco",
+        "Kiryuukokokoko"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "amane_kanata",
+      "display_name": "天音かなた",
+      "branch": "jp",
+      "group": "gen4",
+      "status": "graduated",
+      "canonical_tags": [
+        "amane_kanata"
+      ],
+      "aliases": [
+        "Amane Kanata"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "yukihana_lamy",
+      "display_name": "雪花ラミィ",
+      "branch": "jp",
+      "group": "gen5",
+      "status": "active",
+      "canonical_tags": [
+        "yukihana_lamy"
+      ],
+      "aliases": [
+        "Yukihana Lamy"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "5"
+    },
+    {
+      "id": "momosuzu_nene",
+      "display_name": "桃鈴ねね",
+      "branch": "jp",
+      "group": "gen5",
+      "status": "active",
+      "canonical_tags": [
+        "momosuzu_nene"
+      ],
+      "aliases": [
+        "Momosuzu Nene"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "5"
+    },
+    {
+      "id": "shishiro_botan",
+      "display_name": "獅白ぼたん",
+      "branch": "jp",
+      "group": "gen5",
+      "status": "active",
+      "canonical_tags": [
+        "shishiro_botan"
+      ],
+      "aliases": [
+        "Shishiro Botan"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "5"
+    },
+    {
+      "id": "omaru_polka",
+      "display_name": "尾丸ポルカ",
+      "branch": "jp",
+      "group": "gen5",
+      "status": "active",
+      "canonical_tags": [
+        "omaru_polka"
+      ],
+      "aliases": [
+        "Omaru Polka"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "5"
+    },
+    {
+      "id": "mano_aloe",
+      "display_name": "魔乃アロエ",
+      "branch": "jp",
+      "group": "gen5",
+      "status": "graduated",
+      "canonical_tags": [
+        "mano_aloe"
+      ],
+      "aliases": [
+        "Mano Aloe"
+      ],
+      "source_refs": [
+        "aloe_graduation"
+      ],
+      "generation": "5"
+    },
+    {
+      "id": "laplus_darknesss",
+      "display_name": "ラプラス・ダークネス",
+      "branch": "jp",
+      "group": "holox",
+      "status": "active",
+      "canonical_tags": [
+        "la+_darknesss"
+      ],
+      "aliases": [
+        "La+ Darknesss",
+        "Laplus Darknesss",
+        "La+ Darkness"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "6"
+    },
+    {
+      "id": "takane_lui",
+      "display_name": "鷹嶺ルイ",
+      "branch": "jp",
+      "group": "holox",
+      "status": "active",
+      "canonical_tags": [
+        "takane_lui"
+      ],
+      "aliases": [
+        "Takane Lui"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "6"
+    },
+    {
+      "id": "hakui_koyori",
+      "display_name": "博衣こより",
+      "branch": "jp",
+      "group": "holox",
+      "status": "active",
+      "canonical_tags": [
+        "hakui_koyori"
+      ],
+      "aliases": [
+        "Hakui Koyori"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "6"
+    },
+    {
+      "id": "kazama_iroha",
+      "display_name": "風真いろは",
+      "branch": "jp",
+      "group": "holox",
+      "status": "active",
+      "canonical_tags": [
+        "kazama_iroha"
+      ],
+      "aliases": [
+        "Kazama Iroha"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "6"
+    },
+    {
+      "id": "sakamata_chloe",
+      "display_name": "沙花叉クロヱ",
+      "branch": "jp",
+      "group": "holox",
+      "status": "affiliate",
+      "canonical_tags": [
+        "sakamata_chloe"
+      ],
+      "aliases": [
+        "Sakamata Chloe",
+        "Sakamata Chloé"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "6"
+    },
+    {
+      "id": "ayunda_risu",
+      "display_name": "アユンダ・リス",
+      "branch": "id",
+      "group": "area15",
+      "status": "active",
+      "canonical_tags": [
+        "ayunda_risu"
+      ],
+      "aliases": [
+        "Ayunda Risu"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "moona_hoshinova",
+      "display_name": "ムーナ・ホシノヴァ",
+      "branch": "id",
+      "group": "area15",
+      "status": "active",
+      "canonical_tags": [
+        "moona_hoshinova"
+      ],
+      "aliases": [
+        "Moona Hoshinova"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "airani_iofifteen",
+      "display_name": "アイラニ・イオフィフティーン",
+      "branch": "id",
+      "group": "area15",
+      "status": "active",
+      "canonical_tags": [
+        "airani_iofifteen"
+      ],
+      "aliases": [
+        "Airani Iofifteen",
+        "Iofi"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "kureiji_ollie",
+      "display_name": "クレイジー・オリー",
+      "branch": "id",
+      "group": "holoro",
+      "status": "active",
+      "canonical_tags": [
+        "kureiji_ollie"
+      ],
+      "aliases": [
+        "Kureiji Ollie"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "anya_melfissa",
+      "display_name": "アーニャ・メルフィッサ",
+      "branch": "id",
+      "group": "holoro",
+      "status": "active",
+      "canonical_tags": [
+        "anya_melfissa"
+      ],
+      "aliases": [
+        "Anya Melfissa"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "pavolia_reine",
+      "display_name": "パヴォリア・レイネ",
+      "branch": "id",
+      "group": "holoro",
+      "status": "active",
+      "canonical_tags": [
+        "pavolia_reine"
+      ],
+      "aliases": [
+        "Pavolia Reine"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "vestia_zeta",
+      "display_name": "ベスティア・ゼータ",
+      "branch": "id",
+      "group": "holoh3ro",
+      "status": "active",
+      "canonical_tags": [
+        "vestia_zeta"
+      ],
+      "aliases": [
+        "Vestia Zeta"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "kaela_kovalskia",
+      "display_name": "カエラ・コヴァルスキア",
+      "branch": "id",
+      "group": "holoh3ro",
+      "status": "active",
+      "canonical_tags": [
+        "kaela_kovalskia"
+      ],
+      "aliases": [
+        "Kaela Kovalskia"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "kobo_kanaeru",
+      "display_name": "こぼ・かなえる",
+      "branch": "id",
+      "group": "holoh3ro",
+      "status": "active",
+      "canonical_tags": [
+        "kobo_kanaeru"
+      ],
+      "aliases": [
+        "Kobo Kanaeru"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "mori_calliope",
+      "display_name": "森カリオペ",
+      "branch": "en",
+      "group": "myth",
+      "status": "active",
+      "canonical_tags": [
+        "mori_calliope"
+      ],
+      "aliases": [
+        "Mori Calliope",
+        "Calliope Mori"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "takanashi_kiara",
+      "display_name": "小鳥遊キアラ",
+      "branch": "en",
+      "group": "myth",
+      "status": "active",
+      "canonical_tags": [
+        "takanashi_kiara"
+      ],
+      "aliases": [
+        "Takanashi Kiara"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "ninomae_inanis",
+      "display_name": "一伊那尓栖",
+      "branch": "en",
+      "group": "myth",
+      "status": "active",
+      "canonical_tags": [
+        "ninomae_ina'nis"
+      ],
+      "aliases": [
+        "Ninomae Ina'nis",
+        "Ninomae Ina’nis",
+        "Ina"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "watson_amelia",
+      "display_name": "ワトソン・アメリア",
+      "branch": "en",
+      "group": "myth",
+      "status": "affiliate",
+      "canonical_tags": [
+        "watson_amelia"
+      ],
+      "aliases": [
+        "Watson Amelia",
+        "Amelia Watson"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "gawr_gura",
+      "display_name": "がうる・ぐら",
+      "branch": "en",
+      "group": "myth",
+      "status": "graduated",
+      "canonical_tags": [
+        "gawr_gura"
+      ],
+      "aliases": [
+        "Gawr Gura"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "irys",
+      "display_name": "IRyS",
+      "branch": "en",
+      "group": "promise",
+      "status": "active",
+      "canonical_tags": [
+        "irys"
+      ],
+      "aliases": [
+        "IRyS"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1.5"
+    },
+    {
+      "id": "ouro_kronii",
+      "display_name": "オーロ・クロニー",
+      "branch": "en",
+      "group": "promise",
+      "status": "active",
+      "canonical_tags": [
+        "ouro_kronii"
+      ],
+      "aliases": [
+        "Ouro Kronii"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "hakos_baelz",
+      "display_name": "ハコス・ベールズ",
+      "branch": "en",
+      "group": "promise",
+      "status": "active",
+      "canonical_tags": [
+        "hakos_baelz"
+      ],
+      "aliases": [
+        "Hakos Baelz",
+        "Bae"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "ceres_fauna",
+      "display_name": "セレス・ファウナ",
+      "branch": "en",
+      "group": "promise",
+      "status": "graduated",
+      "canonical_tags": [
+        "ceres_fauna"
+      ],
+      "aliases": [
+        "Ceres Fauna"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "nanashi_mumei",
+      "display_name": "七詩ムメイ",
+      "branch": "en",
+      "group": "promise",
+      "status": "graduated",
+      "canonical_tags": [
+        "nanashi_mumei"
+      ],
+      "aliases": [
+        "Nanashi Mumei"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "tsukumo_sana",
+      "display_name": "九十九佐命",
+      "branch": "en",
+      "group": "council",
+      "status": "graduated",
+      "canonical_tags": [
+        "tsukumo_sana"
+      ],
+      "aliases": [
+        "Tsukumo Sana"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "shiori_novella",
+      "display_name": "シオリ・ノヴェラ",
+      "branch": "en",
+      "group": "advent",
+      "status": "active",
+      "canonical_tags": [
+        "shiori_novella"
+      ],
+      "aliases": [
+        "Shiori Novella"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "koseki_bijou",
+      "display_name": "古石ビジュー",
+      "branch": "en",
+      "group": "advent",
+      "status": "active",
+      "canonical_tags": [
+        "koseki_bijou"
+      ],
+      "aliases": [
+        "Koseki Bijou"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "nerissa_ravencroft",
+      "display_name": "ネリッサ・レイヴンクロフト",
+      "branch": "en",
+      "group": "advent",
+      "status": "active",
+      "canonical_tags": [
+        "nerissa_ravencroft"
+      ],
+      "aliases": [
+        "Nerissa Ravencroft"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "fuwawa_abyssgard",
+      "display_name": "フワワ・アビスガード",
+      "branch": "en",
+      "group": "advent",
+      "status": "active",
+      "canonical_tags": [
+        "fuwawa_abyssgard"
+      ],
+      "aliases": [
+        "Fuwawa Abyssgard",
+        "FUWAWA"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "mococo_abyssgard",
+      "display_name": "モココ・アビスガード",
+      "branch": "en",
+      "group": "advent",
+      "status": "active",
+      "canonical_tags": [
+        "mococo_abyssgard"
+      ],
+      "aliases": [
+        "Mococo Abyssgard",
+        "MOCOCO"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "3"
+    },
+    {
+      "id": "elizabeth_rose_bloodflame",
+      "display_name": "エリザベス・ローズ・ブラッドフレイム",
+      "branch": "en",
+      "group": "justice",
+      "status": "active",
+      "canonical_tags": [
+        "elizabeth_rose_bloodflame"
+      ],
+      "aliases": [
+        "Elizabeth Rose Bloodflame",
+        "Elizabeth Bloodflame"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "gigi_murin",
+      "display_name": "ジジ・ムリン",
+      "branch": "en",
+      "group": "justice",
+      "status": "active",
+      "canonical_tags": [
+        "gigi_murin"
+      ],
+      "aliases": [
+        "Gigi Murin"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "cecilia_immergreen",
+      "display_name": "セシリア・イマーグリーン",
+      "branch": "en",
+      "group": "justice",
+      "status": "active",
+      "canonical_tags": [
+        "cecilia_immergreen"
+      ],
+      "aliases": [
+        "Cecilia Immergreen"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "raora_panthera",
+      "display_name": "ラオーラ・パンテーラ",
+      "branch": "en",
+      "group": "justice",
+      "status": "active",
+      "canonical_tags": [
+        "raora_panthera"
+      ],
+      "aliases": [
+        "Raora Panthera"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "4"
+    },
+    {
+      "id": "hiodoshi_ao",
+      "display_name": "火威青",
+      "branch": "dev_is",
+      "group": "regloss",
+      "status": "graduated",
+      "canonical_tags": [
+        "hiodoshi_ao"
+      ],
+      "aliases": [
+        "Hiodoshi Ao"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "otonose_kanade",
+      "display_name": "音乃瀬奏",
+      "branch": "dev_is",
+      "group": "regloss",
+      "status": "active",
+      "canonical_tags": [
+        "otonose_kanade"
+      ],
+      "aliases": [
+        "Otonose Kanade"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "ichijou_ririka",
+      "display_name": "一条莉々華",
+      "branch": "dev_is",
+      "group": "regloss",
+      "status": "active",
+      "canonical_tags": [
+        "ichijou_ririka"
+      ],
+      "aliases": [
+        "Ichijou Ririka",
+        "Ichijo Ririka"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "juufuutei_raden",
+      "display_name": "儒烏風亭らでん",
+      "branch": "dev_is",
+      "group": "regloss",
+      "status": "active",
+      "canonical_tags": [
+        "juufuutei_raden"
+      ],
+      "aliases": [
+        "Juufuutei Raden",
+        "Jufuutei Raden"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "todoroki_hajime",
+      "display_name": "轟はじめ",
+      "branch": "dev_is",
+      "group": "regloss",
+      "status": "active",
+      "canonical_tags": [
+        "todoroki_hajime"
+      ],
+      "aliases": [
+        "Todoroki Hajime"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "isaki_riona",
+      "display_name": "響咲リオナ",
+      "branch": "dev_is",
+      "group": "flow_glow",
+      "status": "active",
+      "canonical_tags": [
+        "isaki_riona"
+      ],
+      "aliases": [
+        "Isaki Riona"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "koganei_niko",
+      "display_name": "虎金妃笑虎",
+      "branch": "dev_is",
+      "group": "flow_glow",
+      "status": "active",
+      "canonical_tags": [
+        "koganei_niko"
+      ],
+      "aliases": [
+        "Koganei Niko"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "mizumiya_su",
+      "display_name": "水宮枢",
+      "branch": "dev_is",
+      "group": "flow_glow",
+      "status": "active",
+      "canonical_tags": [
+        "mizumiya_su"
+      ],
+      "aliases": [
+        "Mizumiya Su"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "rindo_chihaya",
+      "display_name": "輪堂千速",
+      "branch": "dev_is",
+      "group": "flow_glow",
+      "status": "active",
+      "canonical_tags": [
+        "rindo_chihaya"
+      ],
+      "aliases": [
+        "Rindo Chihaya"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "kikirara_vivi",
+      "display_name": "綺々羅々ヴィヴィ",
+      "branch": "dev_is",
+      "group": "flow_glow",
+      "status": "active",
+      "canonical_tags": [
+        "kikirara_vivi"
+      ],
+      "aliases": [
+        "Kikirara Vivi"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "achichi_mela",
+      "display_name": "熱々メラ",
+      "branch": "asobi",
+      "group": "asobi_mawaritai",
+      "status": "active",
+      "canonical_tags": [
+        "achichi_mela"
+      ],
+      "aliases": [
+        "Achichi Mela"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "sorashina_sopia",
+      "display_name": "空科ソピア",
+      "branch": "asobi",
+      "group": "asobi_mawaritai",
+      "status": "active",
+      "canonical_tags": [
+        "sorashina_sopia"
+      ],
+      "aliases": [
+        "Sorashina Sopia"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "suzuna_tsuzuri",
+      "display_name": "鈴々音ツヅリ",
+      "branch": "asobi",
+      "group": "asobi_mawaritai",
+      "status": "active",
+      "canonical_tags": [
+        "suzuna_tsuzuri"
+      ],
+      "aliases": [
+        "Suzuna Tsuzuri"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "hyakuto_kyoko",
+      "display_name": "百兎キョウコ",
+      "branch": "asobi",
+      "group": "asobi_mawaritai",
+      "status": "active",
+      "canonical_tags": [
+        "hyakuto_kyoko"
+      ],
+      "aliases": [
+        "Hyakuto Kyoko"
+      ],
+      "source_refs": [
+        "roster"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "yogiri",
+      "display_name": "夜霧",
+      "branch": "cn",
+      "group": "cn_gen1",
+      "status": "graduated",
+      "canonical_tags": [
+        "yogiri"
+      ],
+      "aliases": [
+        "Yogiri"
+      ],
+      "source_refs": [
+        "cn_graduation",
+        "cn_graduation_followup"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "civia",
+      "display_name": "希薇娅",
+      "branch": "cn",
+      "group": "cn_gen1",
+      "status": "graduated",
+      "canonical_tags": [
+        "civia"
+      ],
+      "aliases": [
+        "Civia"
+      ],
+      "source_refs": [
+        "cn_graduation",
+        "cn_graduation_followup"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "spade_echo",
+      "display_name": "黑桃影",
+      "branch": "cn",
+      "group": "cn_gen1",
+      "status": "graduated",
+      "canonical_tags": [
+        "spade_echo"
+      ],
+      "aliases": [
+        "Spade Echo"
+      ],
+      "source_refs": [
+        "cn_graduation",
+        "cn_graduation_followup"
+      ],
+      "generation": "1"
+    },
+    {
+      "id": "doris",
+      "display_name": "朵莉丝",
+      "branch": "cn",
+      "group": "cn_gen2",
+      "status": "graduated",
+      "canonical_tags": [
+        "doris"
+      ],
+      "aliases": [
+        "Doris"
+      ],
+      "source_refs": [
+        "cn_graduation",
+        "cn_graduation_followup"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "rosalyn",
+      "display_name": "罗莎琳",
+      "branch": "cn",
+      "group": "cn_gen2",
+      "status": "graduated",
+      "canonical_tags": [
+        "rosalyn"
+      ],
+      "aliases": [
+        "Rosalyn"
+      ],
+      "source_refs": [
+        "cn_graduation",
+        "cn_graduation_followup"
+      ],
+      "generation": "2"
+    },
+    {
+      "id": "artia",
+      "display_name": "阿媂娅",
+      "branch": "cn",
+      "group": "cn_gen2",
+      "status": "graduated",
+      "canonical_tags": [
+        "artia"
+      ],
+      "aliases": [
+        "Artia"
+      ],
+      "source_refs": [
+        "cn_graduation",
+        "cn_graduation_followup"
+      ],
+      "generation": "2"
+    }
+  ]
+}
