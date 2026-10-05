@@ -79,8 +79,10 @@ from artifex.trends import (
     SeasonalRepository,
     SignalHealthRepository,
     SignalIngestionService,
+    SeasonalProvider,
     TrendCollector,
     TrendPlannerContext,
+    TrendProvider,
     TrendRepository,
     current_web_trend_provider,
     tag_trend_provider,
@@ -177,7 +179,7 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
     )
     trend_repository = TrendRepository(database, settings.trends)
     seasonal_repository = SeasonalRepository(database, settings.trends)
-    trend_providers = []
+    trend_providers: list[TrendProvider] = []
     if settings.trends.current_web_enabled:
         trend_providers.append(
             current_web_trend_provider(
@@ -199,7 +201,7 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
                 safesearch=settings.research.default_safesearch,
             )
         )
-    seasonal_providers = (
+    seasonal_providers: tuple[SeasonalProvider, ...] = (
         (SeasonalCalendarProvider(settings.trends),)
         if settings.trends.seasonal_enabled
         else ()
