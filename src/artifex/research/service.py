@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -58,6 +59,10 @@ class ResearchService:
             cached = self._repository.cached_search(effective, now=current)
             if cached is not None:
                 return cached
+
+        since = current - timedelta(hours=24)
+        if self._repository.count_runs_since(since) >= self._config.daily_request_budget:
+            raise ResearchPolicyError("daily research request budget is exhausted")
 
         expires_at = current + self._ttl(effective.intent)
         run_id = self._repository.create_run(
@@ -168,7 +173,11 @@ class ResearchService:
 
         responses: list[ResearchSearchResponse] = []
         errors: list[str] = []
+        started = time.monotonic()
         for request in bounded:
+            if time.monotonic() - started >= self._config.max_cycle_seconds:
+                errors.append("research cycle time budget exhausted")
+                break
             effective = request.model_copy(update={"adult": adult or request.adult})
             try:
                 responses.append(await self.search(effective, now=current))
