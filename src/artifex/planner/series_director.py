@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 
 from artifex.config.models import EditorialConfig, PlannerConfig
+from artifex.editorial.models import SeriesPlanKind
 from artifex.llm import ChatMessage, StructuredGenerator
 from artifex.llm.prompts import SERIES_IDEA_PROMPT
 from artifex.planner.models import (
@@ -17,7 +17,6 @@ from artifex.planner.models import (
 from artifex.planner.repository import ConceptRepository
 from artifex.planner.scoring import ConceptScorer, DefaultSignalProvider, SignalProvider
 from artifex.series import SeriesProfile
-from artifex.editorial.models import SeriesPlanKind
 
 
 class SeriesIdeaDirector:
