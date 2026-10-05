@@ -76,7 +76,10 @@ class SeriesRepository:
         *,
         status: SeriesStatus | None = None,
     ) -> tuple[SeriesProfile, ...]:
-        query = select(SeriesRow).order_by(SeriesRow.updated_at.asc(), SeriesRow.id.asc())
+        query = select(SeriesRow).order_by(
+            SeriesRow.updated_at.asc(),
+            SeriesRow.id.asc(),
+        )
         if status is not None:
             query = query.where(SeriesRow.status == status.value)
         with self._database.session() as session:
@@ -136,20 +139,19 @@ class SeriesRepository:
                 episode_summary.strip()
                 if episode_summary is not None and episode_summary.strip()
                 else (
-                    f"Episode {episode_number} completed. "
+                    f"Episode {episode_number} ({pack_id}) completed. "
                     f"Continuity keys: {', '.join(sorted(continuity)) or 'none'}. "
                     f"Unresolved hooks: {', '.join(hooks) or 'none'}."
                 )
-            )
+            )[:1200]
             recent_summaries = (
                 *current.recent_episode_summaries,
-                summary[:1200],
+                summary,
             )[-20:]
-            rolling_summary = (
-                f"Through episode {episode_number}: "
-                f"{'; '.join(f'{key}={continuity[key]}' for key in sorted(continuity))}. "
-                f"Unresolved hooks: {', '.join(hooks) or 'none'}."
-            )[:3000]
+            rolling_summary = self._bounded_rolling_summary(
+                current.rolling_summary,
+                summary,
+            )
 
             updated = current.model_copy(
                 update={
@@ -168,29 +170,8 @@ class SeriesRepository:
             row.updated_at = now
         return self.require(series_id)
 
-    def _roll_summary(
-        self,
-        previous: str,
-        *,
-        episode_number: int,
-        pack_id: str,
-        continuity_updates: Mapping[str, Any],
-        hooks_added: Sequence[str],
-        hooks_resolved: Sequence[str],
-    ) -> str:
-        fragments = [f"ep{episode_number}:{pack_id}"]
-        if continuity_updates:
-            details = ",".join(
-                f"{key}={continuity_updates[key]!r}"
-                for key in sorted(continuity_updates)
-            )
-            fragments.append(f"continuity[{details}]")
-        if hooks_added:
-            fragments.append("hooks+[" + ",".join(hooks_added) + "]")
-        if hooks_resolved:
-            fragments.append("hooks-[" + ",".join(hooks_resolved) + "]")
-        entry = " ".join(fragments)
-        combined = f"{previous}\n{entry}".strip()
+    def _bounded_rolling_summary(self, previous: str, latest: str) -> str:
+        combined = f"{previous}\n{latest}".strip()
         if len(combined) <= self._rolling_summary_max_chars:
             return combined
         return combined[-self._rolling_summary_max_chars :].lstrip()
@@ -217,7 +198,6 @@ class SeriesRepository:
             "rolling_summary": profile.rolling_summary,
             "recent_episode_summaries": list(profile.recent_episode_summaries),
             "unresolved_hooks": list(profile.unresolved_hooks),
-            "rolling_summary": profile.rolling_summary,
             "preferred_format": (
                 profile.preferred_format.value
                 if profile.preferred_format is not None
@@ -243,7 +223,6 @@ class SeriesRepository:
                 state.get("recent_episode_summaries", ())
             ),
             unresolved_hooks=tuple(state.get("unresolved_hooks", ())),
-            rolling_summary=str(state.get("rolling_summary", "")),
             preferred_format=PackFormat(raw_format) if raw_format else None,
             created_at=row.created_at,
             updated_at=row.updated_at,
