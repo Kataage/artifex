@@ -196,7 +196,10 @@ class ArtifexDiscordClient(discord.Client):
             and notification.review_id is not None
         ):
             view = ReviewView(self._router, notification.review_id)
-        await channel.send(message, view=view)
+        if view is None:
+            await channel.send(message)
+        else:
+            await channel.send(message, view=view)
         return True
 
     def _notification_channel(
