@@ -102,7 +102,7 @@ async def test_research_trend_adapter_bounds_external_text_and_keeps_source_ids(
         max_provider_results=4,
     )
     provider = current_web_trend_provider(
-        FakeResearchService(),  # type: ignore[arg-type]
+        FakeResearchService(),
         config,
         region="jp-jp",
         safesearch="moderate",
