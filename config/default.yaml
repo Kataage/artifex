@@ -115,7 +115,7 @@ research:
   adult_enabled: false
   default_region: jp-jp
   default_safesearch: moderate
-  adult_safesearch: off
+  adult_safesearch: "off"
   max_queries_per_cycle: 4
   max_results_per_query: 8
   max_brief_items: 20
