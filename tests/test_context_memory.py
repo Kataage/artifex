@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from artifex.config.models import ContextConfig
-from artifex.context import ContextMemoryManager
+from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
 from artifex.db import Database
 from artifex.db.models import ConceptRow
 from artifex.evaluation.local_similarity import LocalSimilarityEmbeddingProvider
@@ -111,8 +111,10 @@ async def test_context_manager_shortlists_compacts_and_retrieves_finalized_histo
             operator_tokens=50,
             long_term_candidate_limit=20,
         ),
-        ConceptRepository(database),
-        LocalSimilarityEmbeddingProvider(),
+        ConceptMemoryRetriever(
+            ConceptRepository(database),
+            LocalSimilarityEmbeddingProvider(),
+        ),
     )
 
     pre = manager.pre_research(context)
