@@ -18,4 +18,5 @@ def status() -> None:
 @app.command()
 def daemon() -> None:
     """Start the long-running Artifex production daemon."""
-    raise typer.Exit("Artifex daemon is not implemented yet.")
+    typer.echo("Artifex daemon is not implemented yet.", err=True)
+    raise typer.Exit(code=1)
