@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import typer
 from sqlalchemy import select
 
@@ -28,6 +29,7 @@ from artifex.evaluation import (
 )
 from artifex.llm import (
     LlmCallRepository,
+    bootstrap_llm,
     LlmQualificationService,
     OpenAICompatibleClient,
     StructuredGenerator,
@@ -350,6 +352,22 @@ def characters_audit(
                 typer.echo(f"{name}: {', '.join(values)}")
     finally:
         asyncio.run(core.close())
+
+
+@llm_app.command("bootstrap")
+def llm_bootstrap(
+    force: Annotated[bool, typer.Option("--force")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+    config: ConfigOption = None,
+) -> None:
+    """Ensure the selected local LLM model is present, resuming downloads when possible."""
+    settings = _settings(config)
+    try:
+        result = bootstrap_llm(settings.llm, force=force)
+    except (OSError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"LLM bootstrap error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(result.model_dump(mode="json"), as_json=json_output)
 
 
 @llm_app.command("qualify")
