@@ -77,6 +77,19 @@ def _record_from_mapping(raw: dict[str, Any]) -> ManualPerformanceRecord:
     )
 
 
+def _records_from_list(
+    values: list[object],
+    *,
+    label: str,
+) -> tuple[ManualPerformanceRecord, ...]:
+    records: list[ManualPerformanceRecord] = []
+    for index, item in enumerate(values, start=1):
+        if not isinstance(item, dict):
+            raise TypeError(f"{label} item {index} must be an object")
+        records.append(_record_from_mapping(item))
+    return tuple(records)
+
+
 def load_manual_performance(path: Path) -> ManualPerformanceImport:
     source_path = path.expanduser().resolve()
     suffix = source_path.suffix.casefold()
@@ -122,11 +135,7 @@ def load_manual_performance(path: Path) -> ManualPerformanceImport:
     try:
         if isinstance(raw, list):
             return ManualPerformanceImport(
-                records=tuple(
-                    _record_from_mapping(item)
-                    for item in raw
-                    if isinstance(item, dict)
-                )
+                records=_records_from_list(raw, label="performance JSON")
             )
         if not isinstance(raw, dict):
             raise TypeError("performance JSON root must be an object or list")
@@ -136,10 +145,9 @@ def load_manual_performance(path: Path) -> ManualPerformanceImport:
         return ManualPerformanceImport(
             platform=str(raw.get("platform") or "patreon"),
             source=str(raw.get("source") or "manual"),
-            records=tuple(
-                _record_from_mapping(item)
-                for item in records_raw
-                if isinstance(item, dict)
+            records=_records_from_list(
+                records_raw,
+                label="performance records",
             ),
         )
     except (KeyError, TypeError, ValidationError, ValueError) as exc:
