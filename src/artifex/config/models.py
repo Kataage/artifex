@@ -213,7 +213,27 @@ class ComfyUiConfig(StrictModel):
     poll_interval_seconds: float = Field(default=1.0, gt=0)
     request_attempts: int = Field(default=3, ge=1)
     reconnect_backoff_seconds: float = Field(default=1.0, ge=0)
-    default_template: str = "ilxl_base_v1"
+    default_template: str = "illust_main_v1"
+    refiner_checkpoint: str = "anime-refiner-beta1.1.safetensors"
+    vae: str = "pppanimixVAE_ilxl.safetensors"
+    upscale_model: str = "4xRealisticrescaler_100000G.pt"
+    base_steps: int = Field(default=48, ge=1, le=200)
+    base_cfg: float = Field(default=5.5, ge=0, le=30)
+    base_sampler: str = "dpmpp_3m_sde_gpu"
+    base_scheduler: str = "karras"
+    base_denoise: float = Field(default=1.0, ge=0, le=1)
+    refiner_steps: int = Field(default=24, ge=1, le=200)
+    refiner_cfg: float = Field(default=5.0, ge=0, le=30)
+    refiner_sampler: str = "dpmpp_3m_sde_gpu"
+    refiner_scheduler: str = "karras"
+    refiner_denoise: float = Field(default=0.10, ge=0, le=1)
+    upscale_steps: int = Field(default=15, ge=1, le=200)
+    upscale_cfg: float = Field(default=5.5, ge=0, le=30)
+    upscale_sampler: str = "euler_ancestral"
+    upscale_scheduler: str = "karras"
+    upscale_denoise: float = Field(default=0.50, ge=0, le=1)
+    release_vram_after_attempt: bool = True
+    release_vram_on_error: bool = True
 
 
 class EvaluationWeightsConfig(StrictModel):
