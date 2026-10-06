@@ -302,19 +302,28 @@ class PerformanceLearningService:
                     if isinstance(raw_candidate, dict):
                         candidate = raw_candidate
 
-                raw_ids = candidate.get("character_ids", ())
+                raw_plan = pack.payload_json.get("plan")
+                plan = raw_plan if isinstance(raw_plan, dict) else {}
+                raw_ids = candidate.get(
+                    "character_ids",
+                    plan.get("character_ids", ()),
+                )
                 character_ids = (
                     tuple(str(value) for value in raw_ids)
                     if isinstance(raw_ids, list | tuple)
                     else ()
                 )
-                raw_format = candidate.get("format")
+                raw_format = candidate.get("format", plan.get("format"))
                 format_key = (
                     str(raw_format)
                     if isinstance(raw_format, str)
                     else pack.format_type
                 )
                 raw_theme = candidate.get("theme")
+                if not isinstance(raw_theme, str):
+                    planning = pack.payload_json.get("planning_provenance")
+                    if isinstance(planning, dict):
+                        raw_theme = planning.get("theme")
                 theme = str(raw_theme) if isinstance(raw_theme, str) else None
                 raw_score, components = self._score_metrics(snapshot.metrics)
                 sample = self._sample_size(snapshot.metrics)
