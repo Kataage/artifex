@@ -19,13 +19,13 @@ from artifex.performance.repository import PerformanceRepository
 def _optional_int(value: object) -> int | None:
     if value is None or value == "":
         return None
-    return int(value)
+    return int(str(value))
 
 
 def _optional_float(value: object) -> float | None:
     if value is None or value == "":
         return None
-    return float(value)
+    return float(str(value))
 
 
 def _optional_datetime(value: object) -> datetime | None:
@@ -82,14 +82,14 @@ def load_manual_performance(path: Path) -> ManualPerformanceImport:
     suffix = source_path.suffix.casefold()
     if suffix == ".csv":
         with source_path.open("r", encoding="utf-8-sig", newline="") as handle:
-            records = tuple(
+            csv_records = tuple(
                 _record_from_mapping(dict(row))
                 for row in csv.DictReader(handle)
             )
-        return ManualPerformanceImport(records=records)
+        return ManualPerformanceImport(records=csv_records)
 
     if suffix in {".jsonl", ".ndjson"}:
-        records: list[ManualPerformanceRecord] = []
+        jsonl_records: list[ManualPerformanceRecord] = []
         for index, line in enumerate(
             source_path.read_text(encoding="utf-8").splitlines(),
             start=1,
@@ -106,8 +106,8 @@ def load_manual_performance(path: Path) -> ManualPerformanceImport:
                 raise TypeError(
                     f"JSONL line {index} must contain an object"
                 )
-            records.append(_record_from_mapping(raw))
-        return ManualPerformanceImport(records=tuple(records))
+            jsonl_records.append(_record_from_mapping(raw))
+        return ManualPerformanceImport(records=tuple(jsonl_records))
 
     if suffix != ".json":
         raise ValueError(
