@@ -26,6 +26,7 @@ from artifex.db.models import (
 from artifex.domain import LoRAState, PackState
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorReport
+from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     AssetDigest,
@@ -167,18 +168,25 @@ class QualificationService:
 
     def start(self, doctor: DoctorReport) -> QualificationSession:
         now = _utcnow()
-        session_id = (
-            now.strftime("%Y%m%dT%H%M%SZ")
-            + "-"
-            + uuid4().hex[:8]
-        )
+        session_id = now.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
         assets: list[AssetDigest] = []
         asset_errors: dict[str, str] = {}
+
         for label, path in sorted(self._settings.qualification.asset_paths.items()):
             try:
                 assets.append(_digest_path(label, path))
             except (OSError, ValueError) as exc:
                 asset_errors[label] = str(exc)
+
+        llm_model = self._llm_model_path()
+        if (
+            llm_model is not None
+            and "llm_model" not in {asset.label for asset in assets}
+        ):
+            try:
+                assets.append(_digest_path("llm_model", llm_model))
+            except (OSError, ValueError) as exc:
+                asset_errors["llm_model"] = str(exc)
 
         calibration = self._settings.evaluation.semantic_calibration_path
         if calibration.is_file():
@@ -187,21 +195,67 @@ class QualificationService:
             except (OSError, ValueError) as exc:
                 asset_errors["semantic_calibration"] = str(exc)
 
+        remote_attestations, remote_errors = self._render_attestations()
+        asset_errors.update(remote_errors)
+        existing_labels = {asset.label for asset in assets}
+        for node_id, attestation in remote_attestations.items():
+            for remote in attestation.assets:
+                if remote.label in existing_labels:
+                    asset_errors[remote.label] = (
+                        "asset label is provided by both controller and render node "
+                        f"{node_id}"
+                    )
+                    continue
+                assets.append(
+                    AssetDigest(
+                        label=remote.label,
+                        path=remote.path,
+                        sha256=remote.sha256,
+                        bytes=remote.bytes,
+                        file_count=remote.file_count,
+                        source="render_node",
+                        node_id=node_id,
+                        attested_at=attestation.created_at,
+                    )
+                )
+                existing_labels.add(remote.label)
+
         environment = self._environment()
+        environment["render_nodes"] = {
+            node_id: self._attestation_environment(attestation)
+            for node_id, attestation in remote_attestations.items()
+        }
         present_labels = {asset.label for asset in assets}
         missing_labels = sorted(
             set(self._settings.qualification.required_asset_labels)
             - present_labels
         )
-        os_info = environment.get("os")
-        native_windows = (
-            isinstance(os_info, dict)
-            and os_info.get("system") == "Windows"
+        controller_os = environment.get("os")
+        controller_windows = (
+            isinstance(controller_os, dict)
+            and controller_os.get("system") == "Windows"
         )
+        primary = self._settings.render_nodes.primary_node()
+        if primary is None:
+            production_windows = controller_windows
+            production_gpu = bool(environment.get("nvidia_gpus"))
+        else:
+            primary_id, _ = primary
+            primary_attestation = remote_attestations.get(primary_id)
+            production_windows = (
+                controller_windows
+                and primary_attestation is not None
+                and primary_attestation.os.get("system") == "Windows"
+            )
+            production_gpu = bool(
+                primary_attestation is not None
+                and primary_attestation.nvidia_gpus
+            )
+
         requirements = {
             "native_windows": (
                 not self._settings.qualification.require_native_windows
-                or native_windows
+                or production_windows
             ),
             "uv": (
                 not self._settings.qualification.require_uv
@@ -209,8 +263,9 @@ class QualificationService:
             ),
             "nvidia_gpu": (
                 not self._settings.qualification.require_nvidia_gpu
-                or bool(environment.get("nvidia_gpus"))
+                or production_gpu
             ),
+            "render_attestation": not remote_errors,
             "asset_hashes": not missing_labels and not asset_errors,
         }
         environment["requirements"] = requirements
@@ -375,14 +430,56 @@ class QualificationService:
                 issues.append(f"required asset hash is missing: {label}")
 
         if self._settings.qualification.require_stable_asset_hashes:
+            remote_cache: dict[str, RenderNodeAttestation] = {}
             for asset in session.assets:
-                try:
-                    current = _digest_path(asset.label, Path(asset.path))
-                except (OSError, ValueError) as exc:
-                    issues.append(
-                        f"asset {asset.label} cannot be revalidated: {exc}"
-                    )
-                    continue
+                if asset.source == "render_node":
+                    if asset.node_id is None:
+                        issues.append(
+                            f"asset {asset.label} has no render node provenance"
+                        )
+                        continue
+                    try:
+                        attestation = remote_cache.get(asset.node_id)
+                        if attestation is None:
+                            node = self._settings.render_nodes.nodes.get(asset.node_id)
+                            if node is None:
+                                raise ValueError(
+                                    f"render node is no longer configured: {asset.node_id}"
+                                )
+                            attestation = fetch_render_attestation(asset.node_id, node)
+                            remote_cache[asset.node_id] = attestation
+                        candidates = {
+                            item.label: item for item in attestation.assets
+                        }
+                        remote = candidates.get(asset.label)
+                        if remote is None:
+                            raise ValueError(
+                                f"asset disappeared from render node {asset.node_id}"
+                            )
+                        current = AssetDigest(
+                            label=remote.label,
+                            path=remote.path,
+                            sha256=remote.sha256,
+                            bytes=remote.bytes,
+                            file_count=remote.file_count,
+                            source="render_node",
+                            node_id=asset.node_id,
+                            attested_at=attestation.created_at,
+                        )
+                    except (OSError, ValueError, Exception) as exc:
+                        issues.append(
+                            f"asset {asset.label} cannot be revalidated: {exc}"
+                        )
+                        continue
+                else:
+                    try:
+                        current = _digest_path(asset.label, Path(asset.path))
+                    except (OSError, ValueError) as exc:
+                        issues.append(
+                            f"asset {asset.label} cannot be revalidated: {exc}"
+                        )
+                        continue
+
                 if current.sha256 != asset.sha256:
                     issues.append(
                         f"asset {asset.label} hash changed during qualification: "
