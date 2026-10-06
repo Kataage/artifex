@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -61,7 +62,7 @@ def _matches_outfit(clothing: str, outfit: CharacterOutfit) -> int:
 
 
 class LoRAResolver:
-    LAYER_ORDER = {
+    LAYER_ORDER: ClassVar[dict[str, int]] = {
         "character": 0,
         "outfit": 1,
         "style": 2,
