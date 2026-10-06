@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+
+from artifex.evaluation.semantic import SemanticIndex
 from artifex.evaluation.similarity import EmbeddingProvider, cosine_similarity
 from artifex.planner.models import PlanningContext, RecentConceptSummary
 from artifex.planner.repository import ConceptRepository
@@ -38,9 +41,12 @@ class ConceptMemoryRetriever:
         self,
         repository: ConceptRepository,
         embeddings: EmbeddingProvider,
+        *,
+        index: SemanticIndex | None = None,
     ) -> None:
         self._repository = repository
         self._embeddings = embeddings
+        self._index = index
 
     def candidates(
         self,
@@ -87,10 +93,28 @@ class ConceptMemoryRetriever:
         if not candidates:
             return ()
 
-        query = await self._embeddings.embed_text(_query_text(context))
+        query_text = _query_text(context)
+        if self._index is None:
+            query = await self._embeddings.embed_text(query_text)
+        else:
+            query_id = hashlib.sha256(query_text.encode("utf-8")).hexdigest()
+            query = await self._index.embed_text(
+                "planning_query",
+                query_id,
+                query_text,
+            )
         scored: list[tuple[float, str, RecentConceptSummary]] = []
         for item in candidates:
-            vector = await self._embeddings.embed_text(_summary_text(item))
+            summary_text = _summary_text(item)
+            if self._index is None:
+                vector = await self._embeddings.embed_text(summary_text)
+            else:
+                vector = await self._index.embed_text(
+                    "concept",
+                    item.concept_id,
+                    summary_text,
+                    metadata={"character_ids": list(item.character_ids)},
+                )
             scored.append(
                 (
                     cosine_similarity(query, vector),
