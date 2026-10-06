@@ -22,6 +22,8 @@ class DiscoveryResult:
     discovered: tuple[LoRAProfile, ...]
     unchanged: tuple[LoRAProfile, ...]
     failed: tuple[tuple[Path, str], ...]
+    removed: tuple[LoRAProfile, ...] = ()
+    invalidated: tuple[LoRAProfile, ...] = ()
 
 
 def _stable_auto_id(path: Path) -> str:
@@ -83,6 +85,67 @@ def _infer_trigger_tags(metadata: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
+def _infer_lora_type(
+    path: Path,
+    metadata: dict[str, Any],
+    targets: tuple[str, ...],
+    existing: LoRAProfile | None,
+) -> str:
+    explicit_keys = (
+        "artifex.lora_type",
+        "artifex_lora_type",
+        "modelspec.lora_type",
+    )
+    for key in explicit_keys:
+        raw = metadata.get(key)
+        if isinstance(raw, str) and raw.strip().casefold() in {
+            "character",
+            "outfit",
+            "style",
+            "utility",
+        }:
+            return raw.strip().casefold()
+
+    if existing is not None and existing.lora_type in {
+        "character",
+        "outfit",
+        "style",
+        "utility",
+    }:
+        return existing.lora_type
+
+    text = _metadata_text(path, metadata).casefold()
+    if "outfit" in text or "costume" in text:
+        return "outfit"
+    if "style" in text:
+        return "style"
+    if any(
+        marker in text
+        for marker in (
+            "slider",
+            "detail",
+            "enhancer",
+            "lighting",
+            "hands",
+            "anatomy",
+            "utility",
+        )
+    ):
+        return "utility"
+    return "character" if targets else "other"
+
+
+def _under_root(path: Path, roots: tuple[Path, ...]) -> bool:
+    absolute = path.expanduser().resolve(strict=False)
+    for root in roots:
+        try:
+            absolute.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 class LoRADiscovery:
     def __init__(
         self,
@@ -101,32 +164,78 @@ class LoRADiscovery:
         discovered: list[LoRAProfile] = []
         unchanged: list[LoRAProfile] = []
         failed: list[tuple[Path, str]] = []
+        removed: list[LoRAProfile] = []
+        invalidated: list[LoRAProfile] = []
 
+        normalized_roots = tuple(
+            root.expanduser().resolve(strict=False)
+            for root in roots
+        )
         paths: list[Path] = []
-        for root in roots:
+        for root in normalized_roots:
             if not root.exists():
                 continue
             paths.extend(
-                path
+                path.resolve(strict=False)
                 for path in root.rglob("*")
                 if path.is_file() and path.suffix.casefold() in self._extensions
             )
+        paths = sorted(
+            dict.fromkeys(paths),
+            key=lambda item: item.as_posix().casefold(),
+        )
+        seen_paths = {str(path).casefold() for path in paths}
 
-        for path in sorted(paths, key=lambda item: item.as_posix().casefold()):
+        for path in paths:
             try:
                 profile, changed = self._inspect(path)
             except (OSError, SafeTensorMetadataError, ValueError) as exc:
                 failed.append((path, str(exc)))
+                existing = self._registry.find_by_path(path)
+                if existing is not None:
+                    invalidated.append(
+                        self._registry.invalidate(
+                            existing.id,
+                            target=LoRAState.FAILED,
+                            reason=f"asset inspection failed: {exc}",
+                        )
+                    )
                 continue
             if changed:
                 discovered.append(profile)
             else:
                 unchanged.append(profile)
 
+        for profile in self._registry.list():
+            if profile.source != "filesystem-discovery":
+                continue
+            if not _under_root(profile.path, normalized_roots):
+                continue
+            normalized = str(
+                profile.path.expanduser().resolve(strict=False)
+            ).casefold()
+            if normalized in seen_paths:
+                continue
+            if (
+                profile.state is LoRAState.DISABLED
+                and profile.missing_since is not None
+            ):
+                continue
+            removed.append(
+                self._registry.invalidate(
+                    profile.id,
+                    target=LoRAState.DISABLED,
+                    reason=f"LoRA file disappeared: {profile.path}",
+                    missing=True,
+                )
+            )
+
         return DiscoveryResult(
             discovered=tuple(discovered),
             unchanged=tuple(unchanged),
             failed=tuple(failed),
+            removed=tuple(removed),
+            invalidated=tuple(invalidated),
         )
 
     def _inspect(self, path: Path) -> tuple[LoRAProfile, bool]:
@@ -137,7 +246,12 @@ class LoRADiscovery:
             max_header_bytes=self._max_header_bytes,
         )
         existing = self._registry.find_by_path(absolute)
-        if existing is not None and existing.checksum == checksum:
+        if (
+            existing is not None
+            and existing.checksum == checksum
+            and existing.missing_since is None
+            and existing.metadata.get("asset_status") != "invalidated"
+        ):
             return existing, False
 
         text = _metadata_text(absolute, metadata)
@@ -152,19 +266,40 @@ class LoRADiscovery:
             lora_id = existing.id
             source = existing.source or "filesystem-discovery"
 
+        metadata = dict(metadata)
+        metadata["asset_status"] = "present"
+        if existing is not None:
+            metadata["previous_checksum"] = existing.checksum
+
         profile = LoRAProfile(
             id=lora_id,
             path=absolute,
             state=LoRAState.DISCOVERED,
-            lora_type="character" if targets else "other",
-            target_character_ids=targets,
-            model_families=model_families,
-            trigger_tags=trigger_tags,
-            recommended_weight=existing.recommended_weight if existing else 1.0,
+            lora_type=_infer_lora_type(
+                absolute,
+                metadata,
+                targets,
+                existing,
+            ),
+            target_character_ids=targets or (
+                existing.target_character_ids if existing is not None else ()
+            ),
+            model_families=model_families or (
+                existing.model_families if existing is not None else ()
+            ),
+            trigger_tags=trigger_tags or (
+                existing.trigger_tags if existing is not None else ()
+            ),
+            recommended_weight=(
+                existing.recommended_weight if existing else 1.0
+            ),
             readiness=0.0,
             checksum=checksum,
-            incompatible_lora_ids=existing.incompatible_lora_ids if existing else (),
+            incompatible_lora_ids=(
+                existing.incompatible_lora_ids if existing else ()
+            ),
             source=source,
+            missing_since=None,
             metadata=metadata,
         )
         return self._registry.upsert(profile), True
