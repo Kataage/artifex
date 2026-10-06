@@ -75,7 +75,17 @@ class EvaluationEngine:
             integrity=raw.integrity,
             aggregate=max(0.0, min(1.0, aggregate)),
         )
-        state, reasons = self._classify(scores, raw.reasons)
+        state, reasons = self._classify(
+            scores,
+            raw.reasons,
+            identity_reference_missing=(
+                self._config.identity_reference_required
+                and (
+                    identity_reference.aggregate is None
+                    or bool(identity_reference.missing_character_ids)
+                )
+            ),
+        )
         return EvaluationResult(
             attempt_id=context.attempt_id,
             state=state,
@@ -95,6 +105,8 @@ class EvaluationEngine:
         self,
         scores: EvaluationScores,
         provider_reasons: tuple[str, ...],
+        *,
+        identity_reference_missing: bool = False,
     ) -> tuple[ResultState, tuple[str, ...]]:
         reasons = list(provider_reasons)
 
@@ -123,13 +135,7 @@ class EvaluationEngine:
 
         if scores.identity < self._config.identity_accept_min:
             reasons.append("identity_needs_review")
-        if (
-            self._config.identity_reference_required
-            and (
-                scores.identity_reference is None
-                or identity_reference.missing_character_ids
-            )
-        ):
+        if identity_reference_missing:
             reasons.append("identity_reference_missing")
         elif scores.identity_reference < self._config.identity_reference_accept_min:
             reasons.append("identity_reference_needs_review")
