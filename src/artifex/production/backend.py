@@ -112,7 +112,7 @@ class ComfyGenerationBackend:
 
         loras = tuple(
             WorkflowLoRA(
-                name=Path(entry.path).name,
+                name=entry.asset_name or Path(entry.path).name,
                 weight_model=entry.weight,
                 weight_clip=entry.weight,
             )
