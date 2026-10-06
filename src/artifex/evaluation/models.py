@@ -48,7 +48,7 @@ class EvaluationScores(EvaluationModel):
     technical_quality: float = Field(ge=0, le=1)
     aesthetic: float = Field(ge=0, le=1)
     image_similarity: float = Field(ge=0, le=1)
-    novelty_similarity: float = Field(ge=0, le=1)
+    novelty_similarity: float = Field(default=0.0, ge=0, le=1)
     novelty: float = Field(ge=0, le=1)
     continuity: float = Field(ge=0, le=1)
     integrity: float = Field(ge=0, le=1)
