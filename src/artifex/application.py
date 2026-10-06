@@ -93,6 +93,10 @@ from artifex.trends import (
 )
 
 
+class SemanticRuntime(Protocol):
+    async def aclose(self) -> None: ...
+
+
 class DiscordRuntime(Protocol):
     def is_ready(self) -> bool: ...
 
@@ -259,6 +263,7 @@ class ArtifexApplication:
         llm: OpenAICompatibleClient,
         vision: OpenAICompatibleVisionEvaluationProvider,
         *,
+        semantic: SemanticRuntime | None = None,
         discord: DiscordRuntime | None = None,
         discord_token: str | None = None,
     ) -> None:
@@ -266,6 +271,7 @@ class ArtifexApplication:
         self._daemon = daemon
         self._llm = llm
         self._vision = vision
+        self._semantic = semantic
         self._discord = discord
         self._discord_token = discord_token
 
@@ -287,6 +293,8 @@ class ArtifexApplication:
         if self._discord is not None:
             await self._discord.close()
         await self._vision.aclose()
+        if self._semantic is not None:
+            await self._semantic.aclose()
         await self._llm.aclose()
         await self._core.close()
 
@@ -311,6 +319,11 @@ def _apply_semantic_calibration(settings: ArtifexSettings) -> ArtifexSettings:
         raise ValueError(
             "semantic calibration profile id mismatch: "
             f"{profile.profile_id} != {evaluation.semantic_calibration_profile}"
+        )
+    if profile.provider != "transformers_siglip2":
+        raise ValueError(
+            "semantic calibration provider mismatch: "
+            f"{profile.provider} != transformers_siglip2"
         )
     if profile.model != evaluation.semantic_model:
         raise ValueError(
@@ -576,6 +589,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         daemon,
         llm,
         vision,
+        semantic=semantic_embeddings,
         discord=discord_runtime,
         discord_token=discord_token,
     )
