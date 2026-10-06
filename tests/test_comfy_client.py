@@ -10,7 +10,9 @@ from artifex.comfy import (
     ComfyErrorKind,
     ComfyUIClient,
     ComfyUIError,
+    WorkflowAssetRequirement,
     WorkflowPatchRequest,
+    WorkflowRequirements,
     WorkflowTemplateRegistry,
 )
 from artifex.config.models import ComfyUiConfig
@@ -214,4 +216,143 @@ async def test_wait_timeout_is_retryable_infrastructure_failure() -> None:
 
     assert exc_info.value.kind is ComfyErrorKind.TIMEOUT
     assert exc_info.value.retryable is True
+    await http_client.aclose()
+
+
+
+@pytest.mark.asyncio
+async def test_object_info_validates_required_nodes_and_assets() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/object_info"
+        return httpx.Response(
+            200,
+            json={
+                "CheckpointLoaderSimple": {
+                    "input": {
+                        "required": {
+                            "ckpt_name": [
+                                ["ilxl.safetensors", "other.safetensors"],
+                                {},
+                            ]
+                        }
+                    }
+                },
+                "LoraLoader": {
+                    "input": {
+                        "required": {
+                            "lora_name": [
+                                [
+                                    "characters/kanata.safetensors",
+                                    "style.safetensors",
+                                ],
+                                {},
+                            ]
+                        }
+                    }
+                },
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+    requirements = WorkflowRequirements(
+        template_id="production",
+        source_sha256="a" * 64,
+        node_types=("CheckpointLoaderSimple", "LoraLoader"),
+        assets=(
+            WorkflowAssetRequirement(
+                label="checkpoint",
+                node_class="CheckpointLoaderSimple",
+                input_name="ckpt_name",
+                value="ilxl.safetensors",
+            ),
+            WorkflowAssetRequirement(
+                label="lora",
+                node_class="LoraLoader",
+                input_name="lora_name",
+                value="kanata.safetensors",
+            ),
+        ),
+    )
+
+    status = await client.validate_requirements(requirements)
+
+    assert status.ready is True
+    assert status.missing_node_types == ()
+    assert status.missing_assets == ()
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_object_info_reports_missing_custom_node_and_model() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/object_info"
+        return httpx.Response(
+            200,
+            json={
+                "CheckpointLoaderSimple": {
+                    "input": {
+                        "required": {
+                            "ckpt_name": [["other.safetensors"], {}]
+                        }
+                    }
+                }
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+    requirements = WorkflowRequirements(
+        template_id="production",
+        source_sha256="b" * 64,
+        node_types=("CheckpointLoaderSimple", "MissingCustomNode"),
+        assets=(
+            WorkflowAssetRequirement(
+                label="checkpoint",
+                node_class="CheckpointLoaderSimple",
+                input_name="ckpt_name",
+                value="ilxl.safetensors",
+            ),
+        ),
+    )
+
+    status = await client.validate_requirements(requirements)
+
+    assert status.ready is False
+    assert status.missing_node_types == ("MissingCustomNode",)
+    assert status.missing_assets == ("checkpoint:ilxl.safetensors",)
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_free_memory_unloads_models_and_cached_vram() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200)
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+
+    await client.free_memory()
+
+    assert calls == [
+        (
+            "/free",
+            {
+                "unload_models": True,
+                "free_memory": True,
+            },
+        )
+    ]
     await http_client.aclose()
