@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from artifex.characters import CharacterRegistry
 from artifex.db import Database
 from artifex.domain import CharacterProfile, LoRAPolicy, LoRAState
-from artifex.loras import LoRADiscovery, LoRARegistry
+from artifex.loras import LoRADiscovery, LoRADiscoveryMaintenance, LoRARegistry
+from artifex.telemetry import TelemetryRepository
 
 
 def _write_fake_safetensors(
@@ -181,4 +184,48 @@ def test_corrupt_replacement_invalidates_previous_production_asset(tmp_path: Pat
     assert failed.state is LoRAState.FAILED
     assert failed.readiness == 0.0
     assert failed.identity_score is None
+    database.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_discovery_maintenance_detects_removal_without_restart(
+    tmp_path: Path,
+) -> None:
+    database, characters, loras = _registries(tmp_path)
+    root = tmp_path / "loras"
+    root.mkdir()
+    path = root / "amane_kanata.safetensors"
+    _write_fake_safetensors(path, {"ss_sd_model_name": "illustrious"})
+
+    discovery = LoRADiscovery(loras, characters)
+    profile = discovery.scan((root,)).discovered[0]
+    loras.upsert(
+        profile.model_copy(
+            update={
+                "state": LoRAState.PRODUCTION,
+                "readiness": 0.95,
+                "identity_score": 0.95,
+                "quality_score": 0.90,
+                "flexibility_score": 0.80,
+            }
+        )
+    )
+    maintenance = LoRADiscoveryMaintenance(
+        discovery,
+        TelemetryRepository(database),
+        roots=(root,),
+        interval_seconds=0,
+    )
+
+    first = await maintenance.maintain()
+    assert first is not None
+    assert not first.removed
+
+    path.unlink()
+    second = await maintenance.maintain()
+
+    assert second is not None
+    assert len(second.removed) == 1
+    assert loras.require(profile.id).state is LoRAState.DISABLED
     database.dispose()
