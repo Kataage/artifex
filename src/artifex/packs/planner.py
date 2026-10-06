@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from artifex.config.models import ContextConfig
+from artifex.config.models import ContextConfig, PatreonConfig
 from artifex.llm import ChatMessage, StructuredGenerator
 from artifex.llm.prompts import CONTENT_PACK_PROMPT
-from artifex.packs.models import ContentPackPlan, PackRecord
+from artifex.packs.models import (
+    ContentPackPlan,
+    EditorialArchetype,
+    PackRecord,
+)
 from artifex.packs.repository import PackRepository
 from artifex.planner.models import SelectedConcept
 from artifex.series.models import SeriesProfile, SeriesPromptContext, SeriesStatus
@@ -18,10 +22,12 @@ class PackPlanner:
         generator: StructuredGenerator,
         repository: PackRepository,
         context_config: ContextConfig | None = None,
+        patreon_config: PatreonConfig | None = None,
     ) -> None:
         self._generator = generator
         self._repository = repository
         self._context = context_config or ContextConfig()
+        self._patreon = patreon_config or PatreonConfig()
 
     async def plan_and_persist(
         self,
@@ -32,10 +38,17 @@ class PackPlanner:
         series_context = (
             self._series_context(series) if series is not None else None
         )
-        messages = self._messages(concept, series_context)
+        archetype = self._archetype_for(concept)
+        messages = self._messages(concept, series_context, archetype)
 
         def validate(plan: ContentPackPlan) -> None:
-            self._validate_plan(plan, concept, series, series_context)
+            self._validate_plan(
+                plan,
+                concept,
+                series,
+                series_context,
+                archetype,
+            )
 
         plan = await self._generator.generate(
             ContentPackPlan,
@@ -77,6 +90,7 @@ class PackPlanner:
         concept: SelectedConcept,
         series: SeriesProfile | None,
         series_context: SeriesPromptContext | None,
+        archetype: EditorialArchetype,
     ) -> None:
         candidate = concept.candidate
         if plan.format is not candidate.format:
@@ -86,6 +100,10 @@ class PackPlanner:
             )
         if plan.character_ids != candidate.character_ids:
             raise ValueError("pack character_ids must exactly match selected concept")
+        if plan.editorial_archetype is not archetype:
+            raise ValueError(
+                "pack editorial_archetype must match the selected editorial policy"
+            )
         if len(plan.scenes) != candidate.target_scene_count:
             raise ValueError(
                 f"pack must contain exactly {candidate.target_scene_count} scenes"
@@ -206,10 +224,27 @@ class PackPlanner:
             )
         return context
 
+    def _archetype_for(self, concept: SelectedConcept) -> EditorialArchetype:
+        candidate = concept.candidate
+        if not self._patreon.enabled:
+            return EditorialArchetype.PUBLIC_ONLY
+        if candidate.target_scene_count == 1:
+            return EditorialArchetype.PUBLIC_ONLY
+        if candidate.format.value == "mini_story":
+            return EditorialArchetype.MINI_STORY
+        if candidate.format.value == "variation_pack":
+            return EditorialArchetype.VARIATION_PACK
+        if candidate.format.value in {"seasonal", "trend"}:
+            return EditorialArchetype.SEASONAL_TREND_PACK
+        if candidate.format.value == "outfit_feature":
+            return EditorialArchetype.SFW_COMPLETE_MEMBER_ALTERNATE
+        return EditorialArchetype(self._patreon.default_archetype)
+
     @staticmethod
     def _messages(
         concept: SelectedConcept,
         series: SeriesPromptContext | None,
+        archetype: EditorialArchetype,
     ) -> tuple[ChatMessage, ...]:
         payload = {
             "selected_concept": concept.model_dump(mode="json"),
@@ -217,7 +252,13 @@ class PackPlanner:
             "requirements": {
                 "plan_entire_pack_before_generation": True,
                 "scene_count": concept.candidate.target_scene_count,
+                "editorial_archetype": archetype.value,
                 "publication_tier_per_scene": True,
+                "planned_content_rating_per_scene": True,
+                "publication_tier_and_content_rating_are_independent": True,
+                "scene_role_contract": _role_guidance(
+                    concept.candidate.format.value
+                ),
                 "continuity_bible": True,
                 "scene_ordinals": "contiguous starting from 1",
                 "series_rule": (
@@ -284,3 +325,30 @@ def _truncate(value: str, limit: int) -> str:
     if limit == 1:
         return value[:1]
     return value[: limit - 1].rstrip() + "…"
+
+
+def _role_guidance(format_name: str) -> str:
+    return {
+        "single_feature": "first feature/preview; later detail/variation/alternate",
+        "continuation": (
+            "first continuation/preview; then development; "
+            "end resolution/alternate"
+        ),
+        "mini_story": "opening/preview, development scene(s), final resolution",
+        "variation_pack": "variation/preview/alternate only",
+        "outfit_feature": (
+            "outfit_reveal/preview first; then detail/variation/alternate"
+        ),
+        "seasonal": "seasonal_hero/preview first; then detail/variation/alternate",
+        "trend": "trend_hero/preview first; then detail/variation/alternate",
+        "evergreen": "feature/preview first; then detail/variation/alternate",
+        "experimental": "experiment/preview only",
+        "duo": (
+            "feature/interaction/preview first; "
+            "then interaction/detail/variation/alternate"
+        ),
+        "group": (
+            "feature/interaction/preview first; "
+            "then interaction/detail/variation/alternate"
+        ),
+    }[format_name]
