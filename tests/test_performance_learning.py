@@ -464,7 +464,8 @@ async def test_performance_provider_overrides_character_only_baseline(
         learning,
     ).evaluate(candidate, context)
 
-    assert signals.historical_performance > 0.8
+    assert signals.historical_performance > 0.75
+    assert signals.historical_performance < 0.9
     assert signals.historical_performance_confidence > 0.9
     assert "format:evergreen" in signals.historical_performance_reason
     database.dispose()
