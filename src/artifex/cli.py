@@ -32,6 +32,11 @@ from artifex.llm import (
     OpenAICompatibleClient,
     StructuredGenerator,
 )
+from artifex.performance import (
+    PatreonV2PublicationProvider,
+    ingest_manual_performance,
+    load_manual_performance,
+)
 from artifex.policy import PolicyDecisionRepository
 from artifex.research import (
     ResearchIntent,
@@ -42,6 +47,7 @@ from artifex.research import (
 )
 from artifex.review import ReviewQueueRepository
 from artifex.series import SeriesRepository
+from artifex.telemetry import EventSeverity
 
 app = typer.Typer(
     name="artifex",
@@ -84,6 +90,12 @@ semantic_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(semantic_app, name="semantic")
+performance_app = typer.Typer(
+    name="performance",
+    help="Import and inspect Patreon publication performance learning.",
+    no_args_is_help=True,
+)
+app.add_typer(performance_app, name="performance")
 
 ConfigOption = Annotated[
     Path | None,
@@ -559,6 +571,156 @@ def _print_payload(payload: object, *, as_json: bool) -> None:
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         typer.echo(str(payload))
+
+
+@performance_app.command("import")
+def performance_import(
+    path: Annotated[
+        Path,
+        typer.Argument(
+            help="JSON, JSONL/NDJSON, or CSV performance export."
+        ),
+    ],
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Import persisted post metrics linked back to Artifex Pack/Scene IDs."""
+    settings = _settings(config)
+    core = build_core(settings)
+    try:
+        payload = load_manual_performance(path)
+        publications, snapshots = ingest_manual_performance(
+            core.performance_repository,
+            payload,
+            import_path=path,
+        )
+        effects = (
+            core.performance.strongest_effects(limit=10)
+            if core.performance is not None
+            else ()
+        )
+        result = {
+            "platform": payload.platform,
+            "source": payload.source,
+            "publications": publications,
+            "snapshots": snapshots,
+            "effects": [
+                effect.model_dump(mode="json")
+                for effect in effects
+            ],
+        }
+        core.telemetry.record(
+            "performance.ingested",
+            EventSeverity.INFO,
+            {
+                "platform": payload.platform,
+                "source": payload.source,
+                "publications": publications,
+                "snapshots": snapshots,
+                "top_effects": [
+                    {
+                        "dimension": effect.dimension,
+                        "key": effect.key,
+                        "score": effect.score,
+                        "confidence": effect.confidence,
+                    }
+                    for effect in effects[:5]
+                ],
+            },
+        )
+        _print_payload(result, as_json=json_output)
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        typer.echo(f"performance import error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
+
+
+@performance_app.command("status")
+def performance_status(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show latest persisted publication evidence and learned effects."""
+    core = build_core(_settings(config))
+    try:
+        latest = core.performance_repository.latest_snapshots(platform="patreon")
+        effects = (
+            core.performance.strongest_effects(limit=20)
+            if core.performance is not None
+            else ()
+        )
+        payload = {
+            "enabled": core.performance is not None,
+            "publication_count": len(latest),
+            "effects": [
+                effect.model_dump(mode="json")
+                for effect in effects
+            ],
+        }
+        if json_output:
+            _print_payload(payload, as_json=True)
+            return
+        typer.echo(
+            f"performance enabled={payload['enabled']} "
+            f"publications={len(latest)} effects={len(effects)}"
+        )
+        for effect in effects:
+            typer.echo(
+                f"{effect.dimension}\t{effect.key}\t"
+                f"score={effect.score:.3f}\tconfidence={effect.confidence:.3f}\t"
+                f"n={effect.evidence_count}\t{effect.reason}"
+            )
+    finally:
+        asyncio.run(core.close())
+
+
+@performance_app.command("sync-post")
+def performance_sync_post(
+    post_id: Annotated[str, typer.Argument(help="Patreon v2 post ID.")],
+    pack_id: Annotated[str, typer.Argument(help="Generating Artifex Pack ID.")],
+    scene_id: Annotated[
+        str | None,
+        typer.Option("--scene-id", help="Optional generating Scene ID."),
+    ] = None,
+    publication_tier: Annotated[
+        str | None,
+        typer.Option("--tier", help="Optional public/member publication tier."),
+    ] = None,
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Sync canonical Patreon v2 post metadata and bind it to Artifex."""
+    settings = _settings(config)
+    core = build_core(settings)
+    provider = PatreonV2PublicationProvider(settings.patreon)
+    try:
+        link = asyncio.run(
+            provider.sync_post(
+                core.performance_repository,
+                post_id=post_id,
+                pack_id=pack_id,
+                scene_id=scene_id,
+                publication_tier=publication_tier,
+            )
+        )
+        core.telemetry.record(
+            "performance.publication_synced",
+            EventSeverity.INFO,
+            {
+                "platform": "patreon",
+                "external_post_id": link.external_post_id,
+                "pack_id": link.pack_id,
+                "scene_id": link.scene_id,
+            },
+        )
+        _print_payload(link.model_dump(mode="json"), as_json=json_output)
+    except (OSError, KeyError, RuntimeError, ValueError) as exc:
+        typer.echo(f"Patreon sync error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(provider.aclose())
+        asyncio.run(core.close())
 
 
 @research_app.command("status")
