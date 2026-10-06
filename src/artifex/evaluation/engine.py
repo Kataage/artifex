@@ -44,10 +44,25 @@ class EvaluationEngine:
             context.image_path,
             novelty_references,
         )
-        identity_reference = await self._similarity.identity_similarity(
-            context.image_path,
-            context.identity_reference_image_paths,
-        )
+        if (
+            not self._config.identity_reference_required
+            and not any(context.identity_reference_image_paths.values())
+        ):
+            identity_reference_score: float | None = None
+            identity_reference_missing = False
+        else:
+            identity_reference = await self._similarity.identity_similarity(
+                context.image_path,
+                context.identity_reference_image_paths,
+            )
+            identity_reference_score = identity_reference.aggregate
+            identity_reference_missing = (
+                self._config.identity_reference_required
+                and (
+                    identity_reference.aggregate is None
+                    or bool(identity_reference.missing_character_ids)
+                )
+            )
         novelty = 1.0 - novelty_similarity
         weights = self._config.weights
         aggregate = (
@@ -63,7 +78,7 @@ class EvaluationEngine:
 
         scores = EvaluationScores(
             identity=raw.identity,
-            identity_reference=identity_reference.aggregate,
+            identity_reference=identity_reference_score,
             alignment=raw.alignment,
             face_quality=raw.face_quality,
             technical_quality=raw.technical_quality,
@@ -78,13 +93,7 @@ class EvaluationEngine:
         state, reasons = self._classify(
             scores,
             raw.reasons,
-            identity_reference_missing=(
-                self._config.identity_reference_required
-                and (
-                    identity_reference.aggregate is None
-                    or bool(identity_reference.missing_character_ids)
-                )
-            ),
+            identity_reference_missing=identity_reference_missing,
         )
         return EvaluationResult(
             attempt_id=context.attempt_id,
