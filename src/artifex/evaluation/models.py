@@ -19,6 +19,11 @@ class EvaluationContext(EvaluationModel):
     positive_prompt: str
     negative_prompt: str
     reference_image_paths: tuple[Path, ...] = ()
+    identity_reference_image_paths: dict[str, tuple[Path, ...]] = Field(
+        default_factory=dict
+    )
+    duplicate_reference_image_paths: tuple[Path, ...] = ()
+    novelty_reference_image_paths: tuple[Path, ...] = ()
     adjacent_image_paths: tuple[Path, ...] = ()
 
 
@@ -37,11 +42,13 @@ class RawEvaluationSignals(EvaluationModel):
 
 class EvaluationScores(EvaluationModel):
     identity: float = Field(ge=0, le=1)
+    identity_reference: float | None = Field(default=None, ge=0, le=1)
     alignment: float = Field(ge=0, le=1)
     face_quality: float = Field(ge=0, le=1)
     technical_quality: float = Field(ge=0, le=1)
     aesthetic: float = Field(ge=0, le=1)
     image_similarity: float = Field(ge=0, le=1)
+    novelty_similarity: float = Field(ge=0, le=1)
     novelty: float = Field(ge=0, le=1)
     continuity: float = Field(ge=0, le=1)
     integrity: float = Field(ge=0, le=1)
