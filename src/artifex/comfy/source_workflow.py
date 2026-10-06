@@ -58,6 +58,48 @@ class UiWorkflowCompiler:
         }
         self._mode_overrides = dict(mode_overrides or {})
 
+    def node_id_for_role(self, role: str) -> int:
+        matches = [
+            node_id
+            for node_id, node in self._nodes.items()
+            if isinstance(node.get("properties"), dict)
+            and node["properties"].get("artifex_role") == role
+        ]
+        if len(matches) != 1:
+            raise WorkflowSourceError(
+                f"expected exactly one Artifex role {role!r}; found {len(matches)}"
+            )
+        return matches[0]
+
+    def set_mode_for_role(self, role: str, mode: int) -> None:
+        self._mode_overrides[self.node_id_for_role(role)] = mode
+
+    def set_widget_for_role(self, role: str, input_name: str, value: Any) -> None:
+        self.set_widget(self.node_id_for_role(role), input_name, value)
+
+    def set_input_link_for_role(
+        self,
+        role: str,
+        input_name: str,
+        link_id: int | None,
+    ) -> None:
+        self.set_input_link(self.node_id_for_role(role), input_name, link_id)
+
+    def compile_role(
+        self,
+        output_role: str,
+    ) -> tuple[dict[str, dict[str, Any]], SourceWorkflowInfo]:
+        return self.compile(self.node_id_for_role(output_role))
+
+    def source_sha256(self) -> str:
+        raw = json.dumps(
+            self._source,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
+
     def set_input_link(self, node_id: int, input_name: str, link_id: int | None) -> None:
         node = self._require_node(node_id)
         for item in node.get("inputs", ()):
@@ -112,11 +154,10 @@ class UiWorkflowCompiler:
                 api_node["_meta"] = {"title": title}
             graph[str(node_id)] = api_node
 
-        raw = json.dumps(self._source, ensure_ascii=False, sort_keys=True).encode("utf-8")
         workflow_id = str(self._source.get("id", "unknown"))
         return graph, SourceWorkflowInfo(
             workflow_id=workflow_id,
-            sha256=hashlib.sha256(raw).hexdigest(),
+            sha256=self.source_sha256(),
             node_count=len(self._nodes),
             api_node_count=len(graph),
             output_node_id=str(output_node_id),
