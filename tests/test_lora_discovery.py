@@ -105,3 +105,80 @@ def test_changed_file_resets_previous_production_validation(tmp_path: Path) -> N
     assert changed.readiness == 0.0
     assert changed.identity_score is None
     database.dispose()
+
+
+
+def test_removed_production_asset_is_disabled_until_revalidated(tmp_path: Path) -> None:
+    database, characters, loras = _registries(tmp_path)
+    root = tmp_path / "loras"
+    root.mkdir()
+    path = root / "amane_kanata.safetensors"
+    _write_fake_safetensors(path, {"ss_sd_model_name": "illustrious"})
+
+    discovery = LoRADiscovery(loras, characters)
+    first = discovery.scan((root,)).discovered[0]
+    loras.upsert(
+        first.model_copy(
+            update={
+                "state": LoRAState.PRODUCTION,
+                "readiness": 0.95,
+                "identity_score": 0.95,
+                "quality_score": 0.90,
+                "flexibility_score": 0.80,
+            }
+        )
+    )
+
+    original_bytes = path.read_bytes()
+    path.unlink()
+    removed = discovery.scan((root,))
+
+    assert len(removed.removed) == 1
+    disabled = loras.require(first.id)
+    assert disabled.state is LoRAState.DISABLED
+    assert disabled.readiness == 0.0
+    assert disabled.missing_since is not None
+    assert disabled.identity_score is None
+
+    path.write_bytes(original_bytes)
+    restored = discovery.scan((root,))
+
+    assert len(restored.discovered) == 1
+    profile = loras.require(first.id)
+    assert profile.state is LoRAState.DISCOVERED
+    assert profile.missing_since is None
+    assert profile.readiness == 0.0
+    database.dispose()
+
+
+def test_corrupt_replacement_invalidates_previous_production_asset(tmp_path: Path) -> None:
+    database, characters, loras = _registries(tmp_path)
+    root = tmp_path / "loras"
+    root.mkdir()
+    path = root / "amane_kanata.safetensors"
+    _write_fake_safetensors(path, {"ss_sd_model_name": "illustrious"})
+
+    discovery = LoRADiscovery(loras, characters)
+    first = discovery.scan((root,)).discovered[0]
+    loras.upsert(
+        first.model_copy(
+            update={
+                "state": LoRAState.PRODUCTION,
+                "readiness": 0.95,
+                "identity_score": 0.95,
+                "quality_score": 0.90,
+                "flexibility_score": 0.80,
+            }
+        )
+    )
+
+    path.write_bytes(b"not-a-safetensors-file")
+    result = discovery.scan((root,))
+
+    assert result.failed
+    assert len(result.invalidated) == 1
+    failed = loras.require(first.id)
+    assert failed.state is LoRAState.FAILED
+    assert failed.readiness == 0.0
+    assert failed.identity_score is None
+    database.dispose()
