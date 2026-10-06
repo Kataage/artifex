@@ -7,7 +7,6 @@ from artifex.llm.structured import StructuredGenerationError, StructuredGenerato
 __all__ = [
     "ChatMessage",
     "LlmBootstrapResult",
-    "bootstrap_llm",
     "LlmCallRepository",
     "LlmClient",
     "LlmQualificationReport",
@@ -15,4 +14,5 @@ __all__ = [
     "OpenAICompatibleClient",
     "StructuredGenerationError",
     "StructuredGenerator",
+    "bootstrap_llm",
 ]
