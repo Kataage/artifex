@@ -9,7 +9,7 @@ from PIL import Image
 from artifex.characters import CharacterRegistry
 from artifex.config.models import EvaluationConfig
 from artifex.db import Database
-from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow
+from artifex.db.models import ConceptRow, GenerationAttemptRow, PackRow, SceneRow
 from artifex.domain import CharacterProfile, PackState, PublicationTier, SceneState
 from artifex.evaluation import (
     EmbeddingModelDescriptor,
@@ -17,6 +17,7 @@ from artifex.evaluation import (
     EvaluationEngine,
     EvaluationReferenceResolver,
     RawEvaluationSignals,
+    SemanticArchiveIndexer,
     SemanticEmbeddingRepository,
     SemanticIndex,
     SimilarityService,
@@ -494,3 +495,107 @@ async def test_calibrator_validates_identity_duplicate_and_paraphrase_corpus(
     assert profile.text_paraphrase.balanced_accuracy == pytest.approx(1.0)
     assert profile.identity_hard_min < profile.identity_accept_min
     assert profile.revision == "test-commit"
+
+
+
+@pytest.mark.asyncio
+async def test_semantic_archive_backfill_indexes_complete_history_beyond_twenty(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'backfill.sqlite3').as_posix()}")
+    database.migrate()
+    now = datetime(2026, 10, 6, 2, tzinfo=UTC)
+
+    with database.session() as session:
+        session.add(
+            ConceptRow(
+                id="selected-concept",
+                status="finalized",
+                payload_json={
+                    "selected": True,
+                    "candidate": {
+                        "character_ids": ["char-a"],
+                        "format": "single_feature",
+                        "theme": "angel",
+                        "setting": "open window",
+                        "mood": "quiet",
+                        "visual_hook": "half outside the window",
+                        "progression": "single scene",
+                    },
+                },
+                score=0.9,
+                similarity_score=0.1,
+                created_at=now,
+            )
+        )
+        session.add(
+            ConceptRow(
+                id="unselected-concept",
+                status="candidate",
+                payload_json={"selected": False, "candidate": {}},
+                score=0.2,
+                similarity_score=0.8,
+                created_at=now,
+            )
+        )
+        for index in range(25):
+            pack_id = f"backfill-pack-{index:02d}"
+            scene_id = f"backfill-scene-{index:02d}"
+            attempt_id = f"backfill-attempt-{index:02d}"
+            image_path = tmp_path / f"backfill-{index:02d}.png"
+            Image.new("RGB", (8, 8), (index, 100, 180)).save(image_path)
+            session.add(
+                PackRow(
+                    id=pack_id,
+                    concept_id=None,
+                    series_id=None,
+                    state=PackState.FINALIZED.value,
+                    format_type="single_feature",
+                    payload_json={},
+                    checkpoint_json={},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                SceneRow(
+                    id=scene_id,
+                    pack_id=pack_id,
+                    ordinal=1,
+                    state=SceneState.ACCEPTED.value,
+                    publication_tier=PublicationTier.PUBLIC.value,
+                    payload_json={"plan": _scene_plan("char-a").model_dump(mode="json")},
+                    selected_attempt_id=attempt_id,
+                )
+            )
+            session.add(
+                GenerationAttemptRow(
+                    id=attempt_id,
+                    scene_id=scene_id,
+                    parent_attempt_id=None,
+                    ordinal=1,
+                    backend_status="completed",
+                    seed=index,
+                    prompt="char-a",
+                    negative_prompt="",
+                    provenance_json={"output_paths": [str(image_path)]},
+                    error_json=None,
+                    created_at=now,
+                )
+            )
+
+    provider = CountingEmbeddings()
+    repository = SemanticEmbeddingRepository(database)
+    report = await SemanticArchiveIndexer(
+        database,
+        SemanticIndex(repository, provider),
+    ).backfill()
+
+    assert report.concepts_scanned == 2
+    assert report.concepts_indexed == 1
+    assert report.images_scanned == 25
+    assert report.images_indexed == 25
+    assert report.missing_image_paths == 0
+    assert repository.count() == 26
+    assert provider.image_calls == 25
+    database.dispose()
