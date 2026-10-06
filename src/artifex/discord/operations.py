@@ -402,6 +402,11 @@ class ArtifexRemoteOperations:
             return None
         if not isinstance(raw, str) or not raw:
             raise TypeError("review policy_decision_id must be a non-empty string")
+        original = self._policy_decisions.require(raw)
+        if original.outcome.value == "block":
+            if approved:
+                raise ValueError("hard-blocked policy decisions cannot be approved")
+            return original
         return self._policy_decisions.resolve_review(raw, approved=approved)
 
     def _apply_policy_resolution(
@@ -452,6 +457,9 @@ class ArtifexRemoteOperations:
                     raise KeyError(f"unknown scene: {item.subject_id}")
                 scene_state = SceneState(scene.state)
                 attempt_id = self._attempt_id(item, scene.selected_attempt_id)
+            if scene_state is SceneState.BLOCKED:
+                self._runtime.transition_scene(item.subject_id, SceneState.REVIEW)
+                scene_state = SceneState.REVIEW
             if scene_state in {SceneState.REVIEW, SceneState.EVALUATING}:
                 self._runtime.select_scene_attempt(
                     item.subject_id,
@@ -479,6 +487,21 @@ class ArtifexRemoteOperations:
                 raise KeyError(f"unknown pack: {scene.pack_id}")
             pack_state = PackState(pack.state)
             pack_id = pack.id
+        if pack_state is PackState.BLOCKED:
+            if retry:
+                self._runtime.transition_pack(
+                    pack_id,
+                    PackState.PLANNED,
+                    checkpoint_patch={"operator_review_resolved": True},
+                )
+                return
+            self._runtime.transition_pack(pack_id, PackState.REVIEW)
+            self._runtime.transition_pack(
+                pack_id,
+                PackState.EVALUATING,
+                checkpoint_patch={"operator_review_resolved": True},
+            )
+            return
         if pack_state is PackState.REVIEW:
             self._runtime.transition_pack(
                 pack_id,
@@ -503,6 +526,13 @@ class ArtifexRemoteOperations:
             state = SceneState(row.state)
 
         if state is SceneState.READY:
+            return
+        if state is SceneState.BLOCKED:
+            self._runtime.transition_scene(
+                scene_id,
+                SceneState.PLANNED,
+                payload_patch={"operator_retry": True},
+            )
             return
         if state is SceneState.REVIEW:
             self._runtime.transition_scene(
