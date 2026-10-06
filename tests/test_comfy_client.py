@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -8,6 +9,7 @@ import pytest
 
 from artifex.comfy import (
     ComfyErrorKind,
+    ComfyOutput,
     ComfyUIClient,
     ComfyUIError,
     WorkflowAssetRequirement,
@@ -355,4 +357,38 @@ async def test_free_memory_unloads_models_and_cached_vram() -> None:
             },
         )
     ]
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_download_output_fetches_remote_image_through_view_api(
+    tmp_path: Path,
+) -> None:
+    image_bytes = b"remote-image-bytes"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/view"
+        assert request.url.params["filename"] == "scene.png"
+        assert request.url.params["subfolder"] == "ARTIFEX/pack-1"
+        assert request.url.params["type"] == "output"
+        return httpx.Response(200, content=image_bytes)
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+    output = ComfyOutput(
+        node_id="7",
+        filename="scene.png",
+        subfolder="ARTIFEX/pack-1",
+        output_type="output",
+    )
+
+    path = await client.download_output(output, tmp_path / "render-cache")
+
+    assert path.read_bytes() == image_bytes
+    assert path.relative_to(tmp_path / "render-cache").as_posix() == (
+        "ARTIFEX/pack-1/scene.png"
+    )
     await http_client.aclose()
