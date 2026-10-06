@@ -240,6 +240,22 @@ class EvaluationWeightsConfig(StrictModel):
 
 class EvaluationConfig(StrictModel):
     provider: Literal["openai_compatible_vision"] = "openai_compatible_vision"
+    semantic_provider: Literal["siglip2", "local_fallback"] = "siglip2"
+    semantic_model: str = "google/siglip2-base-patch16-224"
+    semantic_revision: str | None = None
+    semantic_device: Literal["cpu", "cuda", "auto"] = "cpu"
+    semantic_cache_dir: Path | None = None
+    semantic_local_files_only: bool = False
+    allow_degraded_semantic: bool = False
+    semantic_calibration_profile: str = "siglip2-hololive-ilxl-v1"
+    identity_reference_required: bool = True
+    identity_reference_limit_per_character: int = Field(default=8, ge=1, le=64)
+    identity_reference_hard_min: float = Field(default=0.30, ge=0, le=1)
+    identity_reference_accept_min: float = Field(default=0.40, ge=0, le=1)
+    duplicate_reference_limit: int = Field(default=128, ge=1, le=2000)
+    novelty_reference_limit: int = Field(default=192, ge=1, le=4000)
+    global_diversity_reference_limit: int = Field(default=64, ge=0, le=1000)
+    historical_reference_scan_limit: int = Field(default=2000, ge=21, le=50000)
     vision_base_url: str | None = None
     vision_model: str | None = None
     vision_api_key_env: str | None = None
