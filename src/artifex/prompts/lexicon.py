@@ -224,15 +224,18 @@ class ValidatedTagLexicon:
             raise ValueError(
                 f"prompt profile {requested.id} does not support {model_family}"
             )
-        if requested.checkpoint_globs and checkpoint is not None:
-            if not any(
+        if (
+            requested.checkpoint_globs
+            and checkpoint is not None
+            and not any(
                 fnmatch.fnmatch(checkpoint.casefold(), pattern.casefold())
                 for pattern in requested.checkpoint_globs
-            ):
-                raise ValueError(
-                    f"prompt profile {requested.id} is incompatible with "
-                    f"checkpoint {checkpoint}"
-                )
+            )
+        ):
+            raise ValueError(
+                f"prompt profile {requested.id} is incompatible with "
+                f"checkpoint {checkpoint}"
+            )
         return requested
 
     def expand_implications(self, tags: Iterable[str]) -> tuple[str, ...]:
