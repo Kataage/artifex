@@ -70,6 +70,24 @@ class OpenAICompatibleVisionEvaluationProvider:
                 "image_url": {"url": _data_url(context.image_path)},
             },
         ]
+        for character_id in context.character_ids:
+            references = context.identity_reference_image_paths.get(character_id, ())
+            for reference in references[:2]:
+                if not reference.exists():
+                    continue
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"Identity reference for requested character {character_id}:",
+                    }
+                )
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _data_url(reference)},
+                    }
+                )
+
         for adjacent in context.adjacent_image_paths[:2]:
             if adjacent.exists():
                 content.append(
