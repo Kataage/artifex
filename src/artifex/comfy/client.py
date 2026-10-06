@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -20,8 +21,10 @@ from artifex.comfy.models import (
     ComfyOutput,
     QueueReceipt,
     WorkflowPatchRequest,
+    WorkflowRequirementStatus,
+    WorkflowRequirements,
 )
-from artifex.comfy.templates import WorkflowTemplate
+from artifex.comfy.templates import WorkflowTemplateLike
 from artifex.config.models import ComfyUiConfig
 
 
@@ -101,7 +104,7 @@ class ComfyUIClient:
 
     async def execute(
         self,
-        template: WorkflowTemplate,
+        template: WorkflowTemplateLike,
         patch: WorkflowPatchRequest,
         *,
         client_id: str | None = None,
@@ -190,6 +193,108 @@ class ComfyUIClient:
 
     async def queue_snapshot(self) -> dict[str, Any]:
         return await self._request_json("GET", "/queue")
+
+    async def object_info(self) -> dict[str, Any]:
+        return await self._request_json("GET", "/object_info")
+
+    async def validate_requirements(
+        self,
+        requirements: WorkflowRequirements,
+    ) -> WorkflowRequirementStatus:
+        info = await self.object_info()
+        missing_node_types = tuple(
+            sorted(
+                node_type
+                for node_type in requirements.node_types
+                if node_type not in info
+            )
+        )
+        missing_assets: list[str] = []
+        for asset in requirements.assets:
+            node_info = info.get(asset.node_class)
+            if not isinstance(node_info, Mapping):
+                continue
+            options = self._input_choices(node_info, asset.input_name)
+            if not options:
+                continue
+            if not any(
+                self._asset_name_matches(asset.value, available)
+                for available in options
+            ):
+                missing_assets.append(f"{asset.label}:{asset.value}")
+
+        missing_assets_tuple = tuple(sorted(dict.fromkeys(missing_assets)))
+        ready = not missing_node_types and not missing_assets_tuple
+        detail_parts: list[str] = []
+        if missing_node_types:
+            detail_parts.append(
+                "missing nodes=" + ", ".join(missing_node_types)
+            )
+        if missing_assets_tuple:
+            detail_parts.append(
+                "missing assets=" + ", ".join(missing_assets_tuple)
+            )
+        if not detail_parts:
+            detail_parts.append(
+                f"{len(requirements.node_types)} node types and "
+                f"{len(requirements.assets)} assets validated"
+            )
+        return WorkflowRequirementStatus(
+            ready=ready,
+            missing_node_types=missing_node_types,
+            missing_assets=missing_assets_tuple,
+            detail="; ".join(detail_parts),
+        )
+
+    async def free_memory(
+        self,
+        *,
+        unload_models: bool = True,
+        free_memory: bool = True,
+    ) -> None:
+        await self._request_no_content(
+            "POST",
+            "/free",
+            json={
+                "unload_models": unload_models,
+                "free_memory": free_memory,
+            },
+        )
+
+    @staticmethod
+    def _input_choices(
+        node_info: Mapping[str, Any],
+        input_name: str,
+    ) -> tuple[str, ...]:
+        raw_input = node_info.get("input")
+        if not isinstance(raw_input, Mapping):
+            return ()
+        schema: object | None = None
+        for section in ("required", "optional"):
+            values = raw_input.get(section)
+            if isinstance(values, Mapping) and input_name in values:
+                schema = values[input_name]
+                break
+        if not isinstance(schema, list | tuple) or not schema:
+            return ()
+        first = schema[0]
+        if not isinstance(first, list | tuple):
+            return ()
+        return tuple(
+            str(value)
+            for value in first
+            if isinstance(value, str)
+        )
+
+    @staticmethod
+    def _asset_name_matches(configured: str, available: str) -> bool:
+        def normalize(value: str) -> str:
+            return Path(value.replace("\\", "/")).stem.casefold()
+
+        return (
+            configured.casefold() == available.casefold()
+            or normalize(configured) == normalize(available)
+        )
 
     async def aclose(self) -> None:
         if self._owns_client:
