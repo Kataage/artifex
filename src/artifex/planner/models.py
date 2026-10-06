@@ -41,6 +41,8 @@ class CharacterOption(PlannerModel):
     readiness: float = Field(default=1.0, ge=0, le=1)
     recent_use_penalty: float = Field(default=0.0, ge=0, le=1)
     historical_performance: float = Field(default=0.5, ge=0, le=1)
+    historical_performance_confidence: float = Field(default=0.0, ge=0, le=1)
+    historical_performance_reason: str = "cold start"
     notes: tuple[str, ...] = ()
 
 
@@ -186,6 +188,8 @@ class CandidateScore(PlannerModel):
     novelty: float = Field(ge=0, le=1)
     visual_strength: float = Field(ge=0, le=1)
     historical_performance: float = Field(ge=0, le=1)
+    historical_performance_confidence: float = Field(default=0.0, ge=0, le=1)
+    historical_performance_reason: str = ""
     seasonality: float = Field(ge=0, le=1)
     series_potential: float = Field(ge=0, le=1)
     readiness: float = Field(ge=0, le=1)
