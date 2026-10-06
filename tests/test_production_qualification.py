@@ -509,6 +509,15 @@ async def test_identity_failure_executes_lora_weight_and_prompt_remediation(
             "revise_prompt",
         ]
         assert history[0]["before_digest"] != history[0]["after_digest"]
+        attempts = session.scalars(
+            select(GenerationAttemptRow)
+            .where(GenerationAttemptRow.scene_id == scene.id)
+            .order_by(GenerationAttemptRow.ordinal.asc())
+        ).all()
+        assert attempts[1].parent_attempt_id == attempts[0].id
+        retry_provenance = attempts[1].provenance_json["retry_execution"]
+        assert retry_provenance["before_digest"] == history[0]["before_digest"]
+        assert retry_provenance["after_digest"] == history[0]["after_digest"]
     assert reviews.list_open() == ()
     database.dispose()
 
@@ -555,6 +564,12 @@ async def test_technical_failure_routes_retry_through_repair_workflow(
     assert first.seed != second.seed
     assert first.workflow_template_id is None
     assert second.workflow_template_id == "ilxl_repair_v1"
+    with database.session() as session:
+        attempts = session.scalars(
+            select(GenerationAttemptRow)
+            .order_by(GenerationAttemptRow.ordinal.asc())
+        ).all()
+        assert attempts[-1].provenance_json["workflow_template"] == "ilxl_repair_v1"
     database.dispose()
 
 
