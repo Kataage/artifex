@@ -15,6 +15,7 @@ from artifex.config.models import (
 )
 from artifex.db import Database
 from artifex.domain import CharacterProfile
+from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorService
 from artifex.operations.health import ComponentHealth, ComponentState, HealthChecker
 from artifex.telemetry import TelemetryRepository
@@ -144,6 +145,7 @@ async def test_doctor_reports_complete_production_readiness(
         health,
         characters,
         comfy=HealthyComfy(),  # type: ignore[arg-type]
+        loras=LoRARegistry(database),
     ).run()
 
     assert report.ready is True

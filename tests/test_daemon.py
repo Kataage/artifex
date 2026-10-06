@@ -85,3 +85,46 @@ async def test_daemon_clean_stop_persists_stopped(tmp_path: Path) -> None:
 
     assert runtime.get_agent_state() is AgentState.STOPPED
     db.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_expensive_idle_maintenance_runs_only_when_scheduler_is_idle(
+    tmp_path: Path,
+) -> None:
+    db = Database(f"sqlite:///{(tmp_path / 'idle-maintenance.sqlite3').as_posix()}")
+    db.migrate()
+    runtime = RuntimeStore(db)
+    calls: list[str] = []
+
+    class IdleMaintenance:
+        daemon: RuntimeDaemon | None = None
+
+        async def maintain(self) -> None:
+            calls.append("idle")
+            assert self.daemon is not None
+            self.daemon.request_stop()
+
+    idle = IdleMaintenance()
+    daemon = RuntimeDaemon(
+        runtime,
+        Scheduler(
+            db,
+            runtime,
+            ProductionConfig(
+                idea_inventory_target=0,
+                planned_inventory_target=0,
+                completed_inventory_target=0,
+            ),
+        ),
+        FakeHandler(),
+        AgentConfig(poll_interval_seconds=0.001),
+        idle_maintenance=idle,
+    )
+    idle.daemon = daemon
+
+    await daemon.run_forever()
+
+    assert calls == ["idle"]
+    assert runtime.get_agent_state() is AgentState.STOPPED
+    db.dispose()

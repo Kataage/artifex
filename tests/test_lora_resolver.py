@@ -7,7 +7,13 @@ import pytest
 from artifex.characters import CharacterRegistry
 from artifex.config.models import CharacterRegistryConfig, LoRARegistryConfig
 from artifex.db import Database
-from artifex.domain import CharacterProfile, LoRAPolicy, LoRAProfile, LoRAState
+from artifex.domain import (
+    CharacterOutfit,
+    CharacterProfile,
+    LoRAPolicy,
+    LoRAProfile,
+    LoRAState,
+)
 from artifex.loras import LoRARegistry, LoRAResolutionError, LoRAResolver
 
 
@@ -42,11 +48,13 @@ def _production_lora(
     readiness: float,
     conflicts: tuple[str, ...] = (),
     weight: float = 0.8,
+    lora_type: str = "character",
 ) -> LoRAProfile:
     return LoRAProfile(
         id=lora_id,
         path=tmp_path / f"{lora_id}.safetensors",
         state=LoRAState.PRODUCTION,
+        lora_type=lora_type,
         target_character_ids=character_ids,
         model_families=("ilxl",),
         recommended_weight=weight,
@@ -156,4 +164,173 @@ def test_preferred_policy_can_fall_back_to_base_model(tmp_path: Path) -> None:
 
     assert plan.entries == ()
     assert "preferred LoRA unavailable" in plan.warnings[0]
+    database.dispose()
+
+
+
+def test_layered_stack_orders_character_outfit_style_and_utility(
+    tmp_path: Path,
+) -> None:
+    database, characters, loras = _setup(tmp_path)
+    characters.upsert(
+        CharacterProfile(
+            id="char-a",
+            display_name="char-a",
+            namespace="test",
+            model_families=("ilxl",),
+            lora_policy=LoRAPolicy.REQUIRED,
+            preferred_lora_ids=("char-lora",),
+            outfits=(
+                CharacterOutfit(
+                    id="summer",
+                    display_name="Summer Outfit",
+                    aliases=("summer outfit",),
+                    preferred_lora_ids=("outfit-lora",),
+                ),
+            ),
+            readiness=0.9,
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "char-lora",
+            ("char-a",),
+            readiness=0.95,
+            lora_type="character",
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "outfit-lora",
+            ("char-a",),
+            readiness=0.90,
+            lora_type="outfit",
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "style-lora",
+            (),
+            readiness=0.90,
+            lora_type="style",
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "utility-lora",
+            (),
+            readiness=0.90,
+            lora_type="utility",
+        )
+    )
+
+    plan = LoRAResolver(
+        characters,
+        loras,
+        CharacterRegistryConfig(),
+        LoRARegistryConfig(
+            default_style_lora_ids=("style-lora",),
+            default_utility_lora_ids=("utility-lora",),
+        ),
+    ).resolve(
+        ("char-a",),
+        model_family="ilxl",
+        clothing="summer outfit",
+    )
+
+    assert [entry.lora_id for entry in plan.entries] == [
+        "char-lora",
+        "outfit-lora",
+        "style-lora",
+        "utility-lora",
+    ]
+    assert [entry.layer for entry in plan.entries] == [
+        "character",
+        "outfit",
+        "style",
+        "utility",
+    ]
+    database.dispose()
+
+
+def test_conflict_rules_apply_across_lora_layers(tmp_path: Path) -> None:
+    database, characters, loras = _setup(tmp_path)
+    characters.upsert(_character("char-a", preferred=("char-lora",)))
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "char-lora",
+            ("char-a",),
+            readiness=0.9,
+            conflicts=("style-lora",),
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "style-lora",
+            (),
+            readiness=0.9,
+            lora_type="style",
+        )
+    )
+
+    resolver = LoRAResolver(
+        characters,
+        loras,
+        CharacterRegistryConfig(),
+        LoRARegistryConfig(default_style_lora_ids=("style-lora",)),
+    )
+    with pytest.raises(LoRAResolutionError, match="conflicts"):
+        resolver.resolve(("char-a",), model_family="ilxl")
+    database.dispose()
+
+
+def test_total_stack_limit_covers_non_character_layers(tmp_path: Path) -> None:
+    database, characters, loras = _setup(tmp_path)
+    characters.upsert(_character("char-a", preferred=("char-lora",)))
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "char-lora",
+            ("char-a",),
+            readiness=0.9,
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "style-lora",
+            (),
+            readiness=0.9,
+            lora_type="style",
+        )
+    )
+    loras.upsert(
+        _production_lora(
+            tmp_path,
+            "utility-lora",
+            (),
+            readiness=0.9,
+            lora_type="utility",
+        )
+    )
+
+    resolver = LoRAResolver(
+        characters,
+        loras,
+        CharacterRegistryConfig(),
+        LoRARegistryConfig(
+            maximum_character_loras_per_scene=1,
+            maximum_total_loras_per_scene=2,
+            default_style_lora_ids=("style-lora",),
+            default_utility_lora_ids=("utility-lora",),
+        ),
+    )
+    with pytest.raises(LoRAResolutionError, match="total LoRA count"):
+        resolver.resolve(("char-a",), model_family="ilxl")
     database.dispose()

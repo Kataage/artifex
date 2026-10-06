@@ -136,6 +136,42 @@ class LoRARegistry:
             result.append(profile)
         return tuple(result)
 
+    def invalidate(
+        self,
+        lora_id: str,
+        *,
+        target: LoRAState,
+        reason: str,
+        missing: bool = False,
+    ) -> LoRAProfile:
+        if target not in {LoRAState.DISCOVERED, LoRAState.DISABLED, LoRAState.FAILED}:
+            raise ValueError("invalid LoRA invalidation target")
+        current = self.require(lora_id)
+        now = datetime.now(UTC)
+        metadata = dict(current.metadata)
+        metadata["asset_status"] = "missing" if missing else "invalidated"
+        metadata["invalidation_reason"] = reason
+        metadata["invalidated_at"] = now.isoformat()
+        invalidated = current.model_copy(
+            update={
+                "state": target,
+                "readiness": 0.0,
+                "identity_score": None,
+                "quality_score": None,
+                "flexibility_score": None,
+                "validated_min_weight": None,
+                "validated_max_weight": None,
+                "last_validation_run_id": None,
+                "missing_since": (
+                    current.missing_since or now
+                    if missing
+                    else None
+                ),
+                "metadata": metadata,
+            }
+        )
+        return self.upsert(invalidated)
+
     def transition_state(self, lora_id: str, target: LoRAState) -> LoRAProfile:
         current = self.require(lora_id)
         if current.state == target:

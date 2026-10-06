@@ -36,6 +36,20 @@ class LoRARow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class LoRAValidationRunRow(Base):
+    __tablename__ = "lora_validation_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    lora_id: Mapped[str] = mapped_column(ForeignKey("loras.id"), index=True)
+    checksum: Mapped[str | None] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    report_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ConceptRow(Base):
     __tablename__ = "concepts"
 

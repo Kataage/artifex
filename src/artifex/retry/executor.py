@@ -121,12 +121,17 @@ class RetryActionExecutor:
         retry_number: int,
     ) -> RetryProductionInputs:
         if action is RetryAction.ALTERNATE_LORA:
-            excluded = tuple(entry.lora_id for entry in inputs.lora_plan.entries)
+            excluded = tuple(
+                entry.lora_id
+                for entry in inputs.lora_plan.entries
+                if entry.layer == "character"
+            )
             try:
                 alternate = self._loras.resolve(
                     inputs.scene.character_ids,
                     model_family=inputs.lora_plan.model_family,
                     exclude_lora_ids=excluded,
+                    clothing=inputs.scene.visual.clothing,
                 )
             except LoRAResolutionError:
                 return inputs
