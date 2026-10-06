@@ -57,8 +57,13 @@ from artifex.operations import (
 from artifex.operations.doctor import DoctorService
 from artifex.operations.recovery import RecoveryManager
 from artifex.packs import PackPlanner, PackRepository
+from artifex.performance import (
+    PerformanceAwareSignalProvider,
+    PerformanceLearningService,
+    PerformanceRepository,
+)
 from artifex.planner import ConceptRepository, IdeaDirector, SeriesIdeaDirector
-from artifex.planner.scoring import DefaultSignalProvider
+from artifex.planner.scoring import DefaultSignalProvider, SignalProvider
 from artifex.policy import (
     PolicyApplicationService,
     PolicyDecisionRepository,
@@ -129,6 +134,8 @@ class CoreServices:
     reviews: ReviewQueueRepository
     series: SeriesRepository
     policy_decisions: PolicyDecisionRepository
+    performance_repository: PerformanceRepository
+    performance: PerformanceLearningService | None
     telemetry: TelemetryRepository
     research: ResearchService
     trends: TrendRepository
@@ -166,12 +173,23 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         database,
         expiry_hours=settings.editorial.inventory_expiry_hours,
     )
+    performance_repository = PerformanceRepository(database)
+    performance = (
+        PerformanceLearningService(
+            database,
+            performance_repository,
+            settings.patreon.performance,
+        )
+        if settings.patreon.performance.enabled
+        else None
+    )
     editorial = EditorialService(
         database,
         settings.editorial,
         series,
         inventory,
         EditorialRepository(database),
+        performance=performance,
     )
     scheduler = Scheduler(
         database,
@@ -245,6 +263,8 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
         reviews=ReviewQueueRepository(database),
         series=series,
         policy_decisions=PolicyDecisionRepository(database),
+        performance_repository=performance_repository,
+        performance=performance,
         telemetry=telemetry,
         research=research,
         trends=trend_repository,
@@ -440,15 +460,23 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         concepts,
         settings.characters,
         trends=trends,
+        performance=core.performance,
+    )
+    base_signals: SignalProvider = DefaultSignalProvider()
+    if core.performance is not None:
+        base_signals = PerformanceAwareSignalProvider(
+            base_signals,
+            core.performance,
+        )
+    learned_signals = SimilarityAwareSignalProvider(
+        base_signals,
+        similarity,
     )
     idea_director = IdeaDirector(
         generator,
         concepts,
         settings.planner,
-        signal_provider=SimilarityAwareSignalProvider(
-            DefaultSignalProvider(),
-            similarity,
-        ),
+        signal_provider=learned_signals,
         require_research=settings.research.required_for_ideation,
     )
     series_idea_director = SeriesIdeaDirector(
@@ -456,10 +484,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         concepts,
         settings.planner,
         settings.editorial,
-        signal_provider=SimilarityAwareSignalProvider(
-            DefaultSignalProvider(),
-            similarity,
-        ),
+        signal_provider=learned_signals,
         require_research=settings.research.required_for_ideation,
     )
     research_director = ResearchDirector(core.research, settings.research)
