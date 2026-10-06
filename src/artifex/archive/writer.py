@@ -390,6 +390,8 @@ class PackArchive:
             "schema_version": 1,
             "platform": "patreon",
             "pack_id": pack_data["id"],
+            "concept_id": pack_data.get("concept_id"),
+            "series_id": pack_data.get("series_id"),
             "title": plan.title,
             "caption": plan.logline,
             "preview_copy": preview_copy,

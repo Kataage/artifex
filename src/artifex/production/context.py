@@ -7,6 +7,7 @@ from artifex.characters import CharacterRegistry
 from artifex.config.models import CharacterRegistryConfig
 from artifex.domain import LoRAPolicy
 from artifex.loras import LoRARegistry
+from artifex.performance import PerformanceLearningService
 from artifex.planner.models import CharacterOption, PlanningContext
 from artifex.planner.repository import ConceptRepository
 from artifex.trends.planner import TrendPlannerContext
@@ -21,18 +22,29 @@ class PlanningContextBuilder:
         character_config: CharacterRegistryConfig,
         *,
         trends: TrendPlannerContext | None = None,
+        performance: PerformanceLearningService | None = None,
     ) -> None:
         self._characters = characters
         self._loras = loras
         self._concepts = concepts
         self._character_config = character_config
         self._trends = trends
+        self._performance = performance
 
     def build(self, *, as_of: datetime | None = None) -> PlanningContext:
         now = as_of or datetime.now(UTC)
         options: list[CharacterOption] = []
+        profiles = self._characters.list(enabled_only=True)
+        performance_by_character = (
+            self._performance.character_effects(
+                tuple(profile.id for profile in profiles),
+                as_of=now,
+            )
+            if self._performance is not None
+            else {}
+        )
 
-        for profile in self._characters.list(enabled_only=True):
+        for profile in profiles:
             if profile.readiness < self._character_config.minimum_readiness:
                 continue
 
@@ -58,6 +70,7 @@ class PlanningContextBuilder:
                     max(lora.readiness for lora in production_loras),
                 )
 
+            performance = performance_by_character.get(profile.id)
             options.append(
                 CharacterOption(
                     id=profile.id,
@@ -70,7 +83,16 @@ class PlanningContextBuilder:
                         profile.last_used_at,
                         now,
                     ),
-                    historical_performance=0.5,
+                    historical_performance=(
+                        performance.score if performance is not None else 0.5
+                    ),
+                    historical_performance_confidence=(
+                        performance.confidence if performance is not None else 0.0
+                    ),
+                    historical_performance_reason=(
+                        performance.reason if performance is not None
+                        else "performance learning disabled"
+                    ),
                     notes=profile.generation_notes,
                 )
             )

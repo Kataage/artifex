@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from artifex.db.base import Base
@@ -48,6 +58,52 @@ class LoRAValidationRunRow(Base):
     error_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PublicationLinkRow(Base):
+    __tablename__ = "publication_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "platform",
+            "external_post_id",
+            name="uq_publication_link_platform_post",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(64), index=True)
+    external_post_id: Mapped[str] = mapped_column(String(200), index=True)
+    pack_id: Mapped[str] = mapped_column(ForeignKey("packs.id"), index=True)
+    scene_id: Mapped[str | None] = mapped_column(ForeignKey("scenes.id"), index=True)
+    publication_tier: Mapped[str | None] = mapped_column(String(32), index=True)
+    url: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PerformanceSnapshotRow(Base):
+    __tablename__ = "performance_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "publication_link_id",
+            "observed_at",
+            name="uq_performance_snapshot_link_observed",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    publication_link_id: Mapped[str] = mapped_column(
+        ForeignKey("publication_links.id"),
+        index=True,
+    )
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class ConceptRow(Base):

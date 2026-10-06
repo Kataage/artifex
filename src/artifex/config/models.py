@@ -418,8 +418,55 @@ class DiscordConfig(StrictModel):
         return self
 
 
+class PerformanceMetricWeightsConfig(StrictModel):
+    views: float = Field(default=0.05, ge=0)
+    engagement: float = Field(default=0.20, ge=0)
+    conversion: float = Field(default=0.25, ge=0)
+    subscribers: float = Field(default=0.15, ge=0)
+    revenue: float = Field(default=0.20, ge=0)
+    retention: float = Field(default=0.15, ge=0)
+
+    @model_validator(mode="after")
+    def validate_total(self) -> PerformanceMetricWeightsConfig:
+        total = sum(
+            (
+                self.views,
+                self.engagement,
+                self.conversion,
+                self.subscribers,
+                self.revenue,
+                self.retention,
+            )
+        )
+        if total <= 0:
+            raise ValueError("performance metric weights must have positive total")
+        return self
+
+
+class PatreonPerformanceConfig(StrictModel):
+    enabled: bool = True
+    half_life_days: float = Field(default=45.0, gt=0)
+    prior_score: float = Field(default=0.5, ge=0, le=1)
+    confidence_sample_scale: float = Field(default=250.0, gt=0)
+    view_scale: float = Field(default=2500.0, gt=0)
+    engagement_rate_scale: float = Field(default=0.10, gt=0)
+    conversion_rate_scale: float = Field(default=0.05, gt=0)
+    subscriber_scale: float = Field(default=25.0, gt=0)
+    revenue_scale_cents: float = Field(default=10000.0, gt=0)
+    minimum_confidence_for_editorial: float = Field(default=0.20, ge=0, le=1)
+    editorial_effect_cap: float = Field(default=0.15, ge=0, le=0.5)
+    metric_weights: PerformanceMetricWeightsConfig = Field(
+        default_factory=PerformanceMetricWeightsConfig
+    )
+
+
 class PatreonConfig(StrictModel):
     enabled: bool = True
+    api_enabled: bool = False
+    api_base_url: str = "https://www.patreon.com"
+    api_access_token_env: str = "PATREON_ACCESS_TOKEN"
+    api_timeout_seconds: float = Field(default=30.0, gt=0)
+    api_user_agent: str = "Artifex - Patreon Performance Sync"
     default_archetype: Literal[
         "public_preview_member_continuation",
         "sfw_complete_member_alternate",
@@ -429,6 +476,9 @@ class PatreonConfig(StrictModel):
     generate_post_package: bool = True
     default_tags: tuple[str, ...] = ("illustration", "hololive")
     include_character_tags: bool = True
+    performance: PatreonPerformanceConfig = Field(
+        default_factory=PatreonPerformanceConfig
+    )
 
 
 class RightsConfig(StrictModel):

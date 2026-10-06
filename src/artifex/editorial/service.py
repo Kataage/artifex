@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from artifex.config.models import EditorialConfig
@@ -16,7 +17,8 @@ from artifex.editorial.models import (
     SeriesPlanKind,
 )
 from artifex.editorial.repository import EditorialRepository, PackInventoryRepository
-from artifex.planner.models import CharacterOption, PlanningContext
+from artifex.performance import PerformanceLearningService
+from artifex.planner.models import CharacterOption, ConceptCandidate, PlanningContext
 from artifex.series import SeriesProfile, SeriesRepository, SeriesStatus
 
 
@@ -30,12 +32,15 @@ class EditorialService:
         series: SeriesRepository,
         inventory: PackInventoryRepository,
         decisions: EditorialRepository,
+        *,
+        performance: PerformanceLearningService | None = None,
     ) -> None:
         self._database = database
         self._config = config
         self._series = series
         self._inventory = inventory
         self._decisions = decisions
+        self._performance = performance
 
     def inventory_counts(self) -> InventoryCounts:
         self._inventory.sync_finalized()
@@ -316,6 +321,11 @@ class EditorialService:
         eligible.sort(
             key=lambda item: (
                 -item.editorial_policy.priority,
+                -(
+                    self._performance.series_editorial_adjustment(item.id)
+                    if self._performance is not None
+                    else 0.0
+                ),
                 _utc(item.updated_at),
                 item.current_episode,
                 item.id,
@@ -492,11 +502,26 @@ class EditorialService:
                 + theme_penalty * self._config.theme_diversity_weight
             )
             cooldown = int(any(character_id in cooldown_ids for character_id in ids))
+            performance_adjustment = 0.0
+            if self._performance is not None:
+                try:
+                    validated_candidate = ConceptCandidate.model_validate(candidate)
+                except ValidationError:
+                    validated_candidate = None
+                if validated_candidate is not None:
+                    performance_adjustment = (
+                        self._performance.editorial_adjustment(
+                            validated_candidate
+                        )
+                    )
             ranked.append(
                 (
                     cooldown,
                     float(diversity_penalty),
-                    -float(concept_row.score or 0.0),
+                    -(
+                        float(concept_row.score or 0.0)
+                        + performance_adjustment
+                    ),
                     _utc(concept_row.created_at),
                     concept_row.id,
                 )
