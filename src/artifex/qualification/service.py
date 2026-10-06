@@ -23,7 +23,7 @@ from artifex.db.models import (
     PackRow,
     SceneRow,
 )
-from artifex.domain import PackState
+from artifex.domain import LoRAState, PackState
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorReport
 from artifex.qualification.models import (
@@ -370,6 +370,40 @@ class QualificationService:
             if label not in asset_labels:
                 issues.append(f"required asset hash is missing: {label}")
 
+        if self._settings.qualification.require_stable_asset_hashes:
+            for asset in session.assets:
+                try:
+                    current = _digest_path(asset.label, Path(asset.path))
+                except (OSError, ValueError) as exc:
+                    issues.append(
+                        f"asset {asset.label} cannot be revalidated: {exc}"
+                    )
+                    continue
+                if current.sha256 != asset.sha256:
+                    issues.append(
+                        f"asset {asset.label} hash changed during qualification: "
+                        f"{asset.sha256} -> {current.sha256}"
+                    )
+                if current.bytes != asset.bytes:
+                    issues.append(
+                        f"asset {asset.label} byte size changed during qualification"
+                    )
+                if current.file_count != asset.file_count:
+                    issues.append(
+                        f"asset {asset.label} file count changed during qualification"
+                    )
+
+        if self._settings.qualification.require_stable_workflow_snapshot:
+            try:
+                current_workflow = self._workflow_snapshot()
+            except (KeyError, ValueError) as exc:
+                issues.append(f"workflow snapshot cannot be revalidated: {exc}")
+            else:
+                if current_workflow != session.workflow:
+                    issues.append(
+                        "workflow template snapshot changed during qualification"
+                    )
+
         return {
             "session_id": session.session_id,
             "ready": not issues,
@@ -517,6 +551,10 @@ class QualificationService:
                 raise ValueError(
                     "archive_reproduction requires hash_match=true"
                 )
+            if not all(pack.get("archive_manifest_verified") is True for pack in packs):
+                raise ValueError(
+                    "archive_reproduction requires intact archived manifest provenance"
+                )
         return packs
 
     def _pack_evidence(self, pack_id: str) -> dict[str, object]:
@@ -544,6 +582,19 @@ class QualificationService:
             if not manifest.is_file():
                 raise OSError(
                     f"Pack {pack_id} archive manifest is missing: {manifest}"
+                )
+            manifest_digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            payload_digest = archive.get("manifest_sha256")
+            checkpoint_digest = pack.checkpoint_json.get(
+                "archive_manifest_sha256"
+            )
+            if payload_digest != manifest_digest:
+                raise ValueError(
+                    f"Pack {pack_id} archive manifest SHA does not match payload provenance"
+                )
+            if checkpoint_digest != manifest_digest:
+                raise ValueError(
+                    f"Pack {pack_id} archive manifest SHA does not match checkpoint provenance"
                 )
             scenes = session.scalars(
                 select(SceneRow)
@@ -581,6 +632,8 @@ class QualificationService:
                 "retry_count": retry_count,
                 "lora_ids": sorted(lora_ids),
                 "manifest_path": str(manifest.resolve()),
+                "manifest_sha256": manifest_digest,
+                "archive_manifest_verified": True,
                 **self._attempt_evidence(
                     session,
                     tuple(scene.id for scene in scenes),
@@ -715,10 +768,35 @@ class QualificationService:
                 raise ValueError(
                     f"Pack {pack['pack_id']} has no REQUIRED-LoRA character"
                 )
-            if not pack["lora_ids"]:
+            raw_lora_ids = pack["lora_ids"]
+            if not isinstance(raw_lora_ids, list) or not raw_lora_ids:
                 raise ValueError(
                     f"Pack {pack['pack_id']} has no persisted LoRA plan"
                 )
+            for lora_id in raw_lora_ids:
+                profile = self._loras.require(str(lora_id))
+                if profile.state is not LoRAState.PRODUCTION:
+                    raise ValueError(
+                        f"LoRA {profile.id} is not in production state"
+                    )
+                if not set(required) & set(profile.target_character_ids):
+                    raise ValueError(
+                        f"LoRA {profile.id} does not map to a REQUIRED-LoRA "
+                        f"character in Pack {pack['pack_id']}"
+                    )
+                if self._settings.qualification.require_lora_validation_evidence:
+                    if profile.checksum is None:
+                        raise ValueError(
+                            f"LoRA {profile.id} is missing checksum evidence"
+                        )
+                    if profile.last_validation_at is None:
+                        raise ValueError(
+                            f"LoRA {profile.id} is missing validation timestamp"
+                        )
+                    if profile.last_validation_run_id is None:
+                        raise ValueError(
+                            f"LoRA {profile.id} is missing validation run evidence"
+                        )
 
     def _environment(self) -> dict[str, object]:
         uv_version = _run_text(["uv", "--version"])
