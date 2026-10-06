@@ -12,6 +12,10 @@ from artifex.evaluation.similarity import SimilarityService
 
 
 class EvaluationEngine:
+    @property
+    def config(self) -> EvaluationConfig:
+        return self._config
+
     def __init__(
         self,
         provider: EvaluationProvider,
@@ -24,11 +28,27 @@ class EvaluationEngine:
 
     async def evaluate(self, context: EvaluationContext) -> EvaluationResult:
         raw = await self._provider.evaluate(context)
+        duplicate_references = (
+            context.duplicate_reference_image_paths
+            or context.reference_image_paths
+        )
+        novelty_references = (
+            context.novelty_reference_image_paths
+            or duplicate_references
+        )
         image_similarity = await self._similarity.max_image_similarity(
             context.image_path,
-            context.reference_image_paths,
+            duplicate_references,
         )
-        novelty = 1.0 - image_similarity
+        novelty_similarity = await self._similarity.max_image_similarity(
+            context.image_path,
+            novelty_references,
+        )
+        identity_reference = await self._similarity.identity_similarity(
+            context.image_path,
+            context.identity_reference_image_paths,
+        )
+        novelty = 1.0 - novelty_similarity
         weights = self._config.weights
         aggregate = (
             raw.identity * weights.identity
@@ -43,11 +63,13 @@ class EvaluationEngine:
 
         scores = EvaluationScores(
             identity=raw.identity,
+            identity_reference=identity_reference.aggregate,
             alignment=raw.alignment,
             face_quality=raw.face_quality,
             technical_quality=raw.technical_quality,
             aesthetic=raw.aesthetic,
             image_similarity=image_similarity,
+            novelty_similarity=novelty_similarity,
             novelty=novelty,
             continuity=raw.continuity,
             integrity=raw.integrity,
@@ -78,6 +100,11 @@ class EvaluationEngine:
 
         if scores.identity < self._config.identity_hard_min:
             reasons.append("identity_hard_failure")
+        if (
+            scores.identity_reference is not None
+            and scores.identity_reference < self._config.identity_reference_hard_min
+        ):
+            reasons.append("identity_reference_hard_failure")
         if scores.integrity < self._config.integrity_hard_min:
             reasons.append("output_integrity_failure")
         if scores.image_similarity >= self._config.similarity_hard_max:
@@ -87,6 +114,7 @@ class EvaluationEngine:
             reason in reasons
             for reason in (
                 "identity_hard_failure",
+                "identity_reference_hard_failure",
                 "output_integrity_failure",
                 "image_similarity_hard_failure",
             )
@@ -95,6 +123,11 @@ class EvaluationEngine:
 
         if scores.identity < self._config.identity_accept_min:
             reasons.append("identity_needs_review")
+        if scores.identity_reference is None:
+            if self._config.identity_reference_required:
+                reasons.append("identity_reference_missing")
+        elif scores.identity_reference < self._config.identity_reference_accept_min:
+            reasons.append("identity_reference_needs_review")
         if scores.alignment < self._config.alignment_review_min:
             reasons.append("alignment_needs_review")
         if scores.face_quality < self._config.face_review_min:
@@ -104,7 +137,10 @@ class EvaluationEngine:
         if scores.continuity < self._config.continuity_review_min:
             reasons.append("continuity_needs_review")
 
-        signal_review = any(reason.endswith("_needs_review") for reason in reasons)
+        signal_review = (
+            any(reason.endswith("_needs_review") for reason in reasons)
+            or "identity_reference_missing" in reasons
+        )
         if (
             scores.aggregate >= self._config.accepted_score_min
             and not signal_review
