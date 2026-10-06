@@ -8,8 +8,18 @@ from artifex.config.models import ProductionConfig
 from artifex.db import Database
 from artifex.db.models import ConceptRow, PackRow, SceneRow
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
-from artifex.domain import AgentState, CharacterProfile, PackState, SceneState
-from artifex.policy import PolicyDecisionRepository
+from artifex.domain import (
+    AgentState,
+    CharacterProfile,
+    PackState,
+    PublicationTier,
+    SceneState,
+)
+from artifex.policy import (
+    PolicyDecision,
+    PolicyDecisionRepository,
+    PolicyOutcome,
+)
 from artifex.review import ReviewQueueRepository, ReviewState
 from artifex.runtime import RuntimeStore
 from artifex.scheduler import Scheduler
@@ -178,4 +188,96 @@ def test_retry_moves_review_scene_back_to_ready(tmp_path: Path) -> None:
         assert scene is not None
         assert scene.state == SceneState.READY.value
         assert scene.payload_json["operator_retry"] is True
+    database.dispose()
+
+
+
+def test_policy_review_approval_restores_effective_publication_tier(
+    tmp_path: Path,
+) -> None:
+    database, _, reviews, operations = _setup(tmp_path)
+    _scene_review(database)
+    decisions = PolicyDecisionRepository(database)
+    decision = decisions.persist(
+        PolicyDecision(
+            decision_id="policy-review-1",
+            subject_type="scene",
+            subject_id="scene-1",
+            outcome=PolicyOutcome.REVIEW,
+            requested_tier=PublicationTier.PUBLIC,
+            effective_tier=PublicationTier.PRIVATE_REVIEW,
+            profile_versions=("test@1",),
+            reasons=("manual policy review",),
+            content_labels=(),
+            created_at=datetime.now(UTC),
+        )
+    )
+    review = reviews.enqueue(
+        subject_type="scene",
+        subject_id="scene-1",
+        reason="policy review",
+        payload={"policy_decision_id": decision.decision_id},
+    )
+
+    response = operations.execute(
+        CommandRequest(name=CommandName.APPROVE, args=(review.id,))
+    )
+
+    assert response.ok is True
+    with database.session() as session:
+        scene = session.get(SceneRow, "scene-1")
+        assert scene is not None
+        assert scene.publication_tier == PublicationTier.PUBLIC.value
+        assert scene.state == SceneState.ACCEPTED.value
+        assert scene.payload_json["latest_policy_decision_id"] != decision.decision_id
+    database.dispose()
+
+
+def test_hard_blocked_generated_scene_can_be_retried(
+    tmp_path: Path,
+) -> None:
+    database, _, reviews, operations = _setup(tmp_path)
+    now = datetime.now(UTC)
+    with database.session() as session:
+        session.add(
+            PackRow(
+                id="pack-blocked",
+                state=PackState.BLOCKED.value,
+                format_type="single_feature",
+                payload_json={},
+                checkpoint_json={},
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            SceneRow(
+                id="scene-blocked",
+                pack_id="pack-blocked",
+                ordinal=1,
+                state=SceneState.BLOCKED.value,
+                publication_tier=PublicationTier.BLOCKED.value,
+                payload_json={},
+            )
+        )
+    review = reviews.enqueue(
+        subject_type="scene",
+        subject_id="scene-blocked",
+        reason="post-generation policy hard block",
+    )
+
+    response = operations.execute(
+        CommandRequest(name=CommandName.RETRY, args=(review.id,))
+    )
+
+    assert response.ok is True
+    assert reviews.require(review.id).state is ReviewState.RETRY
+    with database.session() as session:
+        scene = session.get(SceneRow, "scene-blocked")
+        pack = session.get(PackRow, "pack-blocked")
+        assert scene is not None
+        assert pack is not None
+        assert scene.state == SceneState.PLANNED.value
+        assert scene.payload_json["operator_retry"] is True
+        assert pack.state == PackState.PLANNED.value
     database.dispose()
