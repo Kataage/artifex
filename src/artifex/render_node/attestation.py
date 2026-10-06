@@ -25,7 +25,7 @@ from artifex.render_node.models import (
 )
 
 
-def _hash_file(path: Path, digest: hashlib._Hash) -> tuple[int, int]:
+def _hash_file(path: Path, digest: Any) -> tuple[int, int]:
     size = 0
     with path.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
