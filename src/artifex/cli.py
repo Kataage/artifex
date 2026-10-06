@@ -247,6 +247,8 @@ def _remote(core: CoreServices) -> ArtifexRemoteOperations:
         SeriesRepository(core.database),
         PolicyDecisionRepository(core.database),
         signals=core.signals,
+        loras=core.loras,
+        performance=core.performance,
     )
 
 
