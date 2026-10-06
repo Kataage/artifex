@@ -112,6 +112,17 @@ loras:
   production_quality_threshold: 0.70
   production_flexibility_threshold: 0.50
   maximum_character_loras_per_scene: 4
+  maximum_total_loras_per_scene: 8
+  default_style_lora_ids: []
+  default_utility_lora_ids: []
+  rescan_interval_seconds: 300
+  validation_enabled: true
+  validation_interval_seconds: 60
+  validation_assets_per_cycle: 1
+  validation_weights: [0.70, 0.85, 1.00]
+  validation_character_ids: []
+  validation_seed: 730241
+  validation_output_prefix: ARTIFEX/validation
 
 prompts:
   ilxl_profile: ilxl-danbooru-v2
