@@ -29,10 +29,10 @@ from artifex.evaluation import (
 )
 from artifex.llm import (
     LlmCallRepository,
-    bootstrap_llm,
     LlmQualificationService,
     OpenAICompatibleClient,
     StructuredGenerator,
+    bootstrap_llm,
 )
 from artifex.performance import (
     PatreonV2PublicationProvider,
