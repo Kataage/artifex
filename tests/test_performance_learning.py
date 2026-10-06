@@ -31,7 +31,6 @@ from artifex.performance import (
 )
 from artifex.performance.provider import PerformanceAwareSignalProvider
 from artifex.planner import ConceptRepository
-from artifex.series import SeriesRepository
 from artifex.planner.models import (
     ConceptCandidate,
     CreativeAssessment,
@@ -45,6 +44,7 @@ from artifex.planner.scoring import (
     DefaultSignalProvider,
 )
 from artifex.production.context import PlanningContextBuilder
+from artifex.series import SeriesRepository
 
 
 def _candidate(
