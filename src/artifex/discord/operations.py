@@ -10,6 +10,7 @@ from artifex.db.models import ConceptRow, PackRow, SceneRow
 from artifex.discord.models import CommandName, CommandRequest, CommandResponse
 from artifex.domain import AgentState, LoRAState, PackState, SceneState
 from artifex.loras import LoRARegistry
+from artifex.performance import PerformanceLearningService
 from artifex.policy import PolicyDecision, PolicyDecisionRepository
 from artifex.review import ReviewItem, ReviewQueueRepository, ReviewState
 from artifex.runtime import RuntimeStore
@@ -31,6 +32,7 @@ class ArtifexRemoteOperations:
         *,
         signals: SignalIngestionService | None = None,
         loras: LoRARegistry | None = None,
+        performance: PerformanceLearningService | None = None,
     ) -> None:
         self._database = database
         self._runtime = runtime
@@ -41,6 +43,7 @@ class ArtifexRemoteOperations:
         self._policy_decisions = policy_decisions
         self._signals = signals
         self._loras = loras
+        self._performance = performance
 
     def execute(self, request: CommandRequest) -> CommandResponse:
         match request.name:
@@ -94,6 +97,21 @@ class ArtifexRemoteOperations:
         if self._loras is not None:
             for profile in self._loras.list():
                 lora_counts[profile.state.value] += 1
+        performance_effects = (
+            self._performance.strongest_effects(limit=3)
+            if self._performance is not None
+            else ()
+        )
+        performance_text = (
+            " perf="
+            + ",".join(
+                f"{effect.dimension}:{effect.key}:"
+                f"{effect.score:.2f}@{effect.confidence:.2f}"
+                for effect in performance_effects
+            )
+            if performance_effects
+            else ""
+        )
         message = (
             f"Artifex: {state.value} | ideas={inventory.ideas} "
             f"planned={inventory.planned} available={inventory.completed_available} "
@@ -103,6 +121,7 @@ class ArtifexRemoteOperations:
             f"loras=prod:{lora_counts['production']}/"
             f"pending:{lora_counts['pending'] + lora_counts['discovered']}/"
             f"failed:{lora_counts['failed'] + lora_counts['disabled']}"
+            f"{performance_text}"
         )
         return CommandResponse(
             ok=True,
@@ -117,6 +136,10 @@ class ArtifexRemoteOperations:
                 "completed_expired": inventory.completed_expired,
                 "open_reviews": len(reviews),
                 "loras": lora_counts,
+                "performance_effects": [
+                    effect.model_dump(mode="json")
+                    for effect in performance_effects
+                ],
             },
         )
 
