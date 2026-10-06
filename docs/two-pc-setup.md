@@ -50,7 +50,31 @@ The agent exposes only health and authenticated asset/LoRA attestation data. Ima
 
 ## PC-A: controller
 
-Configure the primary renderer:
+The recommended first-run path is the setup command. It probes the renderer's
+ComfyUI endpoint, writes only the controller-specific overrides, configures API
+output retrieval and the render attestation endpoint, and downloads the selected
+LLM unless explicitly skipped:
+
+```powershell
+uv run artifex setup `
+  --comfy-url http://192.168.1.50:8188 `
+  --render-node-id rtx3060 `
+  --llm-models-dir D:/AI/models/llm `
+  --output .\config\local.yaml
+```
+
+The default attestation URL is derived from the same host on port 8190. Override
+it with `--attestation-url` when PC-B uses another port. Existing config files
+are never overwritten unless `--force` is supplied. Use
+`--skip-llm-download` when the model is already managed separately.
+
+The generated config is intentionally a small override, not a copy of every
+Artifex default. A production checkpoint still needs to be selected explicitly
+because automatically choosing one from a machine with multiple ILXL
+checkpoints would be unsafe.
+
+Configure the primary renderer manually when needed:
+
 
 ```yaml
 render_nodes:
