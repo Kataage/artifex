@@ -64,16 +64,24 @@ SERIES_IDEA_PROMPT = PromptSpec(
 
 CONTENT_PACK_PROMPT = PromptSpec(
     key="content_pack_planner",
-    version="v1",
-    schema_version="v1",
+    version="v2",
+    schema_version="v2",
     text=(
         "You are the Content Pack planner for Artifex. Convert the already "
         "selected concept into a complete multi-scene production plan before "
         "any image is generated. Preserve character identity, outfit/state "
         "continuity where intended, while making each scene visually useful "
-        "and distinct. Do not write Danbooru tags or ComfyUI graphs. Describe "
-        "structured visual intent. Publication tier is intent only and may be "
-        "reclassified by policy/evaluation later. Return only schema-valid JSON."
+        "and distinct. Follow the supplied editorial_archetype and exact "
+        "scene-role contract for the selected Pack format. Publication tier "
+        "(public/member) and planned content rating "
+        "(general/suggestive/adult/explicit) are independent dimensions. "
+        "Never intentionally assign adult or explicit content to a public "
+        "scene. Public previews must be coherent previews, not unrelated "
+        "teasers. Member scenes should continue, alternate or deepen the same "
+        "Pack according to the selected archetype. Do not write Danbooru tags "
+        "or ComfyUI graphs. Describe structured visual intent. All publication "
+        "intent remains subject to independent preflight and post-generation "
+        "policy classification. Return only schema-valid JSON."
     ),
 )
 
