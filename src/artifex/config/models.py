@@ -506,6 +506,26 @@ class OperationsConfig(StrictModel):
     event_retention_rows: int = Field(default=10000, ge=100)
 
 
+class QualificationConfig(StrictModel):
+    evidence_dir: Path = Path("data/qualification")
+    minimum_soak_hours: float = Field(default=8.0, gt=0)
+    asset_paths: dict[str, Path] = Field(default_factory=dict)
+    required_asset_labels: tuple[str, ...] = (
+        "production_checkpoint",
+        "refiner_checkpoint",
+        "vae",
+        "upscale_model",
+        "llm_model",
+        "semantic_model",
+    )
+    require_native_windows: bool = True
+    require_uv: bool = True
+    require_nvidia_gpu: bool = True
+    require_lora_validation_evidence: bool = True
+    require_stable_asset_hashes: bool = True
+    require_stable_workflow_snapshot: bool = True
+
+
 class ArtifexSettings(StrictModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
@@ -525,6 +545,7 @@ class ArtifexSettings(StrictModel):
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     operations: OperationsConfig = Field(default_factory=OperationsConfig)
+    qualification: QualificationConfig = Field(default_factory=QualificationConfig)
 
     @model_validator(mode="after")
     def validate_context_sections(self) -> ArtifexSettings:

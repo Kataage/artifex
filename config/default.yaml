@@ -332,3 +332,21 @@ operations:
   max_attempts_per_scene: 4
   max_events_per_cycle: 50
   event_retention_rows: 10000
+
+qualification:
+  evidence_dir: data/qualification
+  minimum_soak_hours: 8
+  asset_paths: {}
+  required_asset_labels:
+    - production_checkpoint
+    - refiner_checkpoint
+    - vae
+    - upscale_model
+    - llm_model
+    - semantic_model
+  require_native_windows: true
+  require_uv: true
+  require_nvidia_gpu: true
+  require_lora_validation_evidence: true
+  require_stable_asset_hashes: true
+  require_stable_workflow_snapshot: true
