@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 
 import httpx
+import pytest
 
 from artifex.config.models import (
     LlmBootstrapConfig,
@@ -66,3 +67,34 @@ def test_llm_bootstrap_resumes_partial_download_and_reuses_verified_file(
     assert reused.downloaded is False
     assert reused.sha256 == digest
     assert reused.path == result.path
+
+
+def test_llm_bootstrap_rejects_truncated_download(tmp_path: Path) -> None:
+    config = LlmConfig(
+        bootstrap=LlmBootstrapConfig(
+            models_dir=tmp_path,
+            profile="test",
+            profiles={
+                "test": LlmModelProfileConfig(
+                    source="url",
+                    url="https://models.test/model.gguf",
+                    filename="model.gguf",
+                )
+            },
+        )
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"half",
+            headers={"Content-Length": "8"},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(ValueError, match="expected file size"):
+        bootstrap_llm(config, client=client)
+    client.close()
+
+    assert not (tmp_path / "model.gguf").exists()
+    assert (tmp_path / "model.gguf.part").read_bytes() == b"half"
