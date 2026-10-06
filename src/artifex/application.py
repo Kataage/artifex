@@ -267,6 +267,7 @@ def build_doctor(core: CoreServices) -> DoctorService:
         checker,
         core.characters,
         comfy=core.comfy,
+        loras=core.loras,
     )
 
 
@@ -586,6 +587,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.series,
         core.policy_decisions,
         signals=core.signals,
+        loras=core.loras,
     )
     router = DiscordCommandRouter(AuthorizationPolicy(settings.discord), remote)
 
