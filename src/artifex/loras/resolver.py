@@ -51,6 +51,7 @@ class LoRAResolver:
         character_ids: tuple[str, ...],
         *,
         model_family: str,
+        exclude_lora_ids: tuple[str, ...] = (),
     ) -> LoRAPlan:
         if not character_ids:
             raise LoRAResolutionError(("scene contains no characters",))
@@ -87,7 +88,11 @@ class LoRAResolver:
 
         selected: dict[str, tuple[LoRAProfile, list[str]]] = {}
         for character in characters:
-            lora_profile = self._select_for_character(character, model_family)
+            lora_profile = self._select_for_character(
+                character,
+                model_family,
+                excluded=frozenset(exclude_lora_ids),
+            )
             if lora_profile is None:
                 if character.lora_policy is LoRAPolicy.REQUIRED:
                     issues.append(
@@ -146,21 +151,48 @@ class LoRAResolver:
             warnings=tuple(warnings),
         )
 
+    def adjust_weights(
+        self,
+        plan: LoRAPlan,
+        *,
+        delta: float,
+    ) -> LoRAPlan:
+        entries: list[LoRAPlanEntry] = []
+        for entry in plan.entries:
+            profile = self._loras.require(entry.lora_id)
+            lower = (
+                profile.validated_min_weight
+                if profile.validated_min_weight is not None
+                else 0.0
+            )
+            upper = (
+                profile.validated_max_weight
+                if profile.validated_max_weight is not None
+                else 2.0
+            )
+            weight = min(upper, max(lower, entry.weight + delta))
+            entries.append(entry.model_copy(update={"weight": weight}))
+        return plan.model_copy(update={"entries": tuple(entries)})
+
     def _select_for_character(
         self,
         character: CharacterProfile,
         model_family: str,
+        *,
+        excluded: frozenset[str] = frozenset(),
     ) -> LoRAProfile | None:
         if character.lora_policy is LoRAPolicy.NONE:
             return None
 
-        candidates = list(
-            self._loras.for_character(
+        candidates = [
+            candidate
+            for candidate in self._loras.for_character(
                 character.id,
                 model_family=model_family,
                 production_only=True,
             )
-        )
+            if candidate.id not in excluded
+        ]
         preferred_order = {
             lora_id: index for index, lora_id in enumerate(character.preferred_lora_ids)
         }
