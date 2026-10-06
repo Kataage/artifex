@@ -21,8 +21,8 @@ from artifex.comfy.models import (
     ComfyOutput,
     QueueReceipt,
     WorkflowPatchRequest,
-    WorkflowRequirementStatus,
     WorkflowRequirements,
+    WorkflowRequirementStatus,
 )
 from artifex.comfy.templates import WorkflowTemplateLike
 from artifex.config.models import ComfyUiConfig
