@@ -21,6 +21,12 @@ from artifex.evaluation import (
     SemanticIndex,
     SimilarityService,
 )
+from artifex.evaluation.calibration import (
+    ImageCalibrationPair,
+    SemanticCalibrationManifest,
+    SemanticCalibrator,
+    TextCalibrationPair,
+)
 from artifex.packs import ScenePlan, VisualSpecification
 
 
@@ -54,6 +60,23 @@ class MappingEmbeddings:
     async def embed_text(self, text: str) -> tuple[float, ...]:
         del text
         return (1.0, 0.0)
+
+    async def embed_image(self, path: Path) -> tuple[float, ...]:
+        return self.images[str(path)]
+
+
+class CalibrationEmbeddings:
+    def __init__(
+        self,
+        *,
+        images: dict[str, tuple[float, ...]],
+        texts: dict[str, tuple[float, ...]],
+    ) -> None:
+        self.images = images
+        self.texts = texts
+
+    async def embed_text(self, text: str) -> tuple[float, ...]:
+        return self.texts[text]
 
     async def embed_image(self, path: Path) -> tuple[float, ...]:
         return self.images[str(path)]
@@ -310,3 +333,164 @@ async def test_reference_grounded_identity_hard_gate_is_separate_from_duplicate_
     assert result.scores.image_similarity == pytest.approx(0.0)
     assert result.scores.novelty_similarity == pytest.approx(1.0)
     assert "identity_reference_hard_failure" in result.reasons
+
+
+
+@pytest.mark.asyncio
+async def test_partial_character_reference_coverage_requires_review(
+    tmp_path: Path,
+) -> None:
+    current = tmp_path / "group.png"
+    ref_a = tmp_path / "char-a-ref.png"
+    for path in (current, ref_a):
+        Image.new("RGB", (8, 8), (100, 100, 100)).save(path)
+
+    embeddings = MappingEmbeddings(
+        {
+            str(current): (1.0, 0.0),
+            str(ref_a): (1.0, 0.0),
+        }
+    )
+    engine = EvaluationEngine(
+        StrongVision(),
+        SimilarityService(embeddings),
+        EvaluationConfig(identity_reference_required=True),
+    )
+    result = await engine.evaluate(
+        EvaluationContext(
+            attempt_id="group-attempt",
+            scene_id="group-scene",
+            image_path=current,
+            character_ids=("char-a", "char-b"),
+            positive_prompt="char-a, char-b",
+            negative_prompt="",
+            identity_reference_image_paths={
+                "char-a": (ref_a,),
+                "char-b": (),
+            },
+        )
+    )
+
+    assert result.scores.identity_reference == pytest.approx(1.0)
+    assert "identity_reference_missing" in result.reasons
+    assert result.state.value == "review"
+
+
+@pytest.mark.asyncio
+async def test_calibrator_validates_identity_duplicate_and_paraphrase_corpus(
+    tmp_path: Path,
+) -> None:
+    paths = {
+        name: tmp_path / f"{name}.png"
+        for name in (
+            "identity-a1",
+            "identity-a1-ref",
+            "identity-a2",
+            "identity-a2-ref",
+            "wrong-b1",
+            "wrong-b2",
+            "dup-1",
+            "dup-1-copy",
+            "dup-2",
+            "dup-2-copy",
+            "distinct-1",
+            "distinct-2",
+        )
+    }
+    for path in paths.values():
+        Image.new("RGB", (8, 8), (120, 140, 160)).save(path)
+
+    images = {
+        str(paths["identity-a1"]): (1.0, 0.0),
+        str(paths["identity-a1-ref"]): (1.0, 0.0),
+        str(paths["identity-a2"]): (0.8, 0.6),
+        str(paths["identity-a2-ref"]): (0.8, 0.6),
+        str(paths["wrong-b1"]): (0.0, 1.0),
+        str(paths["wrong-b2"]): (-0.6, 0.8),
+        str(paths["dup-1"]): (1.0, 0.0),
+        str(paths["dup-1-copy"]): (0.999, 0.01),
+        str(paths["dup-2"]): (0.8, 0.6),
+        str(paths["dup-2-copy"]): (0.79, 0.61),
+        str(paths["distinct-1"]): (0.0, 1.0),
+        str(paths["distinct-2"]): (-0.6, 0.8),
+    }
+    texts = {
+        "angel at an open window": (1.0, 0.0),
+        "winged girl sitting in an open window": (0.999, 0.02),
+        "quiet rooftop stargazing": (0.8, 0.6),
+        "watching the stars from a calm rooftop": (0.79, 0.61),
+        "underwater action battle": (0.0, 1.0),
+        "busy cyberpunk street": (-0.6, 0.8),
+    }
+    provider = CalibrationEmbeddings(images=images, texts=texts)
+    manifest = SemanticCalibrationManifest(
+        corpus_id="hololive-ilxl-regression-test",
+        profile_id="siglip2-hololive-ilxl-v1",
+        minimum_pairs_per_class=2,
+        identity_positive_pairs=(
+            ImageCalibrationPair(
+                left=paths["identity-a1"],
+                right=paths["identity-a1-ref"],
+            ),
+            ImageCalibrationPair(
+                left=paths["identity-a2"],
+                right=paths["identity-a2-ref"],
+            ),
+        ),
+        identity_negative_pairs=(
+            ImageCalibrationPair(
+                left=paths["identity-a1"],
+                right=paths["wrong-b1"],
+            ),
+            ImageCalibrationPair(
+                left=paths["identity-a2"],
+                right=paths["wrong-b2"],
+            ),
+        ),
+        duplicate_positive_pairs=(
+            ImageCalibrationPair(left=paths["dup-1"], right=paths["dup-1-copy"]),
+            ImageCalibrationPair(left=paths["dup-2"], right=paths["dup-2-copy"]),
+        ),
+        duplicate_negative_pairs=(
+            ImageCalibrationPair(left=paths["dup-1"], right=paths["distinct-1"]),
+            ImageCalibrationPair(left=paths["dup-2"], right=paths["distinct-2"]),
+        ),
+        text_paraphrase_pairs=(
+            TextCalibrationPair(
+                left="angel at an open window",
+                right="winged girl sitting in an open window",
+            ),
+            TextCalibrationPair(
+                left="quiet rooftop stargazing",
+                right="watching the stars from a calm rooftop",
+            ),
+        ),
+        text_distinct_pairs=(
+            TextCalibrationPair(
+                left="angel at an open window",
+                right="underwater action battle",
+            ),
+            TextCalibrationPair(
+                left="quiet rooftop stargazing",
+                right="busy cyberpunk street",
+            ),
+        ),
+    )
+    descriptor = EmbeddingModelDescriptor(
+        provider="transformers_siglip2",
+        model="google/siglip2-base-patch16-224",
+        revision="test-commit",
+        quality_tier="production",
+    )
+
+    profile = await SemanticCalibrator(
+        SimilarityService(provider),
+        lambda: descriptor,
+    ).calibrate(manifest)
+
+    assert profile.validated is True
+    assert profile.identity.balanced_accuracy == pytest.approx(1.0)
+    assert profile.duplicate.balanced_accuracy == pytest.approx(1.0)
+    assert profile.text_paraphrase.balanced_accuracy == pytest.approx(1.0)
+    assert profile.identity_hard_min < profile.identity_accept_min
+    assert profile.revision == "test-commit"
