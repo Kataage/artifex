@@ -68,6 +68,9 @@ class ComfyGenerationBackend:
     def provenance(self) -> Mapping[str, Any]:
         return {
             "backend": "comfyui",
+            "render_node_id": self._comfy_config.render_node_id,
+            "base_url": self._comfy_config.base_url,
+            "output_mode": self._comfy_config.output_mode,
             "workflow_template": self._template.template_id,
             "workflow_version": self._template.version,
             "model_family": self._template.model_family,
@@ -102,8 +105,10 @@ class ComfyGenerationBackend:
         if not checkpoint:
             raise RuntimeError("production.checkpoint must be configured")
         output_dir = self._comfy_config.output_dir
-        if output_dir is None:
-            raise RuntimeError("comfyui.output_dir must be configured for evaluation/archive")
+        if self._comfy_config.output_mode == "filesystem" and output_dir is None:
+            raise RuntimeError(
+                "comfyui.output_dir must be configured when output_mode=filesystem"
+            )
 
         loras = tuple(
             WorkflowLoRA(
@@ -153,16 +158,36 @@ class ComfyGenerationBackend:
                     retryable=False,
                 )
 
-            root = output_dir.expanduser().resolve()
-            paths = tuple(
-                root / output.subfolder / output.filename
+            output_items = tuple(
+                output
                 for output in result.outputs
                 if output.output_type == "output"
             )
-            if not paths:
+            if not output_items:
                 raise ComfyUIExecutionError(
                     f"ComfyUI returned no output-type images: {receipt.prompt_id}",
                     retryable=False,
+                )
+
+            if self._comfy_config.output_mode == "api":
+                destination = (
+                    self._comfy_config.download_dir
+                    / self._comfy_config.render_node_id
+                    / request.scene_id
+                    / request.attempt_id
+                )
+                paths = tuple(
+                    [
+                        await self._client.download_output(output, destination)
+                        for output in output_items
+                    ]
+                )
+            else:
+                assert output_dir is not None
+                root = output_dir.expanduser().resolve()
+                paths = tuple(
+                    root / output.subfolder / output.filename
+                    for output in output_items
                 )
             return GeneratedBatch(
                 prompt_id=receipt.prompt_id,
