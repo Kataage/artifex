@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import importlib.resources
 import json
 from collections import Counter
 from copy import deepcopy
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -120,7 +120,7 @@ class HololiveCatalog:
     @classmethod
     def packaged(cls) -> HololiveCatalog:
         resource = (
-            files("artifex.characters")
+            importlib.resources.files("artifex.characters")
             .joinpath("catalogs")
             .joinpath(_CATALOG_FILENAME)
         )
