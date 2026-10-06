@@ -12,6 +12,10 @@ class PromptProvenance(BaseModel):
     character_ids: tuple[str, ...]
     lora_ids: tuple[str, ...]
     lora_weights: tuple[float, ...]
+    lexicon_id: str | None = None
+    lexicon_version: str | None = None
+    prompt_profile_id: str | None = None
+    checkpoint: str | None = None
 
 
 class CompiledPrompt(BaseModel):
@@ -21,4 +25,5 @@ class CompiledPrompt(BaseModel):
     negative_prompt: str
     positive_tags: tuple[str, ...]
     negative_tags: tuple[str, ...]
+    unresolved_concepts: tuple[str, ...] = ()
     provenance: PromptProvenance
