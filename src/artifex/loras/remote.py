@@ -22,7 +22,7 @@ from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
 
 
 def _remote_id(node_id: str, relative_path: str) -> str:
-    key = f"{node_id}:{relative_path.casefold()}".encode("utf-8")
+    key = f"{node_id}:{relative_path.casefold()}".encode()
     return "remote_" + hashlib.sha256(key).hexdigest()[:20]
 
 
