@@ -93,6 +93,11 @@ class PolicyRequest(PolicyModel):
     phase: str = Field(default="preflight", pattern="^(preflight|post_generation)$")
 
 
+class OperatorReviewOutcome(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class PolicyDecision(PolicyModel):
     decision_id: str
     subject_type: str
@@ -107,8 +112,3 @@ class PolicyDecision(PolicyModel):
     content_rating: ContentRating = ContentRating.GENERAL
     review_of: str | None = None
     operator_review: OperatorReviewOutcome | None = None
-
-
-class OperatorReviewOutcome(StrEnum):
-    APPROVED = "approved"
-    REJECTED = "rejected"
