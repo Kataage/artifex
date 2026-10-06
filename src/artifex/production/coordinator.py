@@ -34,7 +34,13 @@ from artifex.production.backend import GenerationBackend, GenerationRequest
 from artifex.production.context import PlanningContextBuilder
 from artifex.prompts import CompiledPrompt, PromptCompiler
 from artifex.research import ResearchDirector
-from artifex.retry import RetryAction, RetryPolicy
+from artifex.retry import (
+    RetryAction,
+    RetryActionExecutor,
+    RetryExecutionRecord,
+    RetryPolicy,
+    RetryProductionInputs,
+)
 from artifex.review import ReviewQueueRepository
 from artifex.runtime import RuntimeStore
 from artifex.scheduler import Scheduler
@@ -105,6 +111,7 @@ class ProductionCoordinator:
         self._evaluations = evaluations
         self._selector = selector
         self._retries = retries
+        self._retry_executor = RetryActionExecutor(loras, prompts, production)
         self._reviews = reviews
         self._recovery = recovery
         self._archive = archive
@@ -502,7 +509,6 @@ class ProductionCoordinator:
         )
 
     async def _generate_and_evaluate(self, scene_id: str) -> None:
-        retry_actions: tuple[str, ...] = ()
         while True:
             row = self._scene_row(scene_id)
             state = SceneState(row.state)
@@ -519,13 +525,39 @@ class ProductionCoordinator:
                 )
                 return
 
-            compiled, lora_plan = self._compiled_inputs(row)
+            retry_inputs = self._retry_inputs(row)
+            compiled = retry_inputs.compiled
+            lora_plan = retry_inputs.lora_plan
             seed = self._seed_factory()
+            raw_retry_actions = row.payload_json.get("retry_actions", ())
+            retry_actions = (
+                tuple(
+                    value
+                    for value in raw_retry_actions
+                    if isinstance(value, str)
+                )
+                if isinstance(raw_retry_actions, list | tuple)
+                else ()
+            )
+            backend_provenance = dict(self._backend.provenance())
+            raw_history = row.payload_json.get("retry_history", ())
+            latest_retry = (
+                raw_history[-1]
+                if isinstance(raw_history, list) and raw_history
+                else None
+            )
+            effective_workflow = (
+                retry_inputs.workflow_template_id
+                or backend_provenance.get("workflow_template")
+            )
             provenance = {
-                **dict(self._backend.provenance()),
+                **backend_provenance,
+                "workflow_template": effective_workflow,
                 "compiled_prompt": compiled.model_dump(mode="json"),
                 "lora_plan": lora_plan.model_dump(mode="json"),
                 "retry_actions": list(retry_actions),
+                "retry_seed_revision": retry_inputs.seed_revision,
+                "retry_execution": latest_retry,
             }
             previous = self._attempts.latest_for_scene(scene_id)
             attempt = self._attempts.create(
@@ -544,6 +576,7 @@ class ProductionCoordinator:
                 lora_plan=lora_plan,
                 seed=seed,
                 output_prefix=f"ARTIFEX/{self._scene_pack_id(scene_id)}/{scene_id}",
+                workflow_template_id=retry_inputs.workflow_template_id,
             )
 
             infrastructure_retries = 0
@@ -628,20 +661,14 @@ class ProductionCoordinator:
             )
             if (
                 retry_decision.should_retry
-                and RetryAction.CHANGE_SEED in retry_decision.actions
                 and attempt.ordinal < self._operations.max_attempts_per_scene
-            ):
-                retry_actions = tuple(
-                    action.value for action in retry_decision.actions
-                )
-                self._runtime.transition_scene(
+                and self._apply_retry_decision(
                     scene_id,
-                    SceneState.RETRY,
-                    payload_patch={
-                        "retry_reason": retry_decision.reason,
-                        "retry_actions": list(retry_actions),
-                    },
+                    result,
+                    retry_decision.actions,
+                    retry_decision.next_retry_number or attempt.ordinal,
                 )
+            ):
                 self._runtime.transition_scene(scene_id, SceneState.READY)
                 continue
 
@@ -681,10 +708,14 @@ class ProductionCoordinator:
         )
         if (
             retry_decision.should_retry
-            and RetryAction.CHANGE_SEED in retry_decision.actions
             and attempt.ordinal < self._operations.max_attempts_per_scene
+            and self._apply_retry_decision(
+                scene_id,
+                result,
+                retry_decision.actions,
+                retry_decision.next_retry_number or attempt.ordinal,
+            )
         ):
-            self._runtime.transition_scene(scene_id, SceneState.RETRY)
             self._runtime.transition_scene(scene_id, SceneState.READY)
             await self._generate_and_evaluate(scene_id)
             return
@@ -769,18 +800,103 @@ class ProductionCoordinator:
                 payload=payload,
             )
 
-    def _compiled_inputs(
-        self,
-        row: SceneRow,
-    ) -> tuple[CompiledPrompt, LoRAPlan]:
+    def _retry_inputs(self, row: SceneRow) -> RetryProductionInputs:
         raw_compiled = row.payload_json.get("compiled_prompt")
         raw_lora = row.payload_json.get("lora_plan")
         if not isinstance(raw_compiled, dict) or not isinstance(raw_lora, dict):
             raise TypeError(f"scene {row.id} is missing compiled production inputs")
-        return (
-            CompiledPrompt.model_validate(raw_compiled),
-            LoRAPlan.model_validate(raw_lora),
+        raw_scene = row.payload_json.get("retry_scene_plan")
+        if not isinstance(raw_scene, dict):
+            raw_scene = row.payload_json.get("plan")
+        if not isinstance(raw_scene, dict):
+            raise TypeError(f"scene {row.id} is missing persisted plan")
+        raw_workflow = row.payload_json.get("workflow_template_id")
+        workflow = raw_workflow if isinstance(raw_workflow, str) else None
+        raw_seed_revision = row.payload_json.get("retry_seed_revision", 0)
+        seed_revision = (
+            raw_seed_revision
+            if isinstance(raw_seed_revision, int) and raw_seed_revision >= 0
+            else 0
         )
+        return RetryProductionInputs(
+            scene=ScenePlan.model_validate(raw_scene),
+            compiled=CompiledPrompt.model_validate(raw_compiled),
+            lora_plan=LoRAPlan.model_validate(raw_lora),
+            workflow_template_id=workflow,
+            seed_revision=seed_revision,
+        )
+
+    def _retry_history(self, row: SceneRow) -> tuple[RetryExecutionRecord, ...]:
+        raw = row.payload_json.get("retry_history", ())
+        if not isinstance(raw, list | tuple):
+            return ()
+        records: list[RetryExecutionRecord] = []
+        for item in raw:
+            if isinstance(item, dict):
+                records.append(RetryExecutionRecord.model_validate(item))
+        return tuple(records)
+
+    def _apply_retry_decision(
+        self,
+        scene_id: str,
+        result: EvaluationResult,
+        actions: tuple[RetryAction, ...],
+        retry_number: int,
+    ) -> bool:
+        row = self._scene_row(scene_id)
+        history = self._retry_history(row)
+        execution = self._retry_executor.execute(
+            inputs=self._retry_inputs(row),
+            actions=actions,
+            reasons=result.reasons,
+            retry_number=retry_number,
+            history=history,
+        )
+        record = execution.record
+        updated_history = (
+            *history,
+            record,
+        )
+        if not execution.can_retry:
+            self._runtime.transition_scene(
+                scene_id,
+                SceneState.REVIEW,
+                payload_patch={
+                    "retry_reason": "retry actions exhausted, ineffective, or cyclic",
+                    "retry_actions": [
+                        action.value for action in record.requested_actions
+                    ],
+                    "retry_history": [
+                        item.model_dump(mode="json")
+                        for item in updated_history
+                    ],
+                    "retry_cycle_detected": record.cycle_detected,
+                },
+            )
+            return False
+
+        after = record.after_inputs
+        self._runtime.transition_scene(
+            scene_id,
+            SceneState.RETRY,
+            payload_patch={
+                "retry_reason": "reason-aware retry actions applied",
+                "retry_actions": [
+                    action.value for action in record.applied_actions
+                ],
+                "retry_history": [
+                    item.model_dump(mode="json")
+                    for item in updated_history
+                ],
+                "retry_scene_plan": after.scene.model_dump(mode="json"),
+                "compiled_prompt": after.compiled.model_dump(mode="json"),
+                "lora_plan": after.lora_plan.model_dump(mode="json"),
+                "workflow_template_id": after.workflow_template_id,
+                "retry_seed_revision": after.seed_revision,
+            },
+        )
+        return True
+
 
     def _scene_plan(self, row: SceneRow) -> ScenePlan:
         raw = row.payload_json.get("plan")

@@ -26,6 +26,14 @@ planner:
 production:
   retry_limit: 3
   infrastructure_retry_limit: 5
+  retry_alternate_lora_limit: 1
+  retry_adjust_lora_weight_limit: 2
+  retry_revise_prompt_limit: 2
+  retry_repair_workflow_limit: 1
+  retry_vary_scene_limit: 2
+  retry_change_seed_limit: 3
+  retry_lora_weight_step: 0.10
+  repair_workflow_template: ilxl_repair_v1
   idea_inventory_target: 30
   planned_inventory_target: 10
   completed_inventory_target: 7

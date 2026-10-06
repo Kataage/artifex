@@ -29,6 +29,7 @@ class GenerationRequest(ProductionBackendModel):
     lora_plan: LoRAPlan
     seed: int = Field(ge=0)
     output_prefix: str
+    workflow_template_id: str | None = None
 
 
 class GeneratedBatch(ProductionBackendModel):
@@ -57,7 +58,9 @@ class ComfyGenerationBackend:
         comfy_config: ComfyUiConfig,
     ) -> None:
         self._client = client
-        self._template = templates.require(comfy_config.default_template)
+        self._templates = templates
+        self._default_template_id = comfy_config.default_template
+        self._template = templates.require(self._default_template_id)
         self._production = production
         self._comfy_config = comfy_config
 
@@ -79,6 +82,9 @@ class ComfyGenerationBackend:
         *,
         on_submitted: Callable[[str], None],
     ) -> GeneratedBatch:
+        template = self._templates.require(
+            request.workflow_template_id or self._default_template_id
+        )
         checkpoint = self._production.checkpoint
         if not checkpoint:
             raise RuntimeError("production.checkpoint must be configured")
@@ -105,7 +111,7 @@ class ComfyGenerationBackend:
             output_prefix=request.output_prefix,
             loras=loras,
         )
-        graph = self._template.patch(patch)
+        graph = template.patch(patch)
         receipt = await self._client.submit(graph)
         on_submitted(receipt.prompt_id)
         result = await self._client.wait_for_completion(receipt.prompt_id)

@@ -173,7 +173,7 @@ class WorkflowTemplateRegistry:
     def with_packaged_templates(cls) -> WorkflowTemplateRegistry:
         registry = cls()
         root = files("artifex.comfy").joinpath("workflow_templates")
-        for name in ("ilxl_base_v1.json",):
+        for name in ("ilxl_base_v1.json", "ilxl_repair_v1.json"):
             raw = json.loads(root.joinpath(name).read_text(encoding="utf-8"))
             registry.register(WorkflowTemplate.model_validate(raw))
         return registry
