@@ -44,7 +44,12 @@ def _source_url(profile: LlmModelProfileConfig) -> str | None:
     return f"https://huggingface.co/{repository}/resolve/{revision}/{filename}?download=true"
 
 
-def bootstrap_llm(config: LlmConfig, *, force: bool = False) -> LlmBootstrapResult:
+def bootstrap_llm(
+    config: LlmConfig,
+    *,
+    force: bool = False,
+    client: httpx.Client | None = None,
+) -> LlmBootstrapResult:
     bootstrap = config.bootstrap
     if not bootstrap.enabled:
         raise ValueError("LLM bootstrap is disabled")
@@ -94,8 +99,10 @@ def bootstrap_llm(config: LlmConfig, *, force: bool = False) -> LlmBootstrapResu
     resume_from = partial.stat().st_size if partial.is_file() else 0
     headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
     timeout = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
-    with httpx.Client(follow_redirects=True, timeout=timeout) as client:
-        with client.stream("GET", source_url, headers=headers) as response:
+    owns_client = client is None
+    http = client or httpx.Client(follow_redirects=True, timeout=timeout)
+    try:
+        with http.stream("GET", source_url, headers=headers) as response:
             response.raise_for_status()
             append = resume_from > 0 and response.status_code == 206
             if resume_from > 0 and not append:
@@ -105,6 +112,9 @@ def bootstrap_llm(config: LlmConfig, *, force: bool = False) -> LlmBootstrapResu
                 for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                     if chunk:
                         handle.write(chunk)
+    finally:
+        if owns_client:
+            http.close()
 
     digest = _sha256(partial)
     if profile.sha256 is not None and digest.casefold() != profile.sha256.casefold():
