@@ -521,6 +521,9 @@ class QualificationConfig(StrictModel):
     require_native_windows: bool = True
     require_uv: bool = True
     require_nvidia_gpu: bool = True
+    require_lora_validation_evidence: bool = True
+    require_stable_asset_hashes: bool = True
+    require_stable_workflow_snapshot: bool = True
 
 
 class ArtifexSettings(StrictModel):
