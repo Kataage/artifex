@@ -332,3 +332,11 @@ operations:
   max_attempts_per_scene: 4
   max_events_per_cycle: 50
   event_retention_rows: 10000
+
+qualification:
+  evidence_dir: data/qualification
+  minimum_soak_hours: 8
+  hash_paths: []
+  require_native_windows: true
+  require_uv: true
+  require_nvidia_gpu: true
