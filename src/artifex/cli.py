@@ -15,6 +15,16 @@ from artifex.config.models import ArtifexSettings
 from artifex.db import Database
 from artifex.db.models import PackInventoryRow
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
+from artifex.evaluation import (
+    SemanticCalibrator,
+    SemanticEmbeddingRepository,
+    SemanticIndex,
+    SigLIP2EmbeddingProvider,
+    SimilarityService,
+    load_calibration_manifest,
+    load_calibration_profile,
+    save_calibration_profile,
+)
 from artifex.llm import (
     LlmCallRepository,
     LlmQualificationService,
@@ -67,6 +77,12 @@ inventory_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(inventory_app, name="inventory")
+semantic_app = typer.Typer(
+    name="semantic",
+    help="Calibrate and inspect local semantic similarity evaluation.",
+    no_args_is_help=True,
+)
+app.add_typer(semantic_app, name="semantic")
 
 ConfigOption = Annotated[
     Path | None,
@@ -76,6 +92,128 @@ ConfigOption = Annotated[
 
 def _settings(config: Path | None) -> ArtifexSettings:
     return load_settings(user_config=config)
+
+
+async def _calibrate_semantic(
+    settings: ArtifexSettings,
+    manifest_path: Path,
+    output_path: Path,
+) -> dict[str, object]:
+    if settings.evaluation.semantic_provider != "siglip2":
+        raise ValueError(
+            "semantic calibration requires evaluation.semantic_provider=siglip2"
+        )
+    database = Database(settings.storage.database_url)
+    database.migrate()
+    provider = SigLIP2EmbeddingProvider(
+        model=settings.evaluation.semantic_model,
+        revision=settings.evaluation.semantic_revision,
+        device=settings.evaluation.semantic_device,
+        cache_dir=settings.evaluation.semantic_cache_dir,
+        local_files_only=settings.evaluation.semantic_local_files_only,
+    )
+    try:
+        index = SemanticIndex(
+            SemanticEmbeddingRepository(database),
+            provider,
+        )
+        similarity = SimilarityService(provider, index)
+        manifest = load_calibration_manifest(manifest_path)
+        profile = await SemanticCalibrator(
+            similarity,
+            lambda: provider.descriptor,
+        ).calibrate(manifest)
+        save_calibration_profile(profile, output_path)
+        return {
+            "output": str(output_path),
+            **profile.model_dump(mode="json"),
+        }
+    finally:
+        await provider.aclose()
+        database.dispose()
+
+
+@semantic_app.command("calibrate")
+def semantic_calibrate(
+    manifest: Annotated[
+        Path,
+        typer.Argument(
+            help=(
+                "Curated ILXL/Hololive calibration manifest with identity, duplicate, "
+                "and paraphrase positive/negative pairs."
+            )
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="Calibration profile output. Defaults to evaluation.semantic_calibration_path.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+    config: ConfigOption = None,
+) -> None:
+    """Measure production semantic thresholds from a curated real-output corpus."""
+    settings = _settings(config)
+    output_path = output or settings.evaluation.semantic_calibration_path
+    try:
+        payload = asyncio.run(
+            _calibrate_semantic(settings, manifest, output_path)
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(f"semantic calibration error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(payload, as_json=json_output)
+    if payload.get("validated") is not True:
+        raise typer.Exit(code=2)
+
+
+@semantic_app.command("status")
+def semantic_status(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Inspect the measured semantic calibration required for production."""
+    settings = _settings(config)
+    path = settings.evaluation.semantic_calibration_path
+    if not path.is_file():
+        typer.echo(f"semantic calibration missing: {path}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        profile = load_calibration_profile(path)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"invalid semantic calibration: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = profile.model_dump(mode="json")
+    payload["path"] = str(path)
+    payload["configured_model"] = settings.evaluation.semantic_model
+    payload["configured_profile_id"] = settings.evaluation.semantic_calibration_profile
+    if json_output:
+        _print_payload(payload, as_json=True)
+    else:
+        typer.echo(
+            f"{profile.profile_id}: validated={profile.validated} "
+            f"model={profile.model}@{profile.revision} corpus={profile.corpus_id}"
+        )
+        typer.echo(
+            f"identity hard/accept={profile.identity_hard_min:.4f}/"
+            f"{profile.identity_accept_min:.4f} duplicate={profile.similarity_hard_max:.4f} "
+            f"text={profile.planner_hard_similarity_threshold:.4f}"
+        )
+
+    compatible = (
+        profile.validated
+        and profile.profile_id == settings.evaluation.semantic_calibration_profile
+        and profile.model == settings.evaluation.semantic_model
+        and (
+            settings.evaluation.semantic_revision is None
+            or profile.revision == settings.evaluation.semantic_revision
+        )
+    )
+    if not compatible:
+        raise typer.Exit(code=1)
 
 
 def _remote(core: CoreServices) -> ArtifexRemoteOperations:
