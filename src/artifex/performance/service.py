@@ -406,10 +406,24 @@ class PerformanceLearningService:
             components["retention"] = metrics.retention_rate
             weighted.append((metrics.retention_rate, weights.retention))
 
-        active_weight = sum(weight for _, weight in weighted if weight > 0)
-        if active_weight <= 0:
+        all_weights = (
+            weights.views,
+            weights.engagement,
+            weights.conversion,
+            weights.subscribers,
+            weights.revenue,
+            weights.retention,
+        )
+        total_weight = sum(all_weights)
+        if total_weight <= 0:
             return self._config.prior_score, components
-        score = sum(value * weight for value, weight in weighted) / active_weight
+        active_weight = sum(weight for _, weight in weighted if weight > 0)
+        weighted_score = sum(value * weight for value, weight in weighted)
+        missing_weight = max(0.0, total_weight - active_weight)
+        score = (
+            weighted_score
+            + self._config.prior_score * missing_weight
+        ) / total_weight
         return max(0.0, min(1.0, score)), components
 
     @staticmethod
