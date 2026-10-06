@@ -48,21 +48,26 @@ class PatreonV2PublicationProvider:
                 f"missing Patreon API token env: "
                 f"{self._config.api_access_token_env}"
             )
-        response = await self._client.get(
-            f"/api/oauth2/v2/posts/{post_id}",
-            params={
-                "fields[post]": (
-                    "title,url,published_at,is_public,is_paid,tiers"
-                )
-            },
-            headers={
-                "Authorization": f"Bearer {token}",
-                "User-Agent": self._config.api_user_agent,
-                "Accept": "application/vnd.api+json",
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = await self._client.get(
+                f"/api/oauth2/v2/posts/{post_id}",
+                params={
+                    "fields[post]": (
+                        "title,url,published_at,is_public,is_paid,tiers"
+                    )
+                },
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "User-Agent": self._config.api_user_agent,
+                    "Accept": "application/vnd.api+json",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                f"Patreon API request failed for post {post_id}: {exc}"
+            ) from exc
         data = payload.get("data")
         if not isinstance(data, dict):
             raise TypeError("Patreon post response is missing data object")
