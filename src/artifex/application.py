@@ -354,7 +354,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     )
 
     packs = PackRepository(core.database)
-    pack_planner = PackPlanner(generator, packs, settings.context)
+    pack_planner = PackPlanner(generator, packs, settings.context, settings.patreon)
 
     policy_registry = PolicyRegistry.with_packaged_defaults()
     policy_registry.load_directories(settings.rights.profile_dirs)
