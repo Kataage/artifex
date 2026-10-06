@@ -8,7 +8,8 @@ import pytest
 from artifex.characters import CharacterRegistry
 from artifex.db import Database
 from artifex.domain import CharacterProfile, LoRAPolicy, LoRAState
-from artifex.loras import LoRADiscovery, LoRADiscoveryMaintenance, LoRARegistry
+from artifex.loras import LoRADiscovery, LoRARegistry
+from artifex.loras.maintenance import LoRADiscoveryMaintenance
 from artifex.telemetry import TelemetryRepository
 
 
