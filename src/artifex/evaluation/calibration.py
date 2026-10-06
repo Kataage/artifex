@@ -217,23 +217,23 @@ class SemanticCalibrator:
         self,
         pairs: tuple[ImageCalibrationPair, ...],
     ) -> tuple[float, ...]:
-        return tuple(
-            [
+        scores: list[float] = []
+        for pair in pairs:
+            scores.append(
                 await self._similarity.max_image_similarity(pair.left, (pair.right,))
-                for pair in pairs
-            ]
-        )
+            )
+        return tuple(scores)
 
     async def _text_scores(
         self,
         pairs: tuple[TextCalibrationPair, ...],
     ) -> tuple[float, ...]:
-        return tuple(
-            [
+        scores: list[float] = []
+        for pair in pairs:
+            scores.append(
                 await self._similarity.max_text_similarity(pair.left, (pair.right,))
-                for pair in pairs
-            ]
-        )
+            )
+        return tuple(scores)
 
     async def calibrate(
         self,
