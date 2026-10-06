@@ -248,6 +248,10 @@ class EvaluationConfig(StrictModel):
     semantic_local_files_only: bool = False
     allow_degraded_semantic: bool = False
     semantic_calibration_profile: str = "siglip2-hololive-ilxl-v1"
+    semantic_calibration_path: Path = Path(
+        "data/calibration/siglip2-hololive-ilxl-v1.json"
+    )
+    require_semantic_calibration: bool = True
     identity_reference_required: bool = True
     identity_reference_limit_per_character: int = Field(default=8, ge=1, le=64)
     identity_reference_hard_min: float = Field(default=0.30, ge=0, le=1)
