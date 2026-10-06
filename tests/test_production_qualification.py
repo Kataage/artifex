@@ -78,10 +78,35 @@ class NoSimilarity:
         return 0.0
 
 
+class SequenceProvider:
+    def __init__(self, signals: list[RawEvaluationSignals]) -> None:
+        self.signals = signals
+        self.calls = 0
+
+    async def evaluate(self, context):
+        del context
+        signal = self.signals[min(self.calls, len(self.signals) - 1)]
+        self.calls += 1
+        return signal
+
+
+class SequenceSimilarity:
+    def __init__(self, values: list[float]) -> None:
+        self.values = values
+        self.calls = 0
+
+    async def max_image_similarity(self, path, references):
+        del path, references
+        value = self.values[min(self.calls, len(self.values) - 1)]
+        self.calls += 1
+        return value
+
+
 class FakeBackend:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.calls = 0
+        self.requests: list[GenerationRequest] = []
 
     def provenance(self):
         return {
@@ -96,6 +121,7 @@ class FakeBackend:
 
     async def generate(self, request: GenerationRequest, *, on_submitted):
         self.calls += 1
+        self.requests.append(request)
         prompt_id = f"prompt-{self.calls}"
         on_submitted(prompt_id)
         path = self.root / f"{request.scene_id}-{request.attempt_id}.png"
@@ -178,7 +204,12 @@ def _allow_policy() -> PolicyProfile:
     )
 
 
-def _qualification(tmp_path: Path):
+def _qualification(
+    tmp_path: Path,
+    *,
+    provider=None,
+    similarity=None,
+):
     database = Database(f"sqlite:///{(tmp_path / 'qualification.sqlite3').as_posix()}")
     database.migrate()
     runtime = RuntimeStore(database)
@@ -233,6 +264,24 @@ def _qualification(tmp_path: Path):
                 readiness=0.95,
             )
         )
+        if index == 1:
+            loras.upsert(
+                LoRAProfile(
+                    id="lora-1-alt",
+                    path=tmp_path / "lora-1-alt.safetensors",
+                    state=LoRAState.PRODUCTION,
+                    target_character_ids=(character_id,),
+                    model_families=("ilxl",),
+                    trigger_tags=("trigger_1_alt",),
+                    recommended_weight=0.7,
+                    validated_min_weight=0.6,
+                    validated_max_weight=0.9,
+                    identity_score=0.90,
+                    quality_score=0.92,
+                    flexibility_score=0.95,
+                    readiness=0.90,
+                )
+            )
 
     policy_registry = PolicyRegistry()
     policy_registry.register(_allow_policy())
@@ -256,8 +305,8 @@ def _qualification(tmp_path: Path):
     reviews = ReviewQueueRepository(database)
     backend = FakeBackend(tmp_path)
     evaluator = EvaluationEngine(
-        AcceptedProvider(),  # type: ignore[arg-type]
-        NoSimilarity(),  # type: ignore[arg-type]
+        provider or AcceptedProvider(),  # type: ignore[arg-type]
+        similarity or NoSimilarity(),  # type: ignore[arg-type]
         __import__("artifex.config.models", fromlist=["EvaluationConfig"]).EvaluationConfig(),
     )
     selector = AttemptSelector(database, runtime, evaluations)
@@ -399,4 +448,145 @@ async def test_daemon_sustained_run_processes_next_pack_without_operator(
     assert nonterminal_count == 0
     assert attempt_count == scene_count == len(records)
     assert open_reviews == 0
+    database.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_identity_failure_executes_lora_weight_and_prompt_remediation(
+    tmp_path: Path,
+) -> None:
+    provider = SequenceProvider(
+        [
+            RawEvaluationSignals(
+                identity=0.20,
+                alignment=0.98,
+                face_quality=0.98,
+                technical_quality=0.98,
+                aesthetic=0.98,
+                continuity=0.98,
+                integrity=0.99,
+            ),
+            RawEvaluationSignals(
+                identity=0.98,
+                alignment=0.98,
+                face_quality=0.98,
+                technical_quality=0.98,
+                aesthetic=0.98,
+                continuity=0.98,
+                integrity=0.99,
+            ),
+        ]
+    )
+    database, _, _, packs, reviews, coordinator, backend = _qualification(
+        tmp_path,
+        provider=provider,
+    )
+    record = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)),
+        concept_id=None,
+    )
+
+    await coordinator.run_pack(record.pack_id)
+
+    assert packs.require(record.pack_id).state is PackState.FINALIZED
+    assert backend.calls == 2
+    first, second = backend.requests
+    assert first.lora_plan.entries[0].lora_id == "lora-1"
+    assert second.lora_plan.entries[0].lora_id == "lora-1-alt"
+    assert second.lora_plan.entries[0].weight > 0.7
+    assert second.compiled.positive_prompt != first.compiled.positive_prompt
+    with database.session() as session:
+        scene = session.scalar(
+            select(SceneRow).where(SceneRow.pack_id == record.pack_id)
+        )
+        assert scene is not None
+        history = scene.payload_json["retry_history"]
+        assert len(history) == 1
+        assert history[0]["applied_actions"] == [
+            "alternate_lora",
+            "adjust_lora_weight",
+            "revise_prompt",
+        ]
+        assert history[0]["before_digest"] != history[0]["after_digest"]
+    assert reviews.list_open() == ()
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_technical_failure_routes_retry_through_repair_workflow(
+    tmp_path: Path,
+) -> None:
+    provider = SequenceProvider(
+        [
+            RawEvaluationSignals(
+                identity=0.98,
+                alignment=0.98,
+                face_quality=0.98,
+                technical_quality=0.20,
+                aesthetic=0.98,
+                continuity=0.98,
+                integrity=0.99,
+            ),
+            RawEvaluationSignals(
+                identity=0.98,
+                alignment=0.98,
+                face_quality=0.98,
+                technical_quality=0.98,
+                aesthetic=0.98,
+                continuity=0.98,
+                integrity=0.99,
+            ),
+        ]
+    )
+    database, _, _, packs, _, coordinator, backend = _qualification(
+        tmp_path,
+        provider=provider,
+    )
+    record = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)),
+        concept_id=None,
+    )
+
+    await coordinator.run_pack(record.pack_id)
+
+    assert backend.calls == 2
+    first, second = backend.requests
+    assert first.seed != second.seed
+    assert first.workflow_template_id is None
+    assert second.workflow_template_id == "ilxl_repair_v1"
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_similarity_failure_varies_scene_semantics_before_retry(
+    tmp_path: Path,
+) -> None:
+    database, _, _, packs, _, coordinator, backend = _qualification(
+        tmp_path,
+        similarity=SequenceSimilarity([0.99, 0.0]),
+    )
+    record = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)),
+        concept_id=None,
+    )
+
+    await coordinator.run_pack(record.pack_id)
+
+    assert backend.calls == 2
+    first, second = backend.requests
+    assert first.seed != second.seed
+    assert first.compiled.positive_prompt != second.compiled.positive_prompt
+    with database.session() as session:
+        scene = session.scalar(
+            select(SceneRow).where(SceneRow.pack_id == record.pack_id)
+        )
+        assert scene is not None
+        history = scene.payload_json["retry_history"]
+        assert history[0]["applied_actions"] == ["vary_scene", "change_seed"]
+        before_scene = history[0]["before_inputs"]["scene"]
+        after_scene = history[0]["after_inputs"]["scene"]
+        assert before_scene["visual"]["clothing"] == after_scene["visual"]["clothing"]
+        assert before_scene["visual"]["setting"] == after_scene["visual"]["setting"]
+        assert before_scene["visual"]["camera"] != after_scene["visual"]["camera"]
     database.dispose()
