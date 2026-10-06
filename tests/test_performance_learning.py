@@ -9,12 +9,18 @@ import pytest
 from artifex.characters import CharacterRegistry
 from artifex.config.models import (
     CharacterRegistryConfig,
+    EditorialConfig,
     PatreonPerformanceConfig,
     PlannerConfig,
 )
 from artifex.db import Database
 from artifex.db.models import ConceptRow, PackRow, SceneRow
 from artifex.domain import CharacterProfile, LoRAPolicy, PackState, SceneState
+from artifex.editorial import (
+    EditorialRepository,
+    EditorialService,
+    PackInventoryRepository,
+)
 from artifex.loras import LoRARegistry
 from artifex.performance import (
     PerformanceLearningService,
@@ -25,6 +31,7 @@ from artifex.performance import (
 )
 from artifex.performance.provider import PerformanceAwareSignalProvider
 from artifex.planner import ConceptRepository
+from artifex.series import SeriesRepository
 from artifex.planner.models import (
     ConceptCandidate,
     CreativeAssessment,
@@ -535,3 +542,95 @@ def test_manual_import_rejects_non_object_rows(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="item 2 must be an object"):
         load_manual_performance(path)
+
+
+
+def test_high_performance_cannot_override_editorial_character_cooldown(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'editorial-learning.sqlite3').as_posix()}")
+    database.migrate()
+    now = datetime.now(UTC)
+    hot_candidate = _candidate(character_id="char-a", theme="hot repeat")
+    fresh_candidate = _candidate(character_id="char-b", theme="fresh choice")
+    hot_pack, hot_scene = _seed_pack(
+        database,
+        hot_candidate,
+        suffix="hot-history",
+    )
+    repository, learning = _service(
+        database,
+        config=PatreonPerformanceConfig(
+            confidence_sample_scale=10,
+            view_scale=100,
+            revenue_scale_cents=100,
+        ),
+    )
+    _add_evidence(
+        repository,
+        pack_id=hot_pack,
+        scene_id=hot_scene,
+        post_id="hot-post",
+        observed_at=now,
+        metrics=PerformanceMetrics(
+            views=10000,
+            engagement_count=2000,
+            free_signups=500,
+            paid_conversions=100,
+            subscriber_delta=100,
+            revenue_cents=10000,
+            retention_rate=1.0,
+        ),
+    )
+    with database.session() as session:
+        session.add_all(
+            (
+                ConceptRow(
+                    id="idea-hot",
+                    status="idea",
+                    payload_json={
+                        "candidate": hot_candidate.model_dump(mode="json"),
+                    },
+                    score=0.99,
+                    similarity_score=0.0,
+                    created_at=now + timedelta(seconds=1),
+                ),
+                ConceptRow(
+                    id="idea-fresh",
+                    status="idea",
+                    payload_json={
+                        "candidate": fresh_candidate.model_dump(mode="json"),
+                    },
+                    score=0.60,
+                    similarity_score=0.0,
+                    created_at=now + timedelta(seconds=2),
+                ),
+            )
+        )
+
+    config = EditorialConfig(
+        mode="continuous",
+        character_cooldown_packs=2,
+        diversity_window_packs=10,
+        series_target_share=0.0,
+    )
+    editorial = EditorialService(
+        database,
+        config,
+        SeriesRepository(database),
+        PackInventoryRepository(
+            database,
+            expiry_hours=config.inventory_expiry_hours,
+        ),
+        EditorialRepository(database),
+        performance=learning,
+    )
+
+    decision = editorial.decide_plan(has_ideas=True)
+
+    assert decision.concept_id == "idea-fresh"
+    assert learning.candidate_performance(
+        hot_candidate,
+        as_of=now,
+    ).score > 0.8
+    database.dispose()
