@@ -75,6 +75,9 @@ class LoRAProfile(DomainModel):
     checksum: str | None = None
     incompatible_lora_ids: tuple[str, ...] = ()
     source: str | None = None
+    last_validation_at: datetime | None = None
+    last_validation_run_id: str | None = None
+    missing_since: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
