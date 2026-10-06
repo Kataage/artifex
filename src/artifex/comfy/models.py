@@ -52,6 +52,28 @@ class WorkflowPatchRequest(ComfyModel):
     loras: tuple[WorkflowLoRA, ...] = ()
 
 
+class WorkflowAssetRequirement(ComfyModel):
+    label: str = Field(min_length=1)
+    node_class: str = Field(min_length=1)
+    input_name: str = Field(min_length=1)
+    value: str = Field(min_length=1)
+    required: bool = True
+
+
+class WorkflowRequirements(ComfyModel):
+    template_id: str = Field(min_length=1)
+    source_sha256: str = Field(min_length=64, max_length=64)
+    node_types: tuple[str, ...]
+    assets: tuple[WorkflowAssetRequirement, ...] = ()
+
+
+class WorkflowRequirementStatus(ComfyModel):
+    ready: bool
+    missing_node_types: tuple[str, ...] = ()
+    missing_assets: tuple[str, ...] = ()
+    detail: str = ""
+
+
 class QueueReceipt(ComfyModel):
     prompt_id: str
     queue_number: float | None = None
