@@ -285,6 +285,25 @@ patreon:
     - illustration
     - hololive
   include_character_tags: true
+  performance:
+    enabled: true
+    half_life_days: 45
+    prior_score: 0.5
+    confidence_sample_scale: 250
+    view_scale: 2500
+    engagement_rate_scale: 0.10
+    conversion_rate_scale: 0.05
+    subscriber_scale: 25
+    revenue_scale_cents: 10000
+    minimum_confidence_for_editorial: 0.20
+    editorial_effect_cap: 0.15
+    metric_weights:
+      views: 0.05
+      engagement: 0.20
+      conversion: 0.25
+      subscribers: 0.15
+      revenue: 0.20
+      retention: 0.15
 
 rights:
   enforce: true
