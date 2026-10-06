@@ -23,6 +23,8 @@ class CandidateSignals(BaseModel):
     novelty: float = Field(default=0.0, ge=0, le=1)
     visual_strength: float = Field(default=0.0, ge=0, le=1)
     historical_performance: float = Field(default=0.0, ge=0, le=1)
+    historical_performance_confidence: float = Field(default=0.0, ge=0, le=1)
+    historical_performance_reason: str = ""
     seasonality: float = Field(default=0.0, ge=0, le=1)
     series_potential: float = Field(default=0.0, ge=0, le=1)
     readiness: float = Field(default=0.0, ge=0, le=1)
@@ -79,6 +81,15 @@ class DefaultSignalProvider:
                 character.historical_performance for character in selected
             )
             / len(selected),
+            historical_performance_confidence=sum(
+                character.historical_performance_confidence
+                for character in selected
+            )
+            / len(selected),
+            historical_performance_reason="; ".join(
+                character.historical_performance_reason
+                for character in selected
+            ),
             seasonality=seasonality,
             series_potential=candidate.assessment.series_potential,
             readiness=min(character.readiness for character in selected),
@@ -128,6 +139,10 @@ class ConceptScorer:
             novelty=signals.novelty,
             visual_strength=signals.visual_strength,
             historical_performance=signals.historical_performance,
+            historical_performance_confidence=(
+                signals.historical_performance_confidence
+            ),
+            historical_performance_reason=signals.historical_performance_reason,
             seasonality=signals.seasonality,
             series_potential=signals.series_potential,
             readiness=signals.readiness,
