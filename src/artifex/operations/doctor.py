@@ -66,6 +66,7 @@ class DoctorService:
                 profile = load_calibration_profile(calibration_path)
                 semantic_calibrated = (
                     profile.validated
+                    and profile.provider == "transformers_siglip2"
                     and profile.profile_id
                     == self._settings.evaluation.semantic_calibration_profile
                     and profile.model == self._settings.evaluation.semantic_model
