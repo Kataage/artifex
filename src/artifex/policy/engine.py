@@ -49,6 +49,7 @@ class PolicyEngine:
                     reasons=("rights policy enforcement disabled by configuration",),
                     content_labels=request.content_labels,
                     created_at=now,
+                    content_rating=request.content_rating,
                 )
             )
 
@@ -66,10 +67,13 @@ class PolicyEngine:
                     reasons=tuple(load_reasons) or ("no policy profile resolved",),
                     content_labels=request.content_labels,
                     created_at=now,
+                    content_rating=request.content_rating,
                 )
             )
 
         outcomes: list[PolicyOutcome] = []
+        if load_reasons:
+            outcomes.append(PolicyOutcome.BLOCK)
         reasons = list(load_reasons)
         forced_private_review = False
         profile_versions: list[str] = []
@@ -100,6 +104,28 @@ class PolicyEngine:
                     f"{profile.id}@{profile.version}: tier "
                     f"{request.requested_tier.value} -> {tier_outcome.value}"
                 )
+
+            rating_rule = profile.rating_rules.get(
+                request.requested_tier,
+                {},
+            ).get(request.content_rating)
+            if rating_rule is not None:
+                outcomes.append(rating_rule.outcome)
+                if rating_rule.reason:
+                    reasons.append(
+                        f"{profile.id}@{profile.version}: rating "
+                        f"{request.content_rating.value}: {rating_rule.reason}"
+                    )
+                else:
+                    reasons.append(
+                        f"{profile.id}@{profile.version}: rating "
+                        f"{request.content_rating.value} -> "
+                        f"{rating_rule.outcome.value}"
+                    )
+                if rating_rule.force_tier is PublicationTier.PRIVATE_REVIEW:
+                    forced_private_review = True
+                if rating_rule.force_tier is PublicationTier.BLOCKED:
+                    outcomes.append(PolicyOutcome.BLOCK)
 
             label_rules = {
                 key.strip().casefold(): value
@@ -146,6 +172,7 @@ class PolicyEngine:
                 reasons=tuple(reasons),
                 content_labels=normalized_labels,
                 created_at=now,
+                content_rating=request.content_rating,
             )
         )
 
@@ -170,5 +197,15 @@ class PolicyEngine:
                 )
                 continue
             profiles.append(profile)
+
+        if self._config.platform_profile is not None:
+            platform = self._registry.get(self._config.platform_profile)
+            if platform is None:
+                reasons.append(
+                    "platform policy profile unavailable: "
+                    + self._config.platform_profile
+                )
+            else:
+                profiles.append(platform)
 
         return tuple(profiles), tuple(reasons)
