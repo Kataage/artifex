@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from artifex.config.models import PatreonConfig
 from artifex.db import Database
 from artifex.db.models import (
     ConceptRow,
@@ -18,6 +19,7 @@ from artifex.db.models import (
     PolicyDecisionRow,
     SceneRow,
 )
+from artifex.packs import ContentPackPlan
 
 
 class ArchiveResult(BaseModel):
@@ -28,12 +30,19 @@ class ArchiveResult(BaseModel):
     manifest_path: Path
     manifest_sha256: str
     copied_outputs: tuple[Path, ...]
+    post_package_path: Path | None = None
 
 
 class PackArchive:
-    def __init__(self, database: Database, root: Path) -> None:
+    def __init__(
+        self,
+        database: Database,
+        root: Path,
+        patreon: PatreonConfig | None = None,
+    ) -> None:
         self._database = database
         self._root = root
+        self._patreon = patreon or PatreonConfig()
 
     def finalize(self, pack_id: str) -> ArchiveResult:
         manifest, output_records, created_at = self._build_manifest(pack_id)
@@ -66,6 +75,25 @@ class PackArchive:
             record["archived_path"] = str(destination)
 
         manifest["archived_outputs"] = output_records
+        post_package_path: Path | None = None
+        if self._patreon.enabled and self._patreon.generate_post_package:
+            post_package = self._build_post_package(manifest, output_records)
+            post_package_path = directories["metadata"] / "patreon-post-package.json"
+            post_package_path.write_text(
+                json.dumps(
+                    post_package,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            manifest["post_package"] = {
+                "platform": "patreon",
+                "path": str(post_package_path),
+                "schema_version": post_package["schema_version"],
+            }
+
         manifest_path = directories["metadata"] / "pack.json"
         encoded = json.dumps(
             manifest,
@@ -87,6 +115,11 @@ class PackArchive:
                     "manifest_path": str(manifest_path),
                     "manifest_sha256": digest,
                     "copied_output_count": len(copied),
+                    "post_package_path": (
+                        str(post_package_path)
+                        if post_package_path is not None
+                        else None
+                    ),
                 },
             }
             pack.checkpoint_json = {
@@ -101,6 +134,7 @@ class PackArchive:
             manifest_path=manifest_path,
             manifest_sha256=digest,
             copied_outputs=tuple(copied),
+            post_package_path=post_package_path,
         )
 
     def _build_manifest(
@@ -257,6 +291,116 @@ class PackArchive:
             created_at = pack.created_at
 
         return manifest, output_records, created_at
+
+    def _build_post_package(
+        self,
+        manifest: dict[str, Any],
+        output_records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        pack_data = manifest["pack"]
+        payload = pack_data["payload"]
+        if not isinstance(payload, dict):
+            raise TypeError("pack payload must be an object")
+        raw_plan = payload.get("plan")
+        if not isinstance(raw_plan, dict):
+            raise TypeError("pack archive is missing ContentPackPlan")
+        plan = ContentPackPlan.model_validate(raw_plan)
+
+        selected_paths: dict[str, list[str]] = {}
+        for record in output_records:
+            if not record.get("selected"):
+                continue
+            archived_path = record.get("archived_path")
+            scene_id = record.get("scene_id")
+            if isinstance(scene_id, str) and isinstance(archived_path, str):
+                selected_paths.setdefault(scene_id, []).append(archived_path)
+
+        scene_rows = manifest.get("scenes", [])
+        if not isinstance(scene_rows, list):
+            raise TypeError("archived scenes must be a list")
+        public_scene_ids: list[str] = []
+        member_scene_ids: list[str] = []
+        review_scene_ids: list[str] = []
+        package_scenes: list[dict[str, Any]] = []
+
+        plan_by_ordinal = {scene.ordinal: scene for scene in plan.scenes}
+        for scene_row in scene_rows:
+            if not isinstance(scene_row, dict):
+                continue
+            scene_id = str(scene_row["id"])
+            ordinal = int(scene_row["ordinal"])
+            tier = str(scene_row["publication_tier"])
+            scene_payload = scene_row.get("payload")
+            if not isinstance(scene_payload, dict):
+                scene_payload = {}
+            scene_plan = plan_by_ordinal[ordinal]
+
+            if tier == "public":
+                public_scene_ids.append(scene_id)
+            elif tier == "member":
+                member_scene_ids.append(scene_id)
+            else:
+                review_scene_ids.append(scene_id)
+
+            package_scenes.append(
+                {
+                    "scene_id": scene_id,
+                    "ordinal": ordinal,
+                    "title": scene_plan.title,
+                    "purpose": scene_plan.purpose,
+                    "role": scene_plan.role.value,
+                    "publication_tier": tier,
+                    "planned_content_rating": (
+                        scene_plan.planned_content_rating.value
+                    ),
+                    "content_rating": scene_payload.get(
+                        "content_rating",
+                        scene_plan.planned_content_rating.value,
+                    ),
+                    "content_labels": scene_payload.get("content_labels", []),
+                    "files": selected_paths.get(scene_id, []),
+                }
+            )
+
+        tags = list(self._patreon.default_tags)
+        if self._patreon.include_character_tags:
+            tags.extend(plan.character_ids)
+        tags.extend((plan.format.value, plan.editorial_archetype.value))
+        tags = list(dict.fromkeys(tag for tag in tags if tag))
+
+        preview_scene = next(
+            (
+                item
+                for item in package_scenes
+                if item["publication_tier"] == "public"
+            ),
+            package_scenes[0],
+        )
+        preview_copy = (
+            f"{plan.logline} Preview: {preview_scene['title']} — "
+            f"{preview_scene['purpose']}"
+        )
+        if member_scene_ids:
+            preview_copy += (
+                f" Member continuation: {len(member_scene_ids)} scene(s)."
+            )
+
+        return {
+            "schema_version": 1,
+            "platform": "patreon",
+            "pack_id": pack_data["id"],
+            "title": plan.title,
+            "caption": plan.logline,
+            "preview_copy": preview_copy,
+            "tags": tags,
+            "format": plan.format.value,
+            "editorial_archetype": plan.editorial_archetype.value,
+            "public_scene_ids": public_scene_ids,
+            "member_scene_ids": member_scene_ids,
+            "review_scene_ids": review_scene_ids,
+            "scenes": package_scenes,
+            "publication_ready": not review_scene_ids,
+        }
 
     @staticmethod
     def _archive_tier(publication_tier: str) -> str:
