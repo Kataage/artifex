@@ -33,7 +33,7 @@ production:
   retry_vary_scene_limit: 2
   retry_change_seed_limit: 3
   retry_lora_weight_step: 0.10
-  repair_workflow_template: ilxl_repair_v1
+  repair_workflow_template: illust_main_repair_v1
   idea_inventory_target: 30
   planned_inventory_target: 10
   completed_inventory_target: 7
@@ -127,7 +127,27 @@ comfyui:
   poll_interval_seconds: 1
   request_attempts: 3
   reconnect_backoff_seconds: 1
-  default_template: ilxl_base_v1
+  default_template: illust_main_v1
+  refiner_checkpoint: anime-refiner-beta1.1.safetensors
+  vae: pppanimixVAE_ilxl.safetensors
+  upscale_model: 4xRealisticrescaler_100000G.pt
+  base_steps: 48
+  base_cfg: 5.5
+  base_sampler: dpmpp_3m_sde_gpu
+  base_scheduler: karras
+  base_denoise: 1.0
+  refiner_steps: 24
+  refiner_cfg: 5.0
+  refiner_sampler: dpmpp_3m_sde_gpu
+  refiner_scheduler: karras
+  refiner_denoise: 0.10
+  upscale_steps: 15
+  upscale_cfg: 5.5
+  upscale_sampler: euler_ancestral
+  upscale_scheduler: karras
+  upscale_denoise: 0.50
+  release_vram_after_attempt: true
+  release_vram_on_error: true
 
 evaluation:
   provider: openai_compatible_vision
