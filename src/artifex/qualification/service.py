@@ -27,12 +27,12 @@ from artifex.domain import LoRAState, PackState
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorReport
 from artifex.qualification.models import (
-    REQUIRED_STAGES,
     AssetDigest,
     QualificationSession,
     QualificationStage,
     QualificationStageEvidence,
     QualificationStatus,
+    REQUIRED_STAGES,
 )
 
 
