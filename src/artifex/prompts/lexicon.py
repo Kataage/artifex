@@ -276,6 +276,7 @@ class ValidatedTagLexicon:
         *,
         profile: PromptProfile,
         negative: bool = False,
+        category_overrides: Mapping[str, str] | None = None,
     ) -> tuple[str, ...]:
         order = (
             profile.negative_category_order
@@ -286,7 +287,13 @@ class ValidatedTagLexicon:
         indexed = list(enumerate(tags))
         indexed.sort(
             key=lambda item: (
-                priority.get(self.category(item[1]), len(priority)),
+                priority.get(
+                    (category_overrides or {}).get(
+                        item[1],
+                        self.category(item[1]),
+                    ),
+                    len(priority),
+                ),
                 item[0],
             )
         )
