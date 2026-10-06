@@ -131,3 +131,26 @@ async def test_patreon_v2_sync_requires_token(
         await provider.fetch_post("12345")
 
     await client.aclose()
+
+
+
+@pytest.mark.asyncio
+async def test_patreon_v2_http_failure_is_wrapped_as_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATREON_ACCESS_TOKEN", "secret-token")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(503, text="unavailable")
+        ),
+        base_url="https://www.patreon.com",
+    )
+    provider = PatreonV2PublicationProvider(
+        PatreonConfig(api_enabled=True),
+        client=client,
+    )
+
+    with pytest.raises(RuntimeError, match="Patreon API request failed"):
+        await provider.fetch_post("12345")
+
+    await client.aclose()
