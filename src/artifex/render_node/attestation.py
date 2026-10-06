@@ -210,7 +210,7 @@ def serve_attestation(settings: ArtifexSettings) -> None:
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             if self.path == "/health":
                 self._json(
                     HTTPStatus.OK,
