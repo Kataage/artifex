@@ -8,14 +8,13 @@ import pytest
 from artifex.config.models import LoRARegistryConfig
 from artifex.db import Database
 from artifex.domain import LoRAProfile, LoRAState
-from artifex.loras import (
-    LoRARegistry,
+from artifex.loras import LoRARegistry, LoRAValidationService
+from artifex.loras.automated import (
     LoRAValidationCase,
     LoRAValidationMatrixRunner,
-    LoRAValidationRunRepository,
     LoRAValidationSample,
-    LoRAValidationService,
 )
+from artifex.loras.runs import LoRAValidationRunRepository
 
 
 class FakeProbe:
