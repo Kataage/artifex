@@ -75,6 +75,18 @@ class ComfyGenerationBackend:
             "width": self._production.width,
             "height": self._production.height,
             "batch_size": self._production.batch_size,
+            "base_sampler": self._comfy_config.base_sampler,
+            "base_scheduler": self._comfy_config.base_scheduler,
+            "base_steps": self._comfy_config.base_steps,
+            "base_cfg": self._comfy_config.base_cfg,
+            "refiner_checkpoint": self._comfy_config.refiner_checkpoint,
+            "refiner_sampler": self._comfy_config.refiner_sampler,
+            "refiner_scheduler": self._comfy_config.refiner_scheduler,
+            "refiner_steps": self._comfy_config.refiner_steps,
+            "upscale_model": self._comfy_config.upscale_model,
+            "release_vram_after_attempt": (
+                self._comfy_config.release_vram_after_attempt
+            ),
         }
 
     async def generate(
@@ -161,9 +173,21 @@ class ComfyGenerationBackend:
                 ),
             )
         except Exception:
-            if self._comfy_config.release_vram_on_error:
+            if (
+                self._comfy_config.release_vram_on_error
+                and not self._comfy_config.release_vram_after_attempt
+            ):
                 await self._release_vram_best_effort()
             raise
         finally:
             if self._comfy_config.release_vram_after_attempt:
                 await self._release_vram_best_effort()
+
+    async def _release_vram_best_effort(self) -> None:
+        try:
+            await self._client.free_memory(
+                unload_models=True,
+                free_memory=True,
+            )
+        except ComfyUIError:
+            return
