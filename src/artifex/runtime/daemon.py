@@ -43,12 +43,14 @@ class RuntimeDaemon:
         config: AgentConfig,
         *,
         maintenance: RuntimeMaintenance | None = None,
+        idle_maintenance: RuntimeMaintenance | None = None,
     ) -> None:
         self._runtime = runtime
         self._scheduler = scheduler
         self._handler = handler
         self._config = config
         self._maintenance = maintenance
+        self._idle_maintenance = idle_maintenance
         self._stop_requested = False
 
     def start(self) -> AgentState:
@@ -125,7 +127,12 @@ class RuntimeDaemon:
             while not self._stop_requested:
                 if self._maintenance is not None:
                     await self._maintenance.maintain()
-                await self.run_once()
+                decision = await self.run_once()
+                if (
+                    decision.action is SchedulerAction.IDLE
+                    and self._idle_maintenance is not None
+                ):
+                    await self._idle_maintenance.maintain()
                 await asyncio.sleep(self._config.poll_interval_seconds)
         finally:
             current = self._runtime.get_agent_state()
