@@ -305,6 +305,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.database.dispose()
         raise ValueError("no enabled character profiles were loaded")
 
+    semantic_embeddings: SigLIP2EmbeddingProvider | LocalSimilarityEmbeddingProvider
     if settings.evaluation.semantic_provider == "siglip2":
         semantic_embeddings = SigLIP2EmbeddingProvider(
             model=settings.evaluation.semantic_model,
