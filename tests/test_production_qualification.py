@@ -307,7 +307,9 @@ def _qualification(
     evaluator = EvaluationEngine(
         provider or AcceptedProvider(),  # type: ignore[arg-type]
         similarity or NoSimilarity(),  # type: ignore[arg-type]
-        __import__("artifex.config.models", fromlist=["EvaluationConfig"]).EvaluationConfig(),
+        __import__("artifex.config.models", fromlist=["EvaluationConfig"]).EvaluationConfig(
+            identity_reference_required=False
+        ),
     )
     selector = AttemptSelector(database, runtime, evaluations)
     recovery = RecoveryManager(
