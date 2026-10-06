@@ -16,6 +16,7 @@ from artifex.db import Database
 from artifex.db.models import PackInventoryRow
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.evaluation import (
+    SemanticArchiveIndexer,
     SemanticCalibrator,
     SemanticEmbeddingRepository,
     SemanticIndex,
@@ -124,8 +125,16 @@ async def _calibrate_semantic(
             lambda: provider.descriptor,
         ).calibrate(manifest)
         save_calibration_profile(profile, output_path)
+        backfill = await SemanticArchiveIndexer(database, index).backfill()
         return {
             "output": str(output_path),
+            "backfill": {
+                "concepts_scanned": backfill.concepts_scanned,
+                "concepts_indexed": backfill.concepts_indexed,
+                "images_scanned": backfill.images_scanned,
+                "images_indexed": backfill.images_indexed,
+                "missing_image_paths": backfill.missing_image_paths,
+            },
             **profile.model_dump(mode="json"),
         }
     finally:
