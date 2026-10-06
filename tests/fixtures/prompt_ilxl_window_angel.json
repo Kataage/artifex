@@ -1,12 +1,11 @@
 {
-  "positive_prompt": "amane_kanata, hololive, kanata, angel, amane kanata, full_body, from_below, sitting, looking_at_viewer, smile, white_dress, dress, window, sunset, rim_lighting, wind",
+  "positive_prompt": "amane_kanata, hololive, kanata, angel, full_body, from_below, sitting, looking_at_viewer, smile, white_dress, dress, window, sunset, rim_lighting, wind",
   "negative_prompt": "extra_digits, bad_hands",
   "positive_tags": [
     "amane_kanata",
     "hololive",
     "kanata",
     "angel",
-    "amane kanata",
     "full_body",
     "from_below",
     "sitting",
