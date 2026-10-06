@@ -572,10 +572,10 @@ class QualificationService:
                 )
             archive = pack.payload_json.get("archive")
             if not isinstance(archive, dict):
-                raise ValueError(f"Pack {pack_id} has no archive metadata")
+                raise TypeError(f"Pack {pack_id} has no archive metadata")
             manifest_raw = archive.get("manifest_path")
             if not isinstance(manifest_raw, str):
-                raise ValueError(
+                raise TypeError(
                     f"Pack {pack_id} has no archive manifest path"
                 )
             manifest = Path(manifest_raw).expanduser()
