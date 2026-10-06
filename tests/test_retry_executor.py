@@ -184,7 +184,7 @@ def test_repair_workflow_routes_to_dedicated_template(tmp_path: Path) -> None:
     )
 
     assert result.can_retry is True
-    assert result.record.after_inputs.workflow_template_id == "ilxl_repair_v1"
+    assert result.record.after_inputs.workflow_template_id == "illust_main_repair_v1"
     database.dispose()
 
 
