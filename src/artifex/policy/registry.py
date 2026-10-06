@@ -51,12 +51,10 @@ class PolicyRegistry:
     @classmethod
     def with_packaged_defaults(cls) -> PolicyRegistry:
         registry = cls()
-        raw = json.loads(
-            files("artifex.policy")
-            .joinpath("profiles/unconfigured.json")
-            .read_text(encoding="utf-8")
-        )
-        registry.register(PolicyProfile.model_validate(raw))
+        root = files("artifex.policy").joinpath("profiles")
+        for filename in ("unconfigured.json", "patreon_2026_10.json"):
+            raw = json.loads(root.joinpath(filename).read_text(encoding="utf-8"))
+            registry.register(PolicyProfile.model_validate(raw))
         return registry
 
     @staticmethod

@@ -102,6 +102,7 @@ class PolicyDecisionRepository:
             ),
             content_labels=original.content_labels,
             created_at=now,
+            content_rating=original.content_rating,
             review_of=original.decision_id,
             operator_review=review,
         )

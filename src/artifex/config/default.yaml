@@ -214,9 +214,19 @@ discord:
   daily_summary_hour_local: 9
   daily_summary_timezone: Asia/Tokyo
 
+patreon:
+  enabled: true
+  default_archetype: public_preview_member_continuation
+  generate_post_package: true
+  default_tags:
+    - illustration
+    - hololive
+  include_character_tags: true
+
 rights:
   enforce: true
   default_profile: unconfigured
+  platform_profile: patreon_2026_10
   profile_dirs:
     - profiles/policies
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from artifex.domain import ResultState
+from artifex.domain import ContentRating, ResultState
 
 
 class EvaluationModel(BaseModel):
@@ -31,6 +31,8 @@ class RawEvaluationSignals(EvaluationModel):
     continuity: float = Field(ge=0, le=1)
     integrity: float = Field(ge=0, le=1)
     reasons: tuple[str, ...] = ()
+    content_rating: ContentRating = ContentRating.GENERAL
+    content_labels: tuple[str, ...] = ()
 
 
 class EvaluationScores(EvaluationModel):
@@ -51,3 +53,5 @@ class EvaluationResult(EvaluationModel):
     state: ResultState
     scores: EvaluationScores
     reasons: tuple[str, ...] = ()
+    content_rating: ContentRating = ContentRating.GENERAL
+    content_labels: tuple[str, ...] = ()

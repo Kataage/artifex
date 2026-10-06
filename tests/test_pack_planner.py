@@ -82,6 +82,7 @@ def _scene(ordinal: int) -> dict[str, Any]:
         "title": f"Scene {ordinal}",
         "purpose": "advance the sequence",
         "character_ids": ["char-a"],
+        "role": "feature" if ordinal == 1 else "detail",
         "continuity_constraints": ["same outfit"],
         "visual": {
             "composition": "portrait",

@@ -164,6 +164,10 @@ class EvaluationRepository:
                 result_state=result.state.value,
                 scores_json=result.scores.model_dump(mode="json"),
                 reasons_json=list(result.reasons),
+                classification_json={
+                    "content_rating": result.content_rating.value,
+                    "content_labels": list(result.content_labels),
+                },
                 created_at=now,
             )
             session.add(row)

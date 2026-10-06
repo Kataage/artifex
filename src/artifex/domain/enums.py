@@ -22,6 +22,13 @@ class CharacterStatus(StrEnum):
     HISTORICAL = "historical"
 
 
+class ContentRating(StrEnum):
+    GENERAL = "general"
+    SUGGESTIVE = "suggestive"
+    ADULT = "adult"
+    EXPLICIT = "explicit"
+
+
 class PackState(StrEnum):
     IDEA = "idea"
     PLANNED = "planned"

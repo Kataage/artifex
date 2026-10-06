@@ -1,0 +1,141 @@
+{
+  "id": "patreon_2026_10",
+  "version": "2026-10-06",
+  "use_rules": {
+    "private": "allow",
+    "public_free": "allow",
+    "paid_membership": "allow",
+    "commercial": "review"
+  },
+  "tier_rules": {
+    "public": "allow",
+    "member": "allow",
+    "private_review": "allow",
+    "blocked": "block"
+  },
+  "rating_rules": {
+    "public": {
+      "general": {
+        "outcome": "allow"
+      },
+      "suggestive": {
+        "outcome": "review",
+        "force_tier": "private_review",
+        "reason": "Public Patreon surfaces require a manual safety check for suggestive output."
+      },
+      "adult": {
+        "outcome": "block",
+        "force_tier": "blocked",
+        "reason": "Adult/18+ nudity or sexual content must not appear in public/free-facing Patreon surfaces."
+      },
+      "explicit": {
+        "outcome": "block",
+        "force_tier": "blocked",
+        "reason": "Sexually explicit output must not appear in public/free-facing Patreon surfaces."
+      }
+    },
+    "member": {
+      "general": {
+        "outcome": "allow"
+      },
+      "suggestive": {
+        "outcome": "allow"
+      },
+      "adult": {
+        "outcome": "allow"
+      },
+      "explicit": {
+        "outcome": "review",
+        "force_tier": "private_review",
+        "reason": "Explicit illustrated Adult/18+ output requires final policy review before member publication."
+      }
+    },
+    "private_review": {
+      "general": {
+        "outcome": "allow"
+      },
+      "suggestive": {
+        "outcome": "allow"
+      },
+      "adult": {
+        "outcome": "allow"
+      },
+      "explicit": {
+        "outcome": "allow"
+      }
+    },
+    "blocked": {
+      "general": {
+        "outcome": "block",
+        "force_tier": "blocked"
+      },
+      "suggestive": {
+        "outcome": "block",
+        "force_tier": "blocked"
+      },
+      "adult": {
+        "outcome": "block",
+        "force_tier": "blocked"
+      },
+      "explicit": {
+        "outcome": "block",
+        "force_tier": "blocked"
+      }
+    }
+  },
+  "content_label_rules": {
+    "sexualized_minor": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon prohibits sexualized depictions of minors, including illustrated or AI-generated works."
+    },
+    "age_ambiguous": {
+      "outcome": "review",
+      "force_tier": "private_review",
+      "reason": "Adult/18+ subjects must be unmistakably interpreted as adults."
+    },
+    "nonconsensual_sexual_content": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon prohibits depicted non-consensual sexual encounters and consensual-non-consent simulations."
+    },
+    "incest": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon prohibits sexualized incest depictions and role-play."
+    },
+    "synthetic_nonconsensual_intimate": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon prohibits synthetic non-consensual intimate imagery."
+    },
+    "real_person_sexual_activity": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon does not permit sexual activity by real participants."
+    },
+    "hyperrealistic_sexual_activity": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon does not permit sexual activity by hyperrealistic subjects."
+    },
+    "real_animal_sexual_activity": {
+      "outcome": "block",
+      "force_tier": "blocked",
+      "reason": "Patreon prohibits sexual activity involving real-world animal species."
+    }
+  },
+  "source_urls": [
+    "https://www.patreon.com/policy/guidelines",
+    "https://www.patreon.com/policy/benefits",
+    "https://support.patreon.com/hc/en-gb/articles/36188028163725-Understanding-Public-Previews-and-Commerce-guidelines-for-adult-18-creators",
+    "https://support.patreon.com/hc/en-us/articles/360004061452-Flexible-previews-Draggable-paywall"
+  ],
+  "checked_at": "2026-10-06T14:00:00+09:00",
+  "notes": [
+    "Versioned platform policy guardrail derived from official Patreon guidance checked on 2026-10-06.",
+    "This profile is a conservative automation policy, not a legal determination.",
+    "Public/member access and content rating are evaluated independently.",
+    "Commercial/shop flows remain review-gated because Patreon Commerce Guidelines impose additional restrictions."
+  ]
+}

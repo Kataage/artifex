@@ -59,6 +59,14 @@ class EvaluationEngine:
             state=state,
             scores=scores,
             reasons=reasons,
+            content_rating=raw.content_rating,
+            content_labels=tuple(
+                dict.fromkeys(
+                    label.strip().casefold()
+                    for label in raw.content_labels
+                    if label.strip()
+                )
+            ),
         )
 
     def _classify(

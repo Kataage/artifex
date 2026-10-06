@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from artifex.domain import PublicationTier
+from artifex.domain import ContentRating, PublicationTier
 
 
 class PolicyModel(BaseModel):
@@ -53,7 +53,13 @@ class PolicyProfile(PolicyModel):
     version: str = Field(min_length=1)
     use_rules: dict[UseClass, PolicyOutcome]
     tier_rules: dict[PublicationTier, PolicyOutcome]
+    rating_rules: dict[
+        PublicationTier,
+        dict[ContentRating, PolicyRule],
+    ] = Field(default_factory=dict)
     content_label_rules: dict[str, PolicyRule] = Field(default_factory=dict)
+    source_urls: tuple[str, ...] = ()
+    checked_at: datetime | None = None
     notes: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -83,7 +89,13 @@ class PolicyRequest(PolicyModel):
     use_class: UseClass
     requested_tier: PublicationTier
     content_labels: tuple[str, ...] = ()
+    content_rating: ContentRating = ContentRating.GENERAL
     phase: str = Field(default="preflight", pattern="^(preflight|post_generation)$")
+
+
+class OperatorReviewOutcome(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class PolicyDecision(PolicyModel):
@@ -97,10 +109,6 @@ class PolicyDecision(PolicyModel):
     reasons: tuple[str, ...]
     content_labels: tuple[str, ...]
     created_at: datetime
+    content_rating: ContentRating = ContentRating.GENERAL
     review_of: str | None = None
     operator_review: OperatorReviewOutcome | None = None
-
-
-class OperatorReviewOutcome(StrEnum):
-    APPROVED = "approved"
-    REJECTED = "rejected"

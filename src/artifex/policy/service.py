@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from artifex.db import Database
 from artifex.db.models import SceneRow
-from artifex.domain import PublicationTier
+from artifex.domain import ContentRating, PublicationTier
 from artifex.packs import ScenePlan
 from artifex.policy.engine import PolicyEngine
 from artifex.policy.models import PolicyDecision, PolicyRequest, UseClass
@@ -25,6 +25,8 @@ class PolicyApplicationService:
         *,
         use_class: UseClass,
         content_labels: tuple[str, ...] = (),
+        content_rating: ContentRating = ContentRating.GENERAL,
+        requested_tier: PublicationTier | None = None,
         phase: str = "preflight",
     ) -> PolicyDecision:
         with self._database.session() as session:
@@ -35,7 +37,7 @@ class PolicyApplicationService:
             if not isinstance(raw_plan, dict):
                 raise TypeError(f"scene {scene_id} is missing persisted plan")
             plan = ScenePlan.model_validate(raw_plan)
-            requested_tier = PublicationTier(row.publication_tier)
+            planned_tier = requested_tier or plan.publication_tier
 
         decision = self._engine.evaluate(
             PolicyRequest(
@@ -43,8 +45,9 @@ class PolicyApplicationService:
                 subject_id=scene_id,
                 character_ids=plan.character_ids,
                 use_class=use_class,
-                requested_tier=requested_tier,
+                requested_tier=planned_tier,
                 content_labels=content_labels,
+                content_rating=content_rating,
                 phase=phase,
             )
         )
@@ -57,6 +60,8 @@ class PolicyApplicationService:
             payload = dict(row.payload_json)
             payload["latest_policy_decision_id"] = decision.decision_id
             payload["policy_phase"] = phase
+            payload["content_rating"] = content_rating.value
+            payload["content_labels"] = list(decision.content_labels)
             row.payload_json = payload
 
         return decision

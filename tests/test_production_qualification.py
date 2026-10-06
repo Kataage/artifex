@@ -326,6 +326,12 @@ async def test_single_duo_and_group_run_end_to_end(tmp_path: Path) -> None:
             assert row is not None
             assert row.checkpoint_json["archive_complete"] is True
             assert Path(row.payload_json["archive"]["manifest_path"]).exists()
+            scene = session.scalar(
+                select(SceneRow).where(SceneRow.pack_id == record.pack_id)
+            )
+            assert scene is not None
+            assert scene.payload_json["policy_phase"] == "post_generation"
+            assert scene.payload_json["content_rating"] == "general"
 
     assert backend.calls == 3
     assert reviews.list_open() == ()

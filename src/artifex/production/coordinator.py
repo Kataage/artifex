@@ -362,6 +362,8 @@ class ProductionCoordinator:
             decision = self._policy.evaluate_scene(
                 row.id,
                 use_class=self._use_class(plan.publication_tier),
+                content_rating=plan.planned_content_rating,
+                requested_tier=plan.publication_tier,
                 phase="preflight",
             )
             if decision.outcome is PolicyOutcome.BLOCK:
@@ -617,25 +619,7 @@ class ProductionCoordinator:
                 batch.output_paths[0],
             )
             if result.state is ResultState.ACCEPTED:
-                row = self._scene_row(scene_id)
-                policy_review = row.payload_json.get("policy_review_decision_id")
-                if isinstance(policy_review, str) and policy_review:
-                    self._runtime.select_scene_attempt(
-                        scene_id,
-                        attempt.id,
-                        SceneState.REVIEW,
-                    )
-                    self._ensure_review(
-                        "scene",
-                        scene_id,
-                        "policy requires operator review",
-                        {
-                            "attempt_id": attempt.id,
-                            "policy_decision_id": policy_review,
-                        },
-                    )
-                else:
-                    self._selector.select(scene_id)
+                self._handle_accepted_result(scene_id, attempt.id, result)
                 return
 
             retry_decision = self._retries.for_evaluation(
@@ -688,25 +672,7 @@ class ProductionCoordinator:
             return
         result = await self._evaluate_attempt(scene_id, attempt.id, paths[0])
         if result.state is ResultState.ACCEPTED:
-            row = self._scene_row(scene_id)
-            policy_review = row.payload_json.get("policy_review_decision_id")
-            if isinstance(policy_review, str) and policy_review:
-                self._runtime.select_scene_attempt(
-                    scene_id,
-                    attempt.id,
-                    SceneState.REVIEW,
-                )
-                self._ensure_review(
-                    "scene",
-                    scene_id,
-                    "policy requires operator review",
-                    {
-                        "attempt_id": attempt.id,
-                        "policy_decision_id": policy_review,
-                    },
-                )
-            else:
-                self._selector.select(scene_id)
+            self._handle_accepted_result(scene_id, attempt.id, result)
             return
 
         retry_decision = self._retries.for_evaluation(
@@ -902,6 +868,83 @@ class ProductionCoordinator:
             for value in raw
             if isinstance(value, str) and value
         )
+
+    def _handle_accepted_result(
+        self,
+        scene_id: str,
+        attempt_id: str,
+        result: EvaluationResult,
+    ) -> None:
+        row = self._scene_row(scene_id)
+        plan = self._scene_plan(row)
+        decision = self._policy.evaluate_scene(
+            scene_id,
+            use_class=self._use_class(plan.publication_tier),
+            content_labels=result.content_labels,
+            content_rating=result.content_rating,
+            requested_tier=plan.publication_tier,
+            phase="post_generation",
+        )
+
+        if decision.outcome is PolicyOutcome.BLOCK:
+            self._runtime.transition_scene(
+                scene_id,
+                SceneState.BLOCKED,
+                payload_patch={
+                    "post_generation_policy_decision_id": decision.decision_id,
+                    "post_generation_policy_blocked": True,
+                    "post_generation_content_rating": result.content_rating.value,
+                    "post_generation_content_labels": list(result.content_labels),
+                },
+            )
+            self._ensure_review(
+                "scene",
+                scene_id,
+                "post-generation policy hard-blocked publication; retry or reject",
+                {
+                    "attempt_id": attempt_id,
+                    "policy_decision_id": decision.decision_id,
+                    "content_rating": result.content_rating.value,
+                    "content_labels": list(result.content_labels),
+                },
+            )
+            return
+
+        review_decision_id: str | None = None
+        if decision.outcome is PolicyOutcome.REVIEW:
+            review_decision_id = decision.decision_id
+            self._runtime.transition_scene(
+                scene_id,
+                SceneState.EVALUATING,
+                payload_patch={
+                    "post_generation_policy_review_decision_id": decision.decision_id,
+                },
+            )
+        else:
+            prior = row.payload_json.get("policy_review_decision_id")
+            if isinstance(prior, str) and prior:
+                review_decision_id = prior
+
+        if review_decision_id is not None:
+            self._runtime.select_scene_attempt(
+                scene_id,
+                attempt_id,
+                SceneState.REVIEW,
+            )
+            self._ensure_review(
+                "scene",
+                scene_id,
+                "policy requires operator review after output classification",
+                {
+                    "attempt_id": attempt_id,
+                    "policy_decision_id": review_decision_id,
+                    "content_rating": result.content_rating.value,
+                    "content_labels": list(result.content_labels),
+                },
+            )
+            return
+
+        self._selector.select(scene_id)
 
     @staticmethod
     def _use_class(tier: PublicationTier) -> UseClass:

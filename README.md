@@ -113,3 +113,12 @@ The catalog keeps lifecycle status, canonical identity tags, aliases, wardrobe
 records, local reference-image slots and source provenance. See
 [`docs/hololive-catalog.md`](docs/hololive-catalog.md) for update policy and scope.
 
+## Patreon editorial pipeline
+
+Production Pack planning supports explicit public/member editorial archetypes, while
+publication tier and generated-content rating remain independent. Accepted images are
+reclassified after generation before archive/publication readiness, and final archives
+can include a Patreon-ready metadata package without publishing externally.
+
+See [`docs/patreon-editorial.md`](docs/patreon-editorial.md).
+
