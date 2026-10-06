@@ -61,3 +61,54 @@ def test_planner_mix_must_sum_to_one() -> None:
                 }
             },
         )
+
+
+def test_primary_render_node_overlays_legacy_comfy_settings() -> None:
+    settings = load_settings(
+        env={},
+        overrides={
+            "render_nodes": {
+                "primary": "gpu-box",
+                "nodes": {
+                    "gpu-box": {
+                        "base_url": "http://192.168.1.50:8188",
+                        "output_mode": "api",
+                        "download_dir": "data/remote-cache",
+                        "attestation_url": "http://192.168.1.50:8190",
+                    }
+                },
+            }
+        },
+    )
+
+    assert settings.comfyui.base_url == "http://192.168.1.50:8188"
+    assert settings.comfyui.output_mode == "api"
+    assert settings.comfyui.render_node_id == "gpu-box"
+    assert settings.comfyui.download_dir == Path("data/remote-cache")
+
+
+def test_default_llm_bootstrap_profile_is_replaceable() -> None:
+    settings = load_settings(env={})
+
+    selected = settings.llm.bootstrap.selected()
+    assert settings.llm.bootstrap.profile == "spark-x2.5-4b-heretic-jp-q8_0"
+    assert selected.filename == "Spark-X2.5-4B-Heretic-jp-Q8_0.gguf"
+
+    custom = load_settings(
+        env={},
+        overrides={
+            "llm": {
+                "bootstrap": {
+                    "profile": "custom",
+                    "profiles": {
+                        "custom": {
+                            "source": "local",
+                            "path": "D:/Models/custom.gguf",
+                        }
+                    },
+                }
+            }
+        },
+    )
+    assert custom.llm.bootstrap.selected().source == "local"
+    assert custom.llm.bootstrap.model_path() == Path("D:/Models/custom.gguf")
