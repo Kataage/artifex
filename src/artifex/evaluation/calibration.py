@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import fmean
@@ -207,7 +208,7 @@ class SemanticCalibrator:
     def __init__(
         self,
         similarity: SimilarityService,
-        descriptor_getter: callable[[], EmbeddingModelDescriptor],
+        descriptor_getter: Callable[[], EmbeddingModelDescriptor],
     ) -> None:
         self._similarity = similarity
         self._descriptor_getter = descriptor_getter
