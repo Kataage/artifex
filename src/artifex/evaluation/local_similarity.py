@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from artifex.evaluation.semantic import EmbeddingModelDescriptor
+
 _TOKEN = re.compile(r"[\w']+", re.UNICODE)
 
 
@@ -19,6 +21,15 @@ class LocalSimilarityEmbeddingProvider:
             raise ValueError("image_size must be at least 4")
         self._text_dimensions = text_dimensions
         self._image_size = image_size
+
+    @property
+    def descriptor(self) -> EmbeddingModelDescriptor:
+        return EmbeddingModelDescriptor(
+            provider="local_hash_thumbnail",
+            model=f"hash-{self._text_dimensions}/rgb-{self._image_size}",
+            revision="v1",
+            quality_tier="degraded",
+        )
 
     async def embed_text(self, text: str) -> tuple[float, ...]:
         vector = [0.0] * self._text_dimensions
