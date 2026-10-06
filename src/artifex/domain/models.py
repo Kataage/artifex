@@ -18,6 +18,8 @@ class CharacterOutfit(DomainModel):
     display_name: str = Field(min_length=1)
     canonical_tags: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
+    required_tags: tuple[str, ...] = ()
+    forbidden_tags: tuple[str, ...] = ()
     preferred_lora_ids: tuple[str, ...] = ()
     generation_notes: tuple[str, ...] = ()
 
@@ -40,6 +42,8 @@ class CharacterProfile(DomainModel):
     generation: str | None = None
     canonical_tags: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
+    required_tags: tuple[str, ...] = ()
+    forbidden_tags: tuple[str, ...] = ()
     model_families: tuple[str, ...] = ("ilxl",)
     lora_policy: LoRAPolicy = LoRAPolicy.OPTIONAL
     preferred_lora_ids: tuple[str, ...] = ()

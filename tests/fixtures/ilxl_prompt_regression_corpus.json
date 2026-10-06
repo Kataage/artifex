@@ -1,0 +1,554 @@
+[
+  {
+    "name": "window_angel",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "low angle",
+    "pose": "sitting on window frame",
+    "expression": "soft smile",
+    "clothing": "white dress",
+    "setting": "open window",
+    "lighting": "sunset rim light",
+    "atmosphere": "airy",
+    "contains": [
+      "full_body",
+      "from_below",
+      "sitting",
+      "window",
+      "smile",
+      "white_dress",
+      "rim_lighting"
+    ]
+  },
+  {
+    "name": "rooftop_stargaze",
+    "characters": 1,
+    "composition": "upper body",
+    "camera": "eye level",
+    "pose": "standing",
+    "expression": "gentle expression",
+    "clothing": "hoodie",
+    "setting": "school rooftop",
+    "lighting": "moonlight",
+    "atmosphere": "windy",
+    "contains": [
+      "upper_body",
+      "straight-on",
+      "standing",
+      "smile",
+      "hoodie",
+      "rooftop",
+      "moonlight",
+      "wind"
+    ]
+  },
+  {
+    "name": "city_night_walk",
+    "characters": 1,
+    "composition": "cowboy shot",
+    "camera": "side view",
+    "pose": "walking",
+    "expression": "closed mouth",
+    "clothing": "jacket",
+    "setting": "city street at night",
+    "lighting": "neon lighting",
+    "atmosphere": "rain",
+    "contains": [
+      "cowboy_shot",
+      "side_view",
+      "walking",
+      "jacket",
+      "street",
+      "night",
+      "neon_lights",
+      "rain"
+    ]
+  },
+  {
+    "name": "beach_jump",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "from below",
+    "pose": "jumping",
+    "expression": "big grin",
+    "clothing": "swimsuit",
+    "setting": "beach",
+    "lighting": "sunlight",
+    "atmosphere": "wind",
+    "contains": [
+      "full_body",
+      "from_below",
+      "jumping",
+      "grin",
+      "swimsuit",
+      "beach",
+      "sunlight",
+      "wind"
+    ]
+  },
+  {
+    "name": "pool_bikini",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "straight on",
+    "pose": "standing",
+    "expression": "smile",
+    "clothing": "bikini",
+    "setting": "poolside",
+    "lighting": "soft light",
+    "atmosphere": "airy breeze",
+    "contains": [
+      "bikini",
+      "swimsuit",
+      "pool",
+      "outdoors",
+      "soft_lighting",
+      "wind"
+    ]
+  },
+  {
+    "name": "classroom_uniform",
+    "characters": 1,
+    "composition": "cowboy shot",
+    "camera": "from above",
+    "pose": "sitting",
+    "expression": "shy expression",
+    "clothing": "school uniform",
+    "setting": "classroom",
+    "lighting": "soft lighting",
+    "atmosphere": "wind",
+    "contains": [
+      "school_uniform",
+      "uniform",
+      "classroom",
+      "indoors",
+      "embarrassed"
+    ]
+  },
+  {
+    "name": "garden_sakura",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "eye level",
+    "pose": "standing",
+    "expression": "gentle smile",
+    "clothing": "white dress",
+    "setting": "garden",
+    "lighting": "sunlight",
+    "atmosphere": "falling cherry blossoms",
+    "contains": [
+      "garden",
+      "outdoors",
+      "cherry_blossoms",
+      "petals"
+    ]
+  },
+  {
+    "name": "forest_run",
+    "characters": 1,
+    "composition": "wide shot",
+    "camera": "side view",
+    "pose": "running",
+    "expression": "smile",
+    "clothing": "shirt, skirt",
+    "setting": "forest",
+    "lighting": "sunlight",
+    "atmosphere": "wind",
+    "contains": [
+      "wide_shot",
+      "running",
+      "shirt",
+      "skirt",
+      "forest"
+    ]
+  },
+  {
+    "name": "bedroom_closeup",
+    "characters": 1,
+    "composition": "close up",
+    "camera": "eye level",
+    "pose": "sitting",
+    "expression": "blushing",
+    "clothing": "sweater",
+    "setting": "bedroom",
+    "lighting": "soft light",
+    "atmosphere": "bokeh",
+    "contains": [
+      "close-up",
+      "blush",
+      "bedroom",
+      "indoors",
+      "bokeh"
+    ]
+  },
+  {
+    "name": "cafe_portrait",
+    "characters": 1,
+    "composition": "portrait shot",
+    "camera": "straight on",
+    "pose": "sitting",
+    "expression": "smiling",
+    "clothing": "blouse",
+    "setting": "cafe",
+    "lighting": "soft natural light",
+    "atmosphere": "depth of field",
+    "contains": [
+      "portrait",
+      "blouse",
+      "cafe",
+      "soft_lighting",
+      "depth_of_field"
+    ]
+  },
+  {
+    "name": "stage_performance",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "low angle",
+    "pose": "arms up",
+    "expression": "big grin",
+    "clothing": "dress",
+    "setting": "concert stage",
+    "lighting": "dramatic lighting",
+    "atmosphere": "lens flare",
+    "contains": [
+      "arms_up",
+      "stage",
+      "dramatic_lighting",
+      "lens_flare"
+    ]
+  },
+  {
+    "name": "snow_park",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "eye level",
+    "pose": "standing",
+    "expression": "soft smile",
+    "clothing": "coat",
+    "setting": "snowy park",
+    "lighting": "soft lighting",
+    "atmosphere": "snow",
+    "contains": [
+      "coat",
+      "park",
+      "snow"
+    ]
+  },
+  {
+    "name": "rain_street",
+    "characters": 1,
+    "composition": "cowboy shot",
+    "camera": "from above",
+    "pose": "walking",
+    "expression": "closed mouth",
+    "clothing": "hoodie",
+    "setting": "rainy street",
+    "lighting": "neon lights",
+    "atmosphere": "rain",
+    "contains": [
+      "street",
+      "rain",
+      "neon_lights"
+    ]
+  },
+  {
+    "name": "kitchen_casual",
+    "characters": 1,
+    "composition": "upper body",
+    "camera": "eye level",
+    "pose": "standing",
+    "expression": "smile",
+    "clothing": "white shirt",
+    "setting": "kitchen",
+    "lighting": "soft lighting",
+    "atmosphere": "bokeh",
+    "contains": [
+      "white_shirt",
+      "shirt",
+      "kitchen",
+      "indoors"
+    ]
+  },
+  {
+    "name": "bathroom_mirror",
+    "characters": 1,
+    "composition": "upper body",
+    "camera": "straight on",
+    "pose": "standing",
+    "expression": "closed mouth",
+    "clothing": "shirt",
+    "setting": "bathroom",
+    "lighting": "soft light",
+    "atmosphere": "depth of field",
+    "contains": [
+      "bathroom",
+      "indoors",
+      "depth_of_field"
+    ]
+  },
+  {
+    "name": "ocean_backlight",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "from below",
+    "pose": "standing",
+    "expression": "smile",
+    "clothing": "dress",
+    "setting": "seaside",
+    "lighting": "strong backlight",
+    "atmosphere": "windy atmosphere",
+    "contains": [
+      "beach",
+      "ocean",
+      "backlighting",
+      "floating_hair"
+    ]
+  },
+  {
+    "name": "sunrise_rooftop",
+    "characters": 1,
+    "composition": "wide shot",
+    "camera": "from behind",
+    "pose": "standing",
+    "expression": "closed mouth",
+    "clothing": "jacket",
+    "setting": "rooftop",
+    "lighting": "sunrise",
+    "atmosphere": "wind",
+    "contains": [
+      "wide_shot",
+      "back_view",
+      "sunrise",
+      "rooftop"
+    ]
+  },
+  {
+    "name": "duo_window",
+    "characters": 2,
+    "composition": "cowboy shot",
+    "camera": "eye level",
+    "pose": "standing",
+    "expression": "smile",
+    "clothing": "school uniform",
+    "setting": "window",
+    "lighting": "soft light",
+    "atmosphere": "bokeh",
+    "contains": [
+      "cowboy_shot",
+      "standing",
+      "school_uniform",
+      "window"
+    ]
+  },
+  {
+    "name": "duo_city",
+    "characters": 2,
+    "composition": "full body",
+    "camera": "low angle",
+    "pose": "walking",
+    "expression": "smile",
+    "clothing": "jacket",
+    "setting": "city street at night",
+    "lighting": "neon lights",
+    "atmosphere": "rain",
+    "contains": [
+      "full_body",
+      "walking",
+      "city",
+      "night"
+    ]
+  },
+  {
+    "name": "group_stage",
+    "characters": 3,
+    "composition": "wide shot",
+    "camera": "low angle",
+    "pose": "standing",
+    "expression": "big grin",
+    "clothing": "dress",
+    "setting": "stage",
+    "lighting": "dramatic lighting",
+    "atmosphere": "lens flare",
+    "contains": [
+      "wide_shot",
+      "stage",
+      "dramatic_lighting"
+    ]
+  },
+  {
+    "name": "group_park",
+    "characters": 3,
+    "composition": "full body",
+    "camera": "eye level",
+    "pose": "walking",
+    "expression": "smile",
+    "clothing": "hoodie",
+    "setting": "park",
+    "lighting": "sunlight",
+    "atmosphere": "wind",
+    "contains": [
+      "park",
+      "outdoors",
+      "walking"
+    ]
+  },
+  {
+    "name": "kneeling_portrait",
+    "characters": 1,
+    "composition": "portrait composition",
+    "camera": "from above",
+    "pose": "kneeling",
+    "expression": "shy expression",
+    "clothing": "black dress",
+    "setting": "bedroom",
+    "lighting": "soft light",
+    "atmosphere": "bokeh",
+    "contains": [
+      "portrait",
+      "kneeling",
+      "black_dress",
+      "embarrassed"
+    ]
+  },
+  {
+    "name": "squat_street",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "low angle",
+    "pose": "squatting",
+    "expression": "grinning",
+    "clothing": "hoodie",
+    "setting": "street",
+    "lighting": "neon lights",
+    "atmosphere": "rain",
+    "contains": [
+      "squatting",
+      "grin",
+      "street"
+    ]
+  },
+  {
+    "name": "lying_bedroom",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "from above",
+    "pose": "lying down",
+    "expression": "closed eyes",
+    "clothing": "sweater",
+    "setting": "bedroom",
+    "lighting": "soft lighting",
+    "atmosphere": "depth of field",
+    "contains": [
+      "lying",
+      "closed_eyes",
+      "bedroom"
+    ]
+  },
+  {
+    "name": "crossed_arms_city",
+    "characters": 1,
+    "composition": "cowboy shot",
+    "camera": "straight on",
+    "pose": "arms crossed",
+    "expression": "angry expression",
+    "clothing": "jacket",
+    "setting": "city",
+    "lighting": "dramatic lighting",
+    "atmosphere": "bokeh",
+    "contains": [
+      "arms_crossed",
+      "angry",
+      "city"
+    ]
+  },
+  {
+    "name": "hands_hips_garden",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "eye level",
+    "pose": "hands on hips",
+    "expression": "smile",
+    "clothing": "pleated skirt",
+    "setting": "garden",
+    "lighting": "sunlight",
+    "atmosphere": "petals",
+    "contains": [
+      "hands_on_hips",
+      "pleated_skirt",
+      "skirt",
+      "garden",
+      "petals"
+    ]
+  },
+  {
+    "name": "look_back_beach",
+    "characters": 1,
+    "composition": "cowboy shot",
+    "camera": "from behind",
+    "pose": "standing",
+    "expression": "smile",
+    "clothing": "white dress",
+    "setting": "beach",
+    "lighting": "sunset",
+    "atmosphere": "wind",
+    "positive_constraints": [
+      "looking back"
+    ],
+    "contains": [
+      "back_view",
+      "looking_back",
+      "sunset"
+    ]
+  },
+  {
+    "name": "wink_cafe",
+    "characters": 1,
+    "composition": "upper body",
+    "camera": "eye level",
+    "pose": "sitting",
+    "expression": "wink",
+    "clothing": "blouse",
+    "setting": "cafe",
+    "lighting": "soft lighting",
+    "atmosphere": "bokeh",
+    "contains": [
+      "one_eye_closed",
+      "cafe"
+    ]
+  },
+  {
+    "name": "dutch_stage",
+    "characters": 1,
+    "composition": "full body",
+    "camera": "dutch angle",
+    "pose": "jumping",
+    "expression": "open mouth",
+    "clothing": "dress",
+    "setting": "stage",
+    "lighting": "dramatic lighting",
+    "atmosphere": "lens flare",
+    "contains": [
+      "dutch_angle",
+      "jumping",
+      "open_mouth"
+    ]
+  },
+  {
+    "name": "pov_park",
+    "characters": 1,
+    "composition": "upper body",
+    "camera": "point of view",
+    "pose": "outstretched arms",
+    "expression": "smile",
+    "clothing": "hoodie",
+    "setting": "park",
+    "lighting": "sunlight",
+    "atmosphere": "wind",
+    "contains": [
+      "pov",
+      "outstretched_arms",
+      "park"
+    ]
+  }
+]

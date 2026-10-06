@@ -1,6 +1,6 @@
 {
-  "positive_prompt": "amane_kanata, hololive, kanata, angel, full_body, from_below, sitting_on_window_frame, smile, white_dress, window, rim_light, airy, looking_at_viewer",
-  "negative_prompt": "extra_fingers, bad_hands",
+  "positive_prompt": "amane_kanata, hololive, kanata, angel, full_body, from_below, sitting, looking_at_viewer, smile, white_dress, dress, window, sunset, rim_lighting, wind",
+  "negative_prompt": "extra_digits, bad_hands",
   "positive_tags": [
     "amane_kanata",
     "hololive",
@@ -8,16 +8,19 @@
     "angel",
     "full_body",
     "from_below",
-    "sitting_on_window_frame",
+    "sitting",
+    "looking_at_viewer",
     "smile",
     "white_dress",
+    "dress",
     "window",
-    "rim_light",
-    "airy",
-    "looking_at_viewer"
+    "sunset",
+    "rim_lighting",
+    "wind"
   ],
   "negative_tags": [
-    "extra_fingers",
+    "extra_digits",
     "bad_hands"
-  ]
+  ],
+  "unresolved_concepts": []
 }

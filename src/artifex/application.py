@@ -475,7 +475,20 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         settings.characters,
         settings.loras,
     )
-    prompts = PromptCompiler(core.characters, (ILXLDanbooruAdapter(),))
+    prompts = PromptCompiler(
+        core.characters,
+        (
+            ILXLDanbooruAdapter(
+                profile_id=settings.prompts.ilxl_profile,
+                checkpoint=settings.production.checkpoint,
+                checkpoint_profile_overrides=(
+                    settings.prompts.checkpoint_profile_overrides
+                ),
+                unresolved_policy=settings.prompts.unresolved_policy,
+                extra_lexicon_paths=settings.prompts.extra_lexicon_paths,
+            ),
+        ),
+    )
     templates = WorkflowTemplateRegistry.with_packaged_templates()
     backend = ComfyGenerationBackend(
         core.comfy,
