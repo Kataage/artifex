@@ -36,7 +36,7 @@ from artifex.evaluation import (
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
-from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
+from artifex.loras import LoRARegistry, LoRAResolver, RenderAwareLoRADiscovery
 from artifex.loras.automated import (
     LoRAValidationMatrixRunner,
     ProductionLoRAValidationProbe,
@@ -157,9 +157,10 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
     characters.load_directories(settings.characters.profile_dirs)
 
     loras = LoRARegistry(database)
-    LoRADiscovery(
+    RenderAwareLoRADiscovery(
         loras,
         characters,
+        settings.render_nodes,
         extensions=settings.loras.extensions,
         max_header_bytes=settings.loras.metadata_header_max_mib * 1024 * 1024,
     ).scan(settings.loras.roots)
@@ -657,9 +658,10 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         interval_seconds=settings.trends.refresh_interval_seconds,
     )
     lora_discovery_maintenance = LoRADiscoveryMaintenance(
-        LoRADiscovery(
+        RenderAwareLoRADiscovery(
             core.loras,
             core.characters,
+            settings.render_nodes,
             extensions=settings.loras.extensions,
             max_header_bytes=(
                 settings.loras.metadata_header_max_mib * 1024 * 1024
