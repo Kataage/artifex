@@ -81,7 +81,7 @@ class ProductionConfig(StrictModel):
     retry_vary_scene_limit: int = Field(default=2, ge=0)
     retry_change_seed_limit: int = Field(default=3, ge=0)
     retry_lora_weight_step: float = Field(default=0.10, gt=0, le=0.5)
-    repair_workflow_template: str = "ilxl_repair_v1"
+    repair_workflow_template: str = "illust_main_repair_v1"
     idea_inventory_target: int = Field(default=30, ge=0)
     planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
