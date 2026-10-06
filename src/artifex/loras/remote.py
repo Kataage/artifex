@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from pathlib import Path
 
 import httpx
@@ -176,7 +177,7 @@ class RenderAwareLoRADiscovery(LoRADiscovery):
         self._render_nodes = render_nodes
         self._remote = RemoteLoRADiscovery(registry, characters)
 
-    def scan(self, roots: tuple[Path, ...]) -> DiscoveryResult:
+    def scan(self, roots: Iterable[Path]) -> DiscoveryResult:
         results = [super().scan(roots)]
         for node_id, config in sorted(self._render_nodes.nodes.items()):
             if not config.enabled or not config.attestation_url:
