@@ -133,6 +133,8 @@ evaluation:
   semantic_local_files_only: false
   allow_degraded_semantic: false
   semantic_calibration_profile: siglip2-hololive-ilxl-v1
+  semantic_calibration_path: data/calibration/siglip2-hololive-ilxl-v1.json
+  require_semantic_calibration: true
   identity_reference_required: true
   identity_reference_limit_per_character: 8
   identity_reference_hard_min: 0.30
