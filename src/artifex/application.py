@@ -27,12 +27,12 @@ from artifex.evaluation import (
     GenerationAttemptRepository,
     LocalSimilarityEmbeddingProvider,
     OpenAICompatibleVisionEvaluationProvider,
-    load_calibration_profile,
     SemanticEmbeddingRepository,
     SemanticIndex,
     SigLIP2EmbeddingProvider,
     SimilarityAwareSignalProvider,
     SimilarityService,
+    load_calibration_profile,
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
