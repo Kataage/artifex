@@ -613,6 +613,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.policy_decisions,
         signals=core.signals,
         loras=core.loras,
+        performance=core.performance,
     )
     router = DiscordCommandRouter(AuthorizationPolicy(settings.discord), remote)
 
