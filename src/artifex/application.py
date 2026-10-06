@@ -394,7 +394,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.comfy,
         core.telemetry,
     )
-    archive = PackArchive(core.database, settings.storage.packs_dir)
+    archive = PackArchive(core.database, settings.storage.packs_dir, settings.patreon)
 
     coordinator = ProductionCoordinator(
         core.database,
