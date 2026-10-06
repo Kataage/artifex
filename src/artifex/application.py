@@ -27,6 +27,9 @@ from artifex.evaluation import (
     GenerationAttemptRepository,
     LocalSimilarityEmbeddingProvider,
     OpenAICompatibleVisionEvaluationProvider,
+    SemanticEmbeddingRepository,
+    SemanticIndex,
+    SigLIP2EmbeddingProvider,
     SimilarityAwareSignalProvider,
     SimilarityService,
 )
@@ -302,8 +305,28 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.database.dispose()
         raise ValueError("no enabled character profiles were loaded")
 
-    local_embeddings = LocalSimilarityEmbeddingProvider()
-    similarity = SimilarityService(local_embeddings)
+    if settings.evaluation.semantic_provider == "siglip2":
+        semantic_embeddings = SigLIP2EmbeddingProvider(
+            model=settings.evaluation.semantic_model,
+            revision=settings.evaluation.semantic_revision,
+            device=settings.evaluation.semantic_device,
+            cache_dir=settings.evaluation.semantic_cache_dir,
+            local_files_only=settings.evaluation.semantic_local_files_only,
+        )
+    else:
+        if not settings.evaluation.allow_degraded_semantic:
+            core.database.dispose()
+            raise ValueError(
+                "local_fallback semantic embeddings are degraded; "
+                "set evaluation.allow_degraded_semantic=true only for diagnostics"
+            )
+        semantic_embeddings = LocalSimilarityEmbeddingProvider()
+
+    semantic_index = SemanticIndex(
+        SemanticEmbeddingRepository(core.database),
+        semantic_embeddings,
+    )
+    similarity = SimilarityService(semantic_embeddings, semantic_index)
 
     llm = OpenAICompatibleClient(
         settings.llm,
@@ -350,7 +373,11 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     research_director = ResearchDirector(core.research, settings.research)
     context_memory = ContextMemoryManager(
         settings.context,
-        ConceptMemoryRetriever(concepts, local_embeddings),
+        ConceptMemoryRetriever(
+            concepts,
+            semantic_embeddings,
+            index=semantic_index,
+        ),
     )
 
     packs = PackRepository(core.database)
