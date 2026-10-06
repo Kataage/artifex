@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from importlib.resources import files
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -33,6 +33,14 @@ class LoRAChainSpec(BaseModel):
     model_consumers: tuple[ConsumerPatch, ...]
     clip_consumers: tuple[ConsumerPatch, ...]
     start_node_id: int = Field(default=1000, ge=1)
+
+
+class WorkflowTemplateLike(Protocol):
+    template_id: str
+    version: int
+    model_family: str
+
+    def patch(self, request: WorkflowPatchRequest) -> dict[str, dict[str, Any]]: ...
 
 
 class WorkflowTemplate(BaseModel):
@@ -154,16 +162,16 @@ class WorkflowTemplate(BaseModel):
 
 class WorkflowTemplateRegistry:
     def __init__(self) -> None:
-        self._templates: dict[str, WorkflowTemplate] = {}
+        self._templates: dict[str, WorkflowTemplateLike] = {}
 
-    def register(self, template: WorkflowTemplate) -> None:
+    def register(self, template: WorkflowTemplateLike) -> None:
         if template.template_id in self._templates:
             raise ValueError(
                 f"duplicate workflow template id: {template.template_id}"
             )
         self._templates[template.template_id] = template
 
-    def require(self, template_id: str) -> WorkflowTemplate:
+    def require(self, template_id: str) -> WorkflowTemplateLike:
         try:
             return self._templates[template_id]
         except KeyError as exc:
@@ -176,4 +184,9 @@ class WorkflowTemplateRegistry:
         for name in ("ilxl_base_v1.json", "ilxl_repair_v1.json"):
             raw = json.loads(root.joinpath(name).read_text(encoding="utf-8"))
             registry.register(WorkflowTemplate.model_validate(raw))
+
+        from artifex.comfy.production_workflow import IllustMainWorkflowTemplate
+
+        registry.register(IllustMainWorkflowTemplate(repair=False))
+        registry.register(IllustMainWorkflowTemplate(repair=True))
         return registry
