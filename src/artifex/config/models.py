@@ -154,7 +154,16 @@ class LlmBootstrapConfig(StrictModel):
     auto_download: bool = True
     profile: str = "spark-x2.5-4b-heretic-jp-q8_0"
     models_dir: Path = Path("models/llm")
-    profiles: dict[str, LlmModelProfileConfig] = Field(default_factory=dict)
+    profiles: dict[str, LlmModelProfileConfig] = Field(
+        default_factory=lambda: {
+            "spark-x2.5-4b-heretic-jp-q8_0": LlmModelProfileConfig(
+                source="huggingface",
+                repository="soyaakinohara/Spark-X2.5-4B-Heretic-jp-gguf",
+                revision="f01809e437fb3046ae9afd31d684556f9ae5dd46",
+                filename="Spark-X2.5-4B-Heretic-jp-Q8_0.gguf",
+            )
+        }
+    )
 
     def selected(self) -> LlmModelProfileConfig:
         try:
