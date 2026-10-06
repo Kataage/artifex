@@ -39,21 +39,36 @@ class PerformanceLearningService:
         self._repository = repository
         self._config = config
 
+    def character_effects(
+        self,
+        character_ids: tuple[str, ...],
+        *,
+        as_of: datetime | None = None,
+    ) -> dict[str, PerformanceEffect]:
+        evidence = self._evidence(as_of=as_of)
+        return {
+            character_id: self._effect(
+                "character",
+                character_id,
+                [
+                    item
+                    for item in evidence
+                    if character_id in item.character_ids
+                ],
+            )
+            for character_id in dict.fromkeys(character_ids)
+        }
+
     def character_effect(
         self,
         character_id: str,
         *,
         as_of: datetime | None = None,
     ) -> PerformanceEffect:
-        return self._effect(
-            "character",
-            character_id,
-            [
-                item
-                for item in self._evidence(as_of=as_of)
-                if character_id in item.character_ids
-            ],
-        )
+        return self.character_effects(
+            (character_id,),
+            as_of=as_of,
+        )[character_id]
 
     def format_effect(
         self,
@@ -61,14 +76,11 @@ class PerformanceLearningService:
         *,
         as_of: datetime | None = None,
     ) -> PerformanceEffect:
+        evidence = self._evidence(as_of=as_of)
         return self._effect(
             "format",
             format_key,
-            [
-                item
-                for item in self._evidence(as_of=as_of)
-                if item.format == format_key
-            ],
+            [item for item in evidence if item.format == format_key],
         )
 
     def theme_effect(
@@ -77,13 +89,14 @@ class PerformanceLearningService:
         *,
         as_of: datetime | None = None,
     ) -> PerformanceEffect:
+        evidence = self._evidence(as_of=as_of)
         key = _theme_key(theme)
         return self._effect(
             "theme",
             key,
             [
                 item
-                for item in self._evidence(as_of=as_of)
+                for item in evidence
                 if item.theme is not None and _theme_key(item.theme) == key
             ],
         )
@@ -94,14 +107,11 @@ class PerformanceLearningService:
         *,
         as_of: datetime | None = None,
     ) -> PerformanceEffect:
+        evidence = self._evidence(as_of=as_of)
         return self._effect(
             "series",
             series_id,
-            [
-                item
-                for item in self._evidence(as_of=as_of)
-                if item.series_id == series_id
-            ],
+            [item for item in evidence if item.series_id == series_id],
         )
 
     def candidate_performance(
@@ -110,22 +120,46 @@ class PerformanceLearningService:
         *,
         as_of: datetime | None = None,
     ) -> CandidatePerformance:
+        evidence = self._evidence(as_of=as_of)
         character_effects = tuple(
-            self.character_effect(character_id, as_of=as_of)
+            self._effect(
+                "character",
+                character_id,
+                [
+                    item
+                    for item in evidence
+                    if character_id in item.character_ids
+                ],
+            )
             for character_id in candidate.character_ids
         )
-        effects = (
-            *character_effects,
-            self.format_effect(candidate.format.value, as_of=as_of),
-            self.theme_effect(candidate.theme, as_of=as_of),
+        format_effect = self._effect(
+            "format",
+            candidate.format.value,
+            [
+                item
+                for item in evidence
+                if item.format == candidate.format.value
+            ],
         )
+        theme_key = _theme_key(candidate.theme)
+        theme_effect = self._effect(
+            "theme",
+            theme_key,
+            [
+                item
+                for item in evidence
+                if item.theme is not None
+                and _theme_key(item.theme) == theme_key
+            ],
+        )
+        effects = (*character_effects, format_effect, theme_effect)
+
         weighted: list[tuple[float, float]] = []
         if character_effects:
             char_score = fmean(effect.score for effect in character_effects)
             char_conf = fmean(effect.confidence for effect in character_effects)
             weighted.append((char_score, 0.50 * char_conf))
-        format_effect = effects[-2]
-        theme_effect = effects[-1]
         weighted.append((format_effect.score, 0.30 * format_effect.confidence))
         weighted.append((theme_effect.score, 0.20 * theme_effect.confidence))
 
@@ -134,7 +168,10 @@ class PerformanceLearningService:
             score = self._config.prior_score
             confidence = 0.0
         else:
-            score = sum(score * weight for score, weight in weighted) / total_weight
+            score = sum(
+                component_score * weight
+                for component_score, weight in weighted
+            ) / total_weight
             confidence = min(1.0, total_weight)
 
         reason = (
@@ -193,13 +230,32 @@ class PerformanceLearningService:
         effects: list[PerformanceEffect] = []
         for dimension, key in sorted(keys):
             if dimension == "character":
-                effects.append(self.character_effect(key, as_of=as_of))
+                matching = [
+                    item
+                    for item in evidence
+                    if key in item.character_ids
+                ]
             elif dimension == "format":
-                effects.append(self.format_effect(key, as_of=as_of))
+                matching = [
+                    item
+                    for item in evidence
+                    if item.format == key
+                ]
             elif dimension == "theme":
-                effects.append(self.theme_effect(key, as_of=as_of))
-            elif dimension == "series":
-                effects.append(self.series_effect(key, as_of=as_of))
+                matching = [
+                    item
+                    for item in evidence
+                    if item.theme is not None
+                    and _theme_key(item.theme) == key
+                ]
+            else:
+                matching = [
+                    item
+                    for item in evidence
+                    if item.series_id == key
+                ]
+            effects.append(self._effect(dimension, key, matching))
+
         effects.sort(
             key=lambda item: (
                 -item.confidence,
