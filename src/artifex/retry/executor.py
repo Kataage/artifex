@@ -238,6 +238,7 @@ def _revise_scene(
             "canonical character identity",
             "facial identity consistency",
         )
+        validated_hints = ("looking at viewer", "closed mouth")
         negative_choices = (
             "wrong character, identity drift",
             "face mismatch, character mismatch",
@@ -247,6 +248,7 @@ def _revise_scene(
             "match requested pose and composition",
             "strict prompt adherence",
         )
+        validated_hints = ("looking at viewer", "hands on hips")
         negative_choices = (
             "pose mismatch, composition mismatch",
             "prompt deviation",
@@ -256,16 +258,19 @@ def _revise_scene(
             "same outfit and character design",
             "continuity with prior scene",
         )
+        validated_hints = ("closed mouth", "looking at viewer")
         negative_choices = (
             "outfit drift, design drift",
             "continuity break",
         )
     else:
         positive_choices = ("strict prompt adherence", "clean subject definition")
+        validated_hints = ("looking at viewer", "arms crossed")
         negative_choices = ("prompt deviation", "ambiguous subject")
 
     index = (retry_number - 1) % len(positive_choices)
     positives.append(positive_choices[index])
+    positives.append(validated_hints[index])
     negatives.append(negative_choices[index])
     visual = scene.visual.model_copy(
         update={
