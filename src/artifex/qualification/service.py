@@ -17,7 +17,12 @@ from artifex.characters import CharacterRegistry
 from artifex.comfy import WorkflowTemplateRegistry
 from artifex.config.models import ArtifexSettings
 from artifex.db import Database
-from artifex.db.models import PackRow, SceneRow
+from artifex.db.models import (
+    AgentEventRow,
+    GenerationAttemptRow,
+    PackRow,
+    SceneRow,
+)
 from artifex.domain import PackState
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorReport
@@ -285,7 +290,12 @@ class QualificationService:
                 raise ValueError(
                     f"{stage.value} PASS requires at least one finalized Pack ID"
                 )
-            verified = self._verify_stage(stage, pack_ids, payload)
+            verified = self._verify_stage(
+                stage,
+                pack_ids,
+                payload,
+                since=session.created_at,
+            )
             if verified:
                 payload["verified_packs"] = verified
         elif status is QualificationStatus.SKIPPED:
@@ -350,6 +360,7 @@ class QualificationService:
                         stage,
                         evidence.pack_ids,
                         dict(evidence.details),
+                        since=session.created_at,
                     )
                 except (KeyError, OSError, ValueError) as exc:
                     issues.append(f"stage {stage.value}: {exc}")
@@ -375,6 +386,8 @@ class QualificationService:
         stage: QualificationStage,
         pack_ids: tuple[str, ...],
         details: dict[str, object],
+        *,
+        since: datetime,
     ) -> list[dict[str, object]]:
         packs = [self._pack_evidence(pack_id) for pack_id in pack_ids]
         if stage is QualificationStage.SINGLE_CHARACTER:
@@ -409,19 +422,48 @@ class QualificationService:
             if not any(pack["retry_count"] > 0 for pack in packs):
                 raise ValueError("forced_retry has no persisted retry history")
         elif stage is QualificationStage.RESTART_GENERATION:
-            if details.get("recovered_after_restart") is not True:
+            repeated = {
+                prompt_id
+                for pack in packs
+                for prompt_id in pack["repeated_prompt_ids"]
+            }
+            if repeated:
                 raise ValueError(
-                    "restart_generation requires recovered_after_restart=true"
+                    "restart_generation detected duplicate Comfy prompt IDs: "
+                    + ", ".join(sorted(str(value) for value in repeated))
                 )
-            if details.get("duplicate_submissions") != 0:
+            recovered_pack_ids = self._recovery_checked_pack_ids(
+                since=since
+            )
+            missing = set(pack_ids) - recovered_pack_ids
+            if missing:
                 raise ValueError(
-                    "restart_generation requires duplicate_submissions=0"
+                    "restart_generation lacks recovery.pack_checked telemetry for: "
+                    + ", ".join(sorted(missing))
                 )
+            details["recovery_pack_checked"] = sorted(recovered_pack_ids)
+            details["duplicate_prompt_ids"] = []
         elif stage is QualificationStage.BACKEND_RECOVERY:
-            if details.get("comfy_recovered") is not True:
-                raise ValueError("backend_recovery requires comfy_recovered=true")
-            if details.get("llm_recovered") is not True:
-                raise ValueError("backend_recovery requires llm_recovered=true")
+            for component in ("comfyui", "llm"):
+                transitions = self._health_transitions(
+                    component,
+                    since=since,
+                )
+                states = [state for _, state in transitions]
+                try:
+                    unhealthy_index = states.index("unhealthy")
+                except ValueError as exc:
+                    raise ValueError(
+                        f"backend_recovery has no {component} unhealthy transition"
+                    ) from exc
+                if "healthy" not in states[unhealthy_index + 1 :]:
+                    raise ValueError(
+                        f"backend_recovery has no {component} recovery transition"
+                    )
+                details[f"{component}_transitions"] = [
+                    {"at": at.isoformat(), "state": state}
+                    for at, state in transitions
+                ]
         elif stage is QualificationStage.UNATTENDED_MULTI_PACK:
             if len(packs) < 3:
                 raise ValueError(
@@ -539,7 +581,93 @@ class QualificationService:
                 "retry_count": retry_count,
                 "lora_ids": sorted(lora_ids),
                 "manifest_path": str(manifest.resolve()),
+                **self._attempt_evidence(
+                    session,
+                    tuple(scene.id for scene in scenes),
+                ),
             }
+
+    @staticmethod
+    def _attempt_evidence(
+        session: Any,
+        scene_ids: tuple[str, ...],
+    ) -> dict[str, object]:
+        if not scene_ids:
+            return {
+                "attempt_count": 0,
+                "prompt_ids": [],
+                "repeated_prompt_ids": [],
+                "recovered_from_history_count": 0,
+            }
+        rows = session.scalars(
+            select(GenerationAttemptRow)
+            .where(GenerationAttemptRow.scene_id.in_(scene_ids))
+            .order_by(
+                GenerationAttemptRow.created_at.asc(),
+                GenerationAttemptRow.id.asc(),
+            )
+        ).all()
+        prompt_ids: list[str] = []
+        recovered = 0
+        for row in rows:
+            prompt_id = row.provenance_json.get("comfy_prompt_id")
+            if isinstance(prompt_id, str) and prompt_id:
+                prompt_ids.append(prompt_id)
+            if row.provenance_json.get("recovered_from_history") is True:
+                recovered += 1
+        seen: set[str] = set()
+        repeated: set[str] = set()
+        for prompt_id in prompt_ids:
+            if prompt_id in seen:
+                repeated.add(prompt_id)
+            seen.add(prompt_id)
+        return {
+            "attempt_count": len(rows),
+            "prompt_ids": prompt_ids,
+            "repeated_prompt_ids": sorted(repeated),
+            "recovered_from_history_count": recovered,
+        }
+
+    def _recovery_checked_pack_ids(
+        self,
+        *,
+        since: datetime,
+    ) -> set[str]:
+        with self._database.session() as session:
+            rows = session.scalars(
+                select(AgentEventRow)
+                .where(
+                    AgentEventRow.event_type == "recovery.pack_checked",
+                    AgentEventRow.created_at >= since,
+                )
+                .order_by(AgentEventRow.created_at.asc(), AgentEventRow.id.asc())
+            ).all()
+            return {
+                str(row.payload_json["pack_id"])
+                for row in rows
+                if row.payload_json.get("pack_id")
+            }
+
+    def _health_transitions(
+        self,
+        component: str,
+        *,
+        since: datetime,
+    ) -> list[tuple[datetime, str]]:
+        with self._database.session() as session:
+            rows = session.scalars(
+                select(AgentEventRow)
+                .where(
+                    AgentEventRow.event_type == "health.component_changed",
+                    AgentEventRow.created_at >= since,
+                )
+                .order_by(AgentEventRow.created_at.asc(), AgentEventRow.id.asc())
+            ).all()
+            return [
+                (row.created_at, str(row.payload_json.get("state")))
+                for row in rows
+                if row.payload_json.get("component") == component
+            ]
 
     @staticmethod
     def _require_character_count(
