@@ -1,3 +1,11 @@
+from artifex.evaluation.calibration import (
+    SemanticCalibrationManifest,
+    SemanticCalibrationProfile,
+    SemanticCalibrator,
+    load_calibration_manifest,
+    load_calibration_profile,
+    save_calibration_profile,
+)
 from artifex.evaluation.engine import EvaluationEngine
 from artifex.evaluation.local_similarity import LocalSimilarityEmbeddingProvider
 from artifex.evaluation.models import (
@@ -38,9 +46,15 @@ __all__ = [
     "OpenAICompatibleVisionEvaluationProvider",
     "RawEvaluationSignals",
     "SelectionResult",
+    "SemanticCalibrationManifest",
+    "SemanticCalibrationProfile",
+    "SemanticCalibrator",
     "SemanticEmbeddingRepository",
     "SemanticIndex",
     "SigLIP2EmbeddingProvider",
     "SimilarityAwareSignalProvider",
     "SimilarityService",
+    "load_calibration_manifest",
+    "load_calibration_profile",
+    "save_calibration_profile",
 ]
