@@ -20,6 +20,7 @@ from artifex.evaluation import (
     AttemptSelector,
     EvaluationContext,
     EvaluationEngine,
+    EvaluationReferenceResolver,
     EvaluationRepository,
     EvaluationResult,
     GenerationAttemptRepository,
@@ -107,6 +108,11 @@ class ProductionCoordinator:
         self._prompts = prompts
         self._backend = backend
         self._evaluator = evaluator
+        self._reference_resolver = EvaluationReferenceResolver(
+            database,
+            characters,
+            evaluator.config,
+        )
         self._attempts = attempts
         self._evaluations = evaluations
         self._selector = selector
@@ -738,6 +744,7 @@ class ProductionCoordinator:
         row = self._scene_row(scene_id)
         plan = self._scene_plan(row)
         attempt = self._attempts.require(attempt_id)
+        references = self._reference_resolver.resolve(scene_id, plan)
         result = await self._evaluator.evaluate(
             EvaluationContext(
                 attempt_id=attempt_id,
@@ -746,7 +753,9 @@ class ProductionCoordinator:
                 character_ids=plan.character_ids,
                 positive_prompt=attempt.prompt,
                 negative_prompt=attempt.negative_prompt,
-                reference_image_paths=self._reference_paths(scene_id),
+                identity_reference_image_paths=references.identity_by_character,
+                duplicate_reference_image_paths=references.duplicate_paths,
+                novelty_reference_image_paths=references.novelty_paths,
                 adjacent_image_paths=self._adjacent_paths(row.pack_id, row.ordinal),
             )
         )
@@ -759,6 +768,10 @@ class ProductionCoordinator:
                 "attempt_id": attempt_id,
                 "state": result.state.value,
                 "aggregate": result.scores.aggregate,
+                "identity_reference": result.scores.identity_reference,
+                "duplicate_similarity": result.scores.image_similarity,
+                "novelty_similarity": result.scores.novelty_similarity,
+                "historical_references_scanned": references.historical_candidates_scanned,
                 "reasons": list(result.reasons),
             },
         )
@@ -932,27 +945,6 @@ class ProductionCoordinator:
 
     def _scene_pack_id(self, scene_id: str) -> str:
         return self._scene_row(scene_id).pack_id
-
-    def _reference_paths(self, scene_id: str) -> tuple[Path, ...]:
-        with self._database.session() as session:
-            selected_ids = session.scalars(
-                select(SceneRow.selected_attempt_id)
-                .where(
-                    SceneRow.selected_attempt_id.is_not(None),
-                    SceneRow.id != scene_id,
-                )
-                .order_by(SceneRow.pack_id.desc(), SceneRow.ordinal.desc())
-                .limit(20)
-            ).all()
-            attempts = session.scalars(
-                select(GenerationAttemptRow).where(
-                    GenerationAttemptRow.id.in_(selected_ids)
-                )
-            ).all()
-        paths: list[Path] = []
-        for attempt in attempts:
-            paths.extend(self._output_paths(attempt))
-        return tuple(path for path in paths if path.exists())[:20]
 
     def _adjacent_paths(self, pack_id: str, ordinal: int) -> tuple[Path, ...]:
         with self._database.session() as session:
