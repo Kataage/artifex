@@ -5,6 +5,11 @@ from importlib.util import find_spec
 from pydantic import BaseModel, ConfigDict
 
 from artifex.characters import CharacterRegistry
+from artifex.comfy import (
+    ComfyUIClient,
+    WorkflowPatchRequest,
+    WorkflowTemplateRegistry,
+)
 from artifex.config.models import ArtifexSettings
 from artifex.evaluation import load_calibration_profile
 from artifex.operations.health import HealthChecker, HealthReport
@@ -35,10 +40,13 @@ class DoctorService:
         settings: ArtifexSettings,
         health: HealthChecker,
         characters: CharacterRegistry,
+        *,
+        comfy: ComfyUIClient | None = None,
     ) -> None:
         self._settings = settings
         self._health = health
         self._characters = characters
+        self._comfy = comfy
 
     async def run(self) -> DoctorReport:
         health = await self._health.check_all(include_worker=False)
@@ -83,6 +91,7 @@ class DoctorService:
             except (OSError, ValueError) as exc:
                 semantic_detail = f"invalid semantic calibration: {exc}"
 
+        workflow_check = await self._workflow_dependency_check()
         checks = (
             DoctorCheck(
                 name="production_checkpoint",
@@ -123,6 +132,19 @@ class DoctorService:
                 ready=semantic_dependencies and semantic_calibrated,
                 detail=semantic_detail,
             ),
+            workflow_check,
+            DoctorCheck(
+                name="vram_release_policy",
+                ready=self._settings.comfyui.release_vram_after_attempt,
+                detail=(
+                    "ComfyUI models/cache are released after every generation attempt"
+                    if self._settings.comfyui.release_vram_after_attempt
+                    else (
+                        "comfyui.release_vram_after_attempt=false; long-running "
+                        "production can retain avoidable model/VRAM residency"
+                    )
+                ),
+            ),
             DoctorCheck(
                 name="native_research_provider",
                 ready=(
@@ -147,3 +169,69 @@ class DoctorService:
             ),
         )
         return DoctorReport(health=health, checks=checks)
+
+    async def _workflow_dependency_check(self) -> DoctorCheck:
+        if self._comfy is None:
+            return DoctorCheck(
+                name="comfy_workflow_dependencies",
+                ready=False,
+                detail="ComfyUI dependency probe is not attached",
+            )
+
+        templates = WorkflowTemplateRegistry.with_packaged_templates()
+        template_ids = (
+            self._settings.comfyui.default_template,
+            self._settings.production.repair_workflow_template,
+        )
+        checkpoint = self._settings.production.checkpoint or "__MISSING_CHECKPOINT__"
+        request = WorkflowPatchRequest(
+            positive_prompt="artifex doctor",
+            negative_prompt="",
+            checkpoint=checkpoint,
+            refiner_checkpoint=self._settings.comfyui.refiner_checkpoint,
+            vae=self._settings.comfyui.vae,
+            upscale_model=self._settings.comfyui.upscale_model,
+            seed=1,
+            width=self._settings.production.width,
+            height=self._settings.production.height,
+            batch_size=self._settings.production.batch_size,
+            output_prefix="ARTIFEX/doctor",
+            base_steps=self._settings.comfyui.base_steps,
+            base_cfg=self._settings.comfyui.base_cfg,
+            base_sampler=self._settings.comfyui.base_sampler,
+            base_scheduler=self._settings.comfyui.base_scheduler,
+            base_denoise=self._settings.comfyui.base_denoise,
+            refiner_steps=self._settings.comfyui.refiner_steps,
+            refiner_cfg=self._settings.comfyui.refiner_cfg,
+            refiner_sampler=self._settings.comfyui.refiner_sampler,
+            refiner_scheduler=self._settings.comfyui.refiner_scheduler,
+            refiner_denoise=self._settings.comfyui.refiner_denoise,
+            upscale_steps=self._settings.comfyui.upscale_steps,
+            upscale_cfg=self._settings.comfyui.upscale_cfg,
+            upscale_sampler=self._settings.comfyui.upscale_sampler,
+            upscale_scheduler=self._settings.comfyui.upscale_scheduler,
+            upscale_denoise=self._settings.comfyui.upscale_denoise,
+        )
+
+        details: list[str] = []
+        ready = True
+        try:
+            for template_id in dict.fromkeys(template_ids):
+                template = templates.require(template_id)
+                status = await self._comfy.validate_requirements(
+                    template.requirements(request)
+                )
+                ready = ready and status.ready
+                details.append(f"{template_id}: {status.detail}")
+        except (KeyError, ValueError, RuntimeError) as exc:
+            return DoctorCheck(
+                name="comfy_workflow_dependencies",
+                ready=False,
+                detail=f"production workflow qualification failed: {exc}",
+            )
+
+        return DoctorCheck(
+            name="comfy_workflow_dependencies",
+            ready=ready,
+            detail=" | ".join(details),
+        )

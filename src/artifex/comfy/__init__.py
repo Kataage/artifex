@@ -11,10 +11,18 @@ from artifex.comfy.models import (
     ComfyHealth,
     ComfyOutput,
     QueueReceipt,
+    WorkflowAssetRequirement,
     WorkflowLoRA,
     WorkflowPatchRequest,
+    WorkflowRequirements,
+    WorkflowRequirementStatus,
 )
-from artifex.comfy.templates import WorkflowTemplate, WorkflowTemplateRegistry
+from artifex.comfy.production_workflow import IllustMainWorkflowTemplate
+from artifex.comfy.templates import (
+    WorkflowTemplate,
+    WorkflowTemplateLike,
+    WorkflowTemplateRegistry,
+)
 
 __all__ = [
     "ComfyErrorKind",
@@ -26,9 +34,14 @@ __all__ = [
     "ComfyUIExecutionError",
     "ComfyUIProtocolError",
     "ComfyUITimeoutError",
+    "IllustMainWorkflowTemplate",
     "QueueReceipt",
+    "WorkflowAssetRequirement",
     "WorkflowLoRA",
     "WorkflowPatchRequest",
+    "WorkflowRequirementStatus",
+    "WorkflowRequirements",
     "WorkflowTemplate",
+    "WorkflowTemplateLike",
     "WorkflowTemplateRegistry",
 ]
