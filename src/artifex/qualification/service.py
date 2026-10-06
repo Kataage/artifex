@@ -909,6 +909,56 @@ class QualificationService:
                             f"LoRA {profile.id} is missing validation run evidence"
                         )
 
+    def _llm_model_path(self) -> Path | None:
+        bootstrap = self._settings.llm.bootstrap
+        if not bootstrap.enabled:
+            return None
+        try:
+            path = bootstrap.model_path().expanduser()
+        except ValueError:
+            return None
+        return path if path.is_file() else None
+
+    def _render_attestations(
+        self,
+    ) -> tuple[dict[str, RenderNodeAttestation], dict[str, str]]:
+        primary = self._settings.render_nodes.primary_node()
+        if primary is None:
+            return {}, {}
+
+        primary_id, primary_config = primary
+        errors: dict[str, str] = {}
+        if not primary_config.attestation_url:
+            errors[f"render_node:{primary_id}"] = (
+                "primary render node has no attestation_url configured"
+            )
+            return {}, errors
+        try:
+            attestation = fetch_render_attestation(primary_id, primary_config)
+        except Exception as exc:  # noqa: BLE001
+            errors[f"render_node:{primary_id}"] = str(exc)
+            return {}, errors
+
+        for index, item in enumerate(attestation.inventory_errors):
+            errors[f"render_node:{primary_id}:inventory:{index}"] = (
+                f"{item.get('path', '-')}: {item.get('error', 'unknown inventory error')}"
+            )
+        return {primary_id: attestation}, errors
+
+    @staticmethod
+    def _attestation_environment(
+        attestation: RenderNodeAttestation,
+    ) -> dict[str, object]:
+        return {
+            "hostname": attestation.hostname,
+            "os": dict(attestation.os),
+            "nvidia_gpus": [dict(item) for item in attestation.nvidia_gpus],
+            "comfyui_base_url": attestation.comfyui_base_url,
+            "attested_at": attestation.created_at.isoformat(),
+            "asset_labels": sorted(asset.label for asset in attestation.assets),
+            "lora_count": len(attestation.loras),
+        }
+
     def _environment(self) -> dict[str, object]:
         uv_version = _run_text(["uv", "--version"])
         git_commit = _run_text(["git", "rev-parse", "HEAD"])
@@ -938,14 +988,39 @@ class QualificationService:
                 "base_url": settings.llm.base_url,
                 "model": settings.llm.model,
                 "context_window_tokens": settings.llm.context_window_tokens,
+                "bootstrap": {
+                    "enabled": settings.llm.bootstrap.enabled,
+                    "auto_download": settings.llm.bootstrap.auto_download,
+                    "profile": settings.llm.bootstrap.profile,
+                    "model_path": str(settings.llm.bootstrap.model_path())
+                    if settings.llm.bootstrap.profiles
+                    else None,
+                },
+            },
+            "render_nodes": {
+                "primary": settings.render_nodes.primary,
+                "nodes": {
+                    node_id: {
+                        "type": node.type,
+                        "enabled": node.enabled,
+                        "base_url": node.base_url,
+                        "output_mode": node.output_mode,
+                        "download_dir": str(node.download_dir),
+                        "attestation_url": node.attestation_url,
+                    }
+                    for node_id, node in sorted(settings.render_nodes.nodes.items())
+                },
             },
             "comfyui": {
                 "base_url": settings.comfyui.base_url,
+                "output_mode": settings.comfyui.output_mode,
                 "output_dir": (
                     None
                     if settings.comfyui.output_dir is None
                     else str(settings.comfyui.output_dir)
                 ),
+                "download_dir": str(settings.comfyui.download_dir),
+                "render_node_id": settings.comfyui.render_node_id,
                 "default_template": settings.comfyui.default_template,
                 "release_vram_after_attempt": (
                     settings.comfyui.release_vram_after_attempt
@@ -1038,6 +1113,9 @@ class QualificationService:
             {
                 "id": profile.id,
                 "path": str(profile.path),
+                "asset_name": profile.metadata.get("asset_name"),
+                "remote_node_id": profile.metadata.get("remote_node_id"),
+                "source": profile.source,
                 "checksum": profile.checksum,
                 "state": profile.state.value,
                 "type": profile.lora_type,
