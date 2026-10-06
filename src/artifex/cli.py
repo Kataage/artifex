@@ -46,6 +46,7 @@ from artifex.qualification import (
     QualificationStage,
     QualificationStatus,
 )
+from artifex.render_node import build_attestation, serve_attestation
 from artifex.research import (
     ResearchIntent,
     ResearchProviderError,
@@ -110,6 +111,12 @@ qualify_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(qualify_app, name="qualify")
+render_node_app = typer.Typer(
+    name="render-node",
+    help="Serve and inspect a lightweight remote ComfyUI render-node attestation.",
+    no_args_is_help=True,
+)
+app.add_typer(render_node_app, name="render-node")
 
 ConfigOption = Annotated[
     Path | None,
@@ -352,6 +359,39 @@ def characters_audit(
                 typer.echo(f"{name}: {', '.join(values)}")
     finally:
         asyncio.run(core.close())
+
+
+@render_node_app.command("attest")
+def render_node_attest(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Print the local render-node asset/GPU attestation without starting a server."""
+    settings = _settings(config)
+    try:
+        payload = build_attestation(settings).model_dump(mode="json")
+    except (OSError, ValueError) as exc:
+        typer.echo(f"render-node attestation error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(payload, as_json=json_output)
+
+
+@render_node_app.command("serve")
+def render_node_serve(
+    config: ConfigOption = None,
+) -> None:
+    """Serve authenticated model/LoRA attestations for the Artifex controller."""
+    settings = _settings(config)
+    typer.echo(
+        "render-node "
+        f"{settings.render_agent.node_id} listening on "
+        f"{settings.render_agent.bind_host}:{settings.render_agent.port}"
+    )
+    try:
+        serve_attestation(settings)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"render-node server error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @llm_app.command("bootstrap")
