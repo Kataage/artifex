@@ -123,9 +123,14 @@ class EvaluationEngine:
 
         if scores.identity < self._config.identity_accept_min:
             reasons.append("identity_needs_review")
-        if scores.identity_reference is None:
-            if self._config.identity_reference_required:
-                reasons.append("identity_reference_missing")
+        if (
+            self._config.identity_reference_required
+            and (
+                scores.identity_reference is None
+                or identity_reference.missing_character_ids
+            )
+        ):
+            reasons.append("identity_reference_missing")
         elif scores.identity_reference < self._config.identity_reference_accept_min:
             reasons.append("identity_reference_needs_review")
         if scores.alignment < self._config.alignment_review_min:
