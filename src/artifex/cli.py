@@ -56,6 +56,7 @@ from artifex.research import (
 )
 from artifex.review import ReviewQueueRepository
 from artifex.series import SeriesRepository
+from artifex.setup import configure_two_pc
 from artifex.telemetry import EventSeverity
 
 app = typer.Typer(
@@ -126,6 +127,82 @@ ConfigOption = Annotated[
 
 def _settings(config: Path | None) -> ArtifexSettings:
     return load_settings(user_config=config)
+
+
+@app.command("setup")
+def setup(
+    comfy_url: Annotated[
+        str,
+        typer.Option(
+            "--comfy-url",
+            help="Reachable ComfyUI base URL on the render PC.",
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="Controller override YAML to create.",
+        ),
+    ] = Path("config/local.yaml"),
+    render_node_id: Annotated[
+        str,
+        typer.Option("--render-node-id"),
+    ] = "renderer",
+    attestation_url: Annotated[
+        str | None,
+        typer.Option(
+            "--attestation-url",
+            help="Render attestation URL; defaults to the ComfyUI host on port 8190.",
+        ),
+    ] = None,
+    llm_models_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--llm-models-dir",
+            help="Optional controller directory for the selected GGUF.",
+        ),
+    ] = None,
+    download_llm: Annotated[
+        bool,
+        typer.Option("--download-llm/--skip-llm-download"),
+    ] = True,
+    force: Annotated[bool, typer.Option("--force")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Create a minimal two-PC controller config and optionally fetch the LLM."""
+    settings = _settings(None)
+    if llm_models_dir is not None:
+        bootstrap = settings.llm.bootstrap.model_copy(
+            update={"models_dir": llm_models_dir}
+        )
+        settings = settings.model_copy(
+            update={
+                "llm": settings.llm.model_copy(
+                    update={"bootstrap": bootstrap}
+                )
+            }
+        )
+    try:
+        result = configure_two_pc(
+            settings,
+            comfyui_base_url=comfy_url,
+            output_path=output,
+            render_node_id=render_node_id,
+            attestation_url=attestation_url,
+            force=force,
+        )
+        payload = result.model_dump(mode="json")
+        if download_llm:
+            generated = load_settings(user_config=result.config_path)
+            model = bootstrap_llm(generated.llm)
+            payload["llm_download"] = model.model_dump(mode="json")
+        else:
+            payload["llm_download"] = None
+    except (FileExistsError, OSError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"setup error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(payload, as_json=json_output)
 
 
 async def _calibrate_semantic(
