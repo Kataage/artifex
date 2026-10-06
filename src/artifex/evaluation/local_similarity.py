@@ -31,6 +31,9 @@ class LocalSimilarityEmbeddingProvider:
             quality_tier="degraded",
         )
 
+    async def aclose(self) -> None:
+        return None
+
     async def embed_text(self, text: str) -> tuple[float, ...]:
         vector = [0.0] * self._text_dimensions
         tokens = _TOKEN.findall(text.casefold())
