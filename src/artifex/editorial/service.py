@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from artifex.config.models import EditorialConfig
@@ -503,9 +504,16 @@ class EditorialService:
             cooldown = int(any(character_id in cooldown_ids for character_id in ids))
             performance_adjustment = 0.0
             if self._performance is not None:
-                performance_adjustment = self._performance.editorial_adjustment(
-                    ConceptCandidate.model_validate(candidate)
-                )
+                try:
+                    validated_candidate = ConceptCandidate.model_validate(candidate)
+                except ValidationError:
+                    validated_candidate = None
+                if validated_candidate is not None:
+                    performance_adjustment = (
+                        self._performance.editorial_adjustment(
+                            validated_candidate
+                        )
+                    )
             ranked.append(
                 (
                     cooldown,
