@@ -279,6 +279,11 @@ discord:
 
 patreon:
   enabled: true
+  api_enabled: false
+  api_base_url: https://www.patreon.com
+  api_access_token_env: PATREON_ACCESS_TOKEN
+  api_timeout_seconds: 30
+  api_user_agent: Artifex - Patreon Performance Sync
   default_archetype: public_preview_member_continuation
   generate_post_package: true
   default_tags:
