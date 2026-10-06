@@ -643,21 +643,23 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         signal_maintenance,
         lora_discovery_maintenance,
     ]
-    if lora_validation_runner is not None:
-        maintenance_tasks.append(
-            LoRAValidationMaintenance(
-                lora_validation_runner,
-                core.telemetry,
-                interval_seconds=settings.loras.validation_interval_seconds,
-                assets_per_cycle=settings.loras.validation_assets_per_cycle,
-            )
+    lora_validation_maintenance = (
+        LoRAValidationMaintenance(
+            lora_validation_runner,
+            core.telemetry,
+            interval_seconds=settings.loras.validation_interval_seconds,
+            assets_per_cycle=settings.loras.validation_assets_per_cycle,
         )
+        if lora_validation_runner is not None
+        else None
+    )
     daemon = RuntimeDaemon(
         core.runtime,
         core.scheduler,
         coordinator,
         settings.agent,
         maintenance=MaintenanceGroup(maintenance_tasks),
+        idle_maintenance=lora_validation_maintenance,
     )
     return ArtifexApplication(
         core,
