@@ -36,6 +36,7 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
 class IdentitySimilarity:
     aggregate: float | None
     by_character: dict[str, float]
+    missing_character_ids: tuple[str, ...] = ()
 
 
 class SimilarityService:
@@ -102,8 +103,17 @@ class SimilarityService:
             for character_id, paths in references.items()
             if paths
         }
+        missing = tuple(
+            character_id
+            for character_id, paths in references.items()
+            if not paths
+        )
         if not available:
-            return IdentitySimilarity(aggregate=None, by_character={})
+            return IdentitySimilarity(
+                aggregate=None,
+                by_character={},
+                missing_character_ids=missing,
+            )
 
         query = await self._image_vector(path)
         by_character: dict[str, float] = {}
@@ -116,6 +126,7 @@ class SimilarityService:
         return IdentitySimilarity(
             aggregate=min(by_character.values()) if by_character else None,
             by_character=by_character,
+            missing_character_ids=missing,
         )
 
 
