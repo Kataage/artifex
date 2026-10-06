@@ -8,7 +8,8 @@ from artifex.characters import CharacterRegistry
 from artifex.db import Database
 from artifex.db.models import ConceptRow, PackRow, SceneRow
 from artifex.discord.models import CommandName, CommandRequest, CommandResponse
-from artifex.domain import AgentState, PackState, SceneState
+from artifex.domain import AgentState, LoRAState, PackState, SceneState
+from artifex.loras import LoRARegistry
 from artifex.policy import PolicyDecision, PolicyDecisionRepository
 from artifex.review import ReviewItem, ReviewQueueRepository, ReviewState
 from artifex.runtime import RuntimeStore
@@ -29,6 +30,7 @@ class ArtifexRemoteOperations:
         policy_decisions: PolicyDecisionRepository,
         *,
         signals: SignalIngestionService | None = None,
+        loras: LoRARegistry | None = None,
     ) -> None:
         self._database = database
         self._runtime = runtime
@@ -38,6 +40,7 @@ class ArtifexRemoteOperations:
         self._series = series
         self._policy_decisions = policy_decisions
         self._signals = signals
+        self._loras = loras
 
     def execute(self, request: CommandRequest) -> CommandResponse:
         match request.name:
@@ -84,12 +87,22 @@ class ArtifexRemoteOperations:
         inventory = self._scheduler.inventory()
         reviews = self._reviews.list_open(limit=100)
         state = self._runtime.get_agent_state()
+        lora_counts = {
+            lora_state.value: 0
+            for lora_state in LoRAState
+        }
+        if self._loras is not None:
+            for profile in self._loras.list():
+                lora_counts[profile.state.value] += 1
         message = (
             f"Artifex: {state.value} | ideas={inventory.ideas} "
             f"planned={inventory.planned} available={inventory.completed_available} "
             f"reserved={inventory.completed_reserved} "
             f"consumed={inventory.completed_consumed} "
-            f"expired={inventory.completed_expired} reviews={len(reviews)}"
+            f"expired={inventory.completed_expired} reviews={len(reviews)} "
+            f"loras=prod:{lora_counts['production']}/"
+            f"pending:{lora_counts['pending'] + lora_counts['discovered']}/"
+            f"failed:{lora_counts['failed'] + lora_counts['disabled']}"
         )
         return CommandResponse(
             ok=True,
@@ -103,6 +116,7 @@ class ArtifexRemoteOperations:
                 "completed_consumed": inventory.completed_consumed,
                 "completed_expired": inventory.completed_expired,
                 "open_reviews": len(reviews),
+                "loras": lora_counts,
             },
         )
 
