@@ -106,6 +106,12 @@ Run calibration:
 uv run artifex semantic calibrate path\to\manifest.json --json
 ```
 
+The calibration run also backfills every selected historical Concept and every
+existing image selected by a finalized Pack into the persistent SQLite semantic
+index. Because production requires calibration before normal operation, this
+establishes a complete historical baseline; subsequent generated images are
+indexed during reference-grounded evaluation.
+
 By default Artifex writes the measured profile to
 `data/calibration/siglip2-hololive-ilxl-v1.json`. The profile records the
 resolved model revision and measured operating points for:
