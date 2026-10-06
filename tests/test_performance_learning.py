@@ -481,3 +481,57 @@ def test_high_performance_cannot_override_hard_similarity_rejection() -> None:
     assert scored.score.historical_performance == 1.0
     assert scored.score.historical_performance_confidence == 1.0
     assert scored.score.rejected_reason == "hard similarity threshold exceeded"
+
+
+
+def test_views_only_metric_stays_near_neutral_prior(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'views-only.sqlite3').as_posix()}")
+    database.migrate()
+    candidate = _candidate()
+    pack_id, scene_id = _seed_pack(database, candidate)
+    repository, learning = _service(
+        database,
+        config=PatreonPerformanceConfig(
+            confidence_sample_scale=10,
+            view_scale=100,
+        ),
+    )
+    now = datetime.now(UTC)
+    _add_evidence(
+        repository,
+        pack_id=pack_id,
+        scene_id=scene_id,
+        post_id="views-only",
+        observed_at=now,
+        metrics=PerformanceMetrics(views=100000),
+    )
+
+    effect = learning.character_effect("char-a", as_of=now)
+
+    assert effect.confidence > 0.99
+    assert effect.metric_coverage == ("views",)
+    assert 0.5 < effect.score < 0.55
+    database.dispose()
+
+
+def test_manual_import_rejects_non_object_rows(tmp_path: Path) -> None:
+    path = tmp_path / "invalid-performance.json"
+    path.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "external_post_id": "valid",
+                        "pack_id": "pack-1",
+                        "observed_at": datetime.now(UTC).isoformat(),
+                        "views": 10,
+                    },
+                    "not-an-object",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="item 2 must be an object"):
+        load_manual_performance(path)
