@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from collections.abc import Iterable
 from typing import ClassVar
 
@@ -23,6 +24,7 @@ class LoRAPlanEntry(BaseModel):
 
     lora_id: str
     path: str
+    asset_name: str | None = None
     weight: float
     character_ids: tuple[str, ...] = ()
     trigger_tags: tuple[str, ...] = ()
@@ -261,6 +263,11 @@ class LoRAResolver:
             LoRAPlanEntry(
                 lora_id=profile.id,
                 path=str(profile.path),
+                asset_name=(
+                    str(profile.metadata.get("asset_name"))
+                    if profile.metadata.get("asset_name")
+                    else Path(profile.path).name
+                ),
                 weight=self._effective_weight(profile),
                 character_ids=tuple(character_list),
                 trigger_tags=profile.trigger_tags,
