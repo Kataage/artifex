@@ -198,6 +198,13 @@ class LoRARegistryConfig(StrictModel):
     maximum_character_loras_per_scene: int = Field(default=4, ge=1)
 
 
+class PromptCompilerConfig(StrictModel):
+    ilxl_profile: str = "ilxl-danbooru-v2"
+    unresolved_policy: Literal["report", "error"] = "report"
+    checkpoint_profile_overrides: dict[str, str] = Field(default_factory=dict)
+    extra_lexicon_paths: tuple[Path, ...] = ()
+
+
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
     output_dir: Path | None = None
@@ -414,6 +421,7 @@ class ArtifexSettings(StrictModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     characters: CharacterRegistryConfig = Field(default_factory=CharacterRegistryConfig)
     loras: LoRARegistryConfig = Field(default_factory=LoRARegistryConfig)
+    prompts: PromptCompilerConfig = Field(default_factory=PromptCompilerConfig)
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     trends: TrendConfig = Field(default_factory=TrendConfig)
