@@ -113,6 +113,12 @@ loras:
   production_flexibility_threshold: 0.50
   maximum_character_loras_per_scene: 4
 
+prompts:
+  ilxl_profile: ilxl-danbooru-v2
+  unresolved_policy: report
+  checkpoint_profile_overrides: {}
+  extra_lexicon_paths: []
+
 comfyui:
   base_url: http://127.0.0.1:8188
   output_dir: null
