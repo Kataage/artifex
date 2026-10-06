@@ -42,7 +42,7 @@ class PackArchive:
     ) -> None:
         self._database = database
         self._root = root
-        self._patreon = patreon or PatreonConfig()
+        self._patreon = patreon or PatreonConfig(enabled=False)
 
     def finalize(self, pack_id: str) -> ArchiveResult:
         manifest, output_records, created_at = self._build_manifest(pack_id)
