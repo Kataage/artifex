@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.comfy import (
     ComfyUIClient,
+    ComfyUIError,
     ComfyUIExecutionError,
     WorkflowLoRA,
     WorkflowPatchRequest,
@@ -104,39 +105,65 @@ class ComfyGenerationBackend:
             positive_prompt=request.compiled.positive_prompt,
             negative_prompt=request.compiled.negative_prompt,
             checkpoint=checkpoint,
+            refiner_checkpoint=self._comfy_config.refiner_checkpoint,
+            vae=self._comfy_config.vae,
+            upscale_model=self._comfy_config.upscale_model,
             seed=request.seed,
             width=self._production.width,
             height=self._production.height,
             batch_size=self._production.batch_size,
             output_prefix=request.output_prefix,
+            base_steps=self._comfy_config.base_steps,
+            base_cfg=self._comfy_config.base_cfg,
+            base_sampler=self._comfy_config.base_sampler,
+            base_scheduler=self._comfy_config.base_scheduler,
+            base_denoise=self._comfy_config.base_denoise,
+            refiner_steps=self._comfy_config.refiner_steps,
+            refiner_cfg=self._comfy_config.refiner_cfg,
+            refiner_sampler=self._comfy_config.refiner_sampler,
+            refiner_scheduler=self._comfy_config.refiner_scheduler,
+            refiner_denoise=self._comfy_config.refiner_denoise,
+            upscale_steps=self._comfy_config.upscale_steps,
+            upscale_cfg=self._comfy_config.upscale_cfg,
+            upscale_sampler=self._comfy_config.upscale_sampler,
+            upscale_scheduler=self._comfy_config.upscale_scheduler,
+            upscale_denoise=self._comfy_config.upscale_denoise,
             loras=loras,
         )
-        graph = template.patch(patch)
-        receipt = await self._client.submit(graph)
-        on_submitted(receipt.prompt_id)
-        result = await self._client.wait_for_completion(receipt.prompt_id)
-        if not result.outputs:
-            raise ComfyUIExecutionError(
-                f"ComfyUI completed without image outputs: {receipt.prompt_id}",
-                retryable=False,
-            )
+        try:
+            graph = template.patch(patch)
+            receipt = await self._client.submit(graph)
+            on_submitted(receipt.prompt_id)
+            result = await self._client.wait_for_completion(receipt.prompt_id)
+            if not result.outputs:
+                raise ComfyUIExecutionError(
+                    f"ComfyUI completed without image outputs: {receipt.prompt_id}",
+                    retryable=False,
+                )
 
-        root = output_dir.expanduser().resolve()
-        paths = tuple(
-            root / output.subfolder / output.filename
-            for output in result.outputs
-            if output.output_type == "output"
-        )
-        if not paths:
-            raise ComfyUIExecutionError(
-                f"ComfyUI returned no output-type images: {receipt.prompt_id}",
-                retryable=False,
-            )
-        return GeneratedBatch(
-            prompt_id=receipt.prompt_id,
-            output_paths=paths,
-            outputs=tuple(
-                output.model_dump(mode="json")
+            root = output_dir.expanduser().resolve()
+            paths = tuple(
+                root / output.subfolder / output.filename
                 for output in result.outputs
-            ),
-        )
+                if output.output_type == "output"
+            )
+            if not paths:
+                raise ComfyUIExecutionError(
+                    f"ComfyUI returned no output-type images: {receipt.prompt_id}",
+                    retryable=False,
+                )
+            return GeneratedBatch(
+                prompt_id=receipt.prompt_id,
+                output_paths=paths,
+                outputs=tuple(
+                    output.model_dump(mode="json")
+                    for output in result.outputs
+                ),
+            )
+        except Exception:
+            if self._comfy_config.release_vram_on_error:
+                await self._release_vram_best_effort()
+            raise
+        finally:
+            if self._comfy_config.release_vram_after_attempt:
+                await self._release_vram_best_effort()
