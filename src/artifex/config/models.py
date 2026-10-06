@@ -74,6 +74,14 @@ class PlannerConfig(StrictModel):
 class ProductionConfig(StrictModel):
     retry_limit: int = Field(default=3, ge=0)
     infrastructure_retry_limit: int = Field(default=5, ge=0)
+    retry_alternate_lora_limit: int = Field(default=1, ge=0)
+    retry_adjust_lora_weight_limit: int = Field(default=2, ge=0)
+    retry_revise_prompt_limit: int = Field(default=2, ge=0)
+    retry_repair_workflow_limit: int = Field(default=1, ge=0)
+    retry_vary_scene_limit: int = Field(default=2, ge=0)
+    retry_change_seed_limit: int = Field(default=3, ge=0)
+    retry_lora_weight_step: float = Field(default=0.10, gt=0, le=0.5)
+    repair_workflow_template: str = "ilxl_repair_v1"
     idea_inventory_target: int = Field(default=30, ge=0)
     planned_inventory_target: int = Field(default=10, ge=0)
     completed_inventory_target: int | None = Field(default=7, ge=0)
