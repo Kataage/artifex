@@ -339,9 +339,23 @@ class DiscordConfig(StrictModel):
         return self
 
 
+class PatreonConfig(StrictModel):
+    enabled: bool = True
+    default_archetype: Literal[
+        "public_preview_member_continuation",
+        "sfw_complete_member_alternate",
+        "public_only",
+        "member_only",
+    ] = "public_preview_member_continuation"
+    generate_post_package: bool = True
+    default_tags: tuple[str, ...] = ("illustration", "hololive")
+    include_character_tags: bool = True
+
+
 class RightsConfig(StrictModel):
     enforce: bool = True
     default_profile: str = "unconfigured"
+    platform_profile: str | None = None
     profile_dirs: tuple[Path, ...] = (Path("profiles/policies"),)
 
 
@@ -376,6 +390,7 @@ class ArtifexSettings(StrictModel):
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     trends: TrendConfig = Field(default_factory=TrendConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    patreon: PatreonConfig = Field(default_factory=PatreonConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     rights: RightsConfig = Field(default_factory=RightsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
