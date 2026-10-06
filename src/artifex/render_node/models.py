@@ -38,3 +38,4 @@ class RenderNodeAttestation(RenderNodeModel):
     comfyui_base_url: str
     assets: tuple[RenderAssetDigest, ...] = ()
     loras: tuple[RenderLoRAInventoryItem, ...] = ()
+    inventory_errors: tuple[dict[str, str], ...] = ()
