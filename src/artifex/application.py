@@ -36,7 +36,17 @@ from artifex.evaluation import (
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
-from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
+from artifex.loras import (
+    LoRADiscovery,
+    LoRADiscoveryMaintenance,
+    LoRARegistry,
+    LoRAResolver,
+    LoRAValidationMaintenance,
+    LoRAValidationMatrixRunner,
+    LoRAValidationRunRepository,
+    LoRAValidationService,
+    ProductionLoRAValidationProbe,
+)
 from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
 from artifex.operations import (
     HealthChecker,
@@ -504,6 +514,24 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
 
     vision = OpenAICompatibleVisionEvaluationProvider(settings.evaluation)
     evaluator = EvaluationEngine(vision, similarity, settings.evaluation)
+    lora_validation_runner: LoRAValidationMatrixRunner | None = None
+    if settings.loras.validation_enabled:
+        lora_validation_runner = LoRAValidationMatrixRunner(
+            core.loras,
+            LoRAValidationService(core.loras, settings.loras),
+            LoRAValidationRunRepository(core.database),
+            ProductionLoRAValidationProbe(
+                core.characters,
+                lora_resolver,
+                prompts,
+                backend,
+                evaluator,
+                settings.loras,
+                model_family=settings.production.model_family,
+            ),
+            settings.loras,
+        )
+
     attempts = GenerationAttemptRepository(core.database)
     evaluations = EvaluationRepository(core.database)
     selector = AttemptSelector(core.database, core.runtime, evaluations)
@@ -595,12 +623,39 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.telemetry,
         interval_seconds=settings.trends.refresh_interval_seconds,
     )
+    lora_discovery_maintenance = LoRADiscoveryMaintenance(
+        LoRADiscovery(
+            core.loras,
+            core.characters,
+            extensions=settings.loras.extensions,
+            max_header_bytes=(
+                settings.loras.metadata_header_max_mib * 1024 * 1024
+            ),
+        ),
+        core.telemetry,
+        roots=settings.loras.roots,
+        interval_seconds=settings.loras.rescan_interval_seconds,
+    )
+    maintenance_tasks: list[Any] = [
+        supervisor,
+        signal_maintenance,
+        lora_discovery_maintenance,
+    ]
+    if lora_validation_runner is not None:
+        maintenance_tasks.append(
+            LoRAValidationMaintenance(
+                lora_validation_runner,
+                core.telemetry,
+                interval_seconds=settings.loras.validation_interval_seconds,
+                assets_per_cycle=settings.loras.validation_assets_per_cycle,
+            )
+        )
     daemon = RuntimeDaemon(
         core.runtime,
         core.scheduler,
         coordinator,
         settings.agent,
-        maintenance=MaintenanceGroup((supervisor, signal_maintenance)),
+        maintenance=MaintenanceGroup(maintenance_tasks),
     )
     return ArtifexApplication(
         core,
