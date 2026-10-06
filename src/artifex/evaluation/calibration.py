@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from statistics import fmean
 from typing import Literal
@@ -171,7 +172,7 @@ def _calibrate_threshold(
 
     values = sorted({*positives, *negatives})
     candidates: list[float] = [0.0, 1.0]
-    for left, right in zip(values, values[1:], strict=False):
+    for left, right in pairwise(values):
         candidates.append((left + right) / 2.0)
     candidates.extend(values)
 
