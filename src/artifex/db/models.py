@@ -114,6 +114,24 @@ class EvaluationRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class SemanticEmbeddingRow(Base):
+    __tablename__ = "semantic_embeddings"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    subject_type: Mapped[str] = mapped_column(String(64), index=True)
+    subject_id: Mapped[str] = mapped_column(String(512), index=True)
+    modality: Mapped[str] = mapped_column(String(16), index=True)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    provider: Mapped[str] = mapped_column(String(100), index=True)
+    model: Mapped[str] = mapped_column(String(240), index=True)
+    revision: Mapped[str] = mapped_column(String(160), index=True)
+    dimensions: Mapped[int] = mapped_column(Integer)
+    vector_json: Mapped[list[float]] = mapped_column(JSON)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class TrendSignalRow(Base):
     __tablename__ = "trend_signals"
 
