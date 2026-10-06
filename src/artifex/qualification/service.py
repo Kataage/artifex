@@ -193,10 +193,15 @@ class QualificationService:
             set(self._settings.qualification.required_asset_labels)
             - present_labels
         )
+        os_info = environment.get("os")
+        native_windows = (
+            isinstance(os_info, dict)
+            and os_info.get("system") == "Windows"
+        )
         requirements = {
             "native_windows": (
                 not self._settings.qualification.require_native_windows
-                or environment["os"]["system"] == "Windows"
+                or native_windows
             ),
             "uv": (
                 not self._settings.qualification.require_uv
@@ -432,11 +437,14 @@ class QualificationService:
         elif stage is QualificationStage.GROUP:
             self._require_character_count(packs, minimum=3)
         elif stage is QualificationStage.PUBLIC_MEMBER:
-            tiers = {
-                tier
-                for pack in packs
-                for tier in pack["publication_tiers"]
-            }
+            tiers: set[str] = set()
+            for pack in packs:
+                raw_tiers = pack.get("publication_tiers")
+                if not isinstance(raw_tiers, list):
+                    raise TypeError(
+                        f"Pack {pack.get('pack_id')} has invalid publication tier evidence"
+                    )
+                tiers.update(str(tier) for tier in raw_tiers)
             if not {"public", "member"} <= tiers:
                 raise ValueError(
                     "public_member requires both public and member Scenes"
@@ -452,14 +460,21 @@ class QualificationService:
                     "series_continuation Packs must share one non-null Series ID"
                 )
         elif stage is QualificationStage.FORCED_RETRY:
-            if not any(pack["retry_count"] > 0 for pack in packs):
+            retry_counts = [pack.get("retry_count") for pack in packs]
+            if not any(
+                isinstance(value, int) and value > 0
+                for value in retry_counts
+            ):
                 raise ValueError("forced_retry has no persisted retry history")
         elif stage is QualificationStage.RESTART_GENERATION:
-            repeated = {
-                prompt_id
-                for pack in packs
-                for prompt_id in pack["repeated_prompt_ids"]
-            }
+            repeated: set[str] = set()
+            for pack in packs:
+                raw_prompt_ids = pack.get("repeated_prompt_ids")
+                if not isinstance(raw_prompt_ids, list):
+                    raise TypeError(
+                        f"Pack {pack.get('pack_id')} has invalid prompt ID evidence"
+                    )
+                repeated.update(str(value) for value in raw_prompt_ids)
             if repeated:
                 raise ValueError(
                     "restart_generation detected duplicate Comfy prompt IDs: "
