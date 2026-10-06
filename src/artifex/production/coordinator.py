@@ -35,6 +35,7 @@ from artifex.production.context import PlanningContextBuilder
 from artifex.prompts import CompiledPrompt, PromptCompiler
 from artifex.research import ResearchDirector
 from artifex.retry import (
+    RetryAction,
     RetryActionExecutor,
     RetryExecutionRecord,
     RetryPolicy,
@@ -827,19 +828,14 @@ class ProductionCoordinator:
         self,
         scene_id: str,
         result: EvaluationResult,
-        actions: tuple[Any, ...],
+        actions: tuple[RetryAction, ...],
         retry_number: int,
     ) -> bool:
         row = self._scene_row(scene_id)
         history = self._retry_history(row)
-        typed_actions = tuple(
-            action
-            for action in actions
-            if hasattr(action, "value")
-        )
         execution = self._retry_executor.execute(
             inputs=self._retry_inputs(row),
-            actions=typed_actions,
+            actions=actions,
             reasons=result.reasons,
             retry_number=retry_number,
             history=history,
