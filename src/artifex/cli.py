@@ -1308,6 +1308,17 @@ def doctor(config: ConfigOption = None) -> None:
 def daemon(config: ConfigOption = None) -> None:
     """Start the long-running autonomous Artifex daemon."""
     settings = _settings(config)
+    if (
+        settings.llm.backend == "llama_cpp"
+        and settings.llm.bootstrap.enabled
+        and settings.llm.bootstrap.auto_download
+    ):
+        try:
+            model = bootstrap_llm(settings.llm)
+        except (OSError, ValueError, httpx.HTTPError) as exc:
+            typer.echo(f"LLM bootstrap error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"LLM model ready: {model.path}")
     application = build_application(settings)
     try:
         asyncio.run(application.run())
