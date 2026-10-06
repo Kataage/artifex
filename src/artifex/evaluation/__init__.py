@@ -24,6 +24,7 @@ from artifex.evaluation.vision import OpenAICompatibleVisionEvaluationProvider
 
 __all__ = [
     "AttemptSelector",
+    "EmbeddingModelDescriptor",
     "EmbeddingProvider",
     "EvaluationContext",
     "EvaluationEngine",
@@ -34,7 +35,6 @@ __all__ = [
     "EvaluationScores",
     "GenerationAttemptRepository",
     "LocalSimilarityEmbeddingProvider",
-    "EmbeddingModelDescriptor",
     "OpenAICompatibleVisionEvaluationProvider",
     "RawEvaluationSignals",
     "SelectionResult",
