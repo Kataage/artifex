@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,45 @@ from artifex.operations.health import ComponentHealth, ComponentState, HealthChe
 from artifex.telemetry import TelemetryRepository
 
 
+def _write_calibration(path: Path) -> None:
+    threshold = {
+        "threshold": 0.8,
+        "balanced_accuracy": 0.95,
+        "positive_count": 8,
+        "negative_count": 8,
+        "positive_min": 0.75,
+        "positive_mean": 0.9,
+        "negative_max": 0.5,
+        "negative_mean": 0.3,
+        "margin": 0.25,
+        "validated": True,
+    }
+    path.write_text(
+        json.dumps(
+            {
+                "profile_id": "siglip2-hololive-ilxl-v1",
+                "corpus_id": "doctor-test",
+                "provider": "transformers_siglip2",
+                "model": "google/siglip2-base-patch16-224",
+                "revision": "test-revision",
+                "generated_at": "2026-10-06T00:00:00Z",
+                "identity_hard_min": 0.65,
+                "identity_accept_min": 0.80,
+                "similarity_hard_max": 0.85,
+                "planner_hard_similarity_threshold": 0.82,
+                "identity": {"purpose": "identity", **threshold},
+                "duplicate": {"purpose": "duplicate", **threshold},
+                "text_paraphrase": {
+                    "purpose": "text_paraphrase",
+                    **threshold,
+                },
+                "validated": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 class HealthyComfy:
     async def health(self):
         from artifex.comfy import ComfyHealth
@@ -30,7 +70,16 @@ class HealthyComfy:
 
 
 @pytest.mark.asyncio
-async def test_doctor_reports_complete_production_readiness(tmp_path: Path) -> None:
+async def test_doctor_reports_complete_production_readiness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "artifex.operations.doctor.find_spec",
+        lambda _name: object(),
+    )
+    calibration_path = tmp_path / "semantic-calibration.json"
+    _write_calibration(calibration_path)
     database = Database(f"sqlite:///{(tmp_path / 'doctor.sqlite3').as_posix()}")
     database.migrate()
     settings = ArtifexSettings(
@@ -39,6 +88,7 @@ async def test_doctor_reports_complete_production_readiness(tmp_path: Path) -> N
         evaluation=EvaluationConfig(
             vision_base_url="http://vision.test",
             vision_model="vision-model",
+            semantic_calibration_path=calibration_path,
         ),
         storage=StorageConfig(
             database_url=database.database_url,
