@@ -27,7 +27,7 @@ class PackPlanner:
         self._generator = generator
         self._repository = repository
         self._context = context_config or ContextConfig()
-        self._patreon = patreon_config or PatreonConfig()
+        self._patreon = patreon_config or PatreonConfig(enabled=False)
 
     async def plan_and_persist(
         self,
