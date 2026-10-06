@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from artifex.loras.automated import LoRAValidationMatrixRunner
 from artifex.loras.discovery import DiscoveryResult, LoRADiscovery
@@ -14,7 +15,7 @@ class LoRADiscoveryMaintenance:
         discovery: LoRADiscovery,
         telemetry: TelemetryRepository,
         *,
-        roots: tuple,
+        roots: tuple[Path, ...],
         interval_seconds: float,
     ) -> None:
         self._discovery = discovery
