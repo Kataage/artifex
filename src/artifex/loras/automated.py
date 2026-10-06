@@ -278,6 +278,11 @@ class ProductionLoRAValidationProbe:
         candidate = LoRAPlanEntry(
             lora_id=profile.id,
             path=str(profile.path),
+            asset_name=(
+                str(profile.metadata.get("asset_name"))
+                if profile.metadata.get("asset_name")
+                else profile.path.name
+            ),
             weight=weight,
             character_ids=(character_id,),
             trigger_tags=profile.trigger_tags,
@@ -315,6 +320,13 @@ class ProductionLoRAValidationProbe:
         return base.model_copy(update={"entries": entries})
 
 
+def _profile_asset_available(profile: LoRAProfile) -> bool:
+    return (
+        profile.source is not None
+        and profile.source.startswith("render-node:")
+    ) or profile.path.is_file()
+
+
 class LoRAValidationMatrixRunner:
     def __init__(
         self,
@@ -335,7 +347,7 @@ class LoRAValidationMatrixRunner:
 
     async def run(self, lora_id: str) -> LoRAValidationRun:
         profile = self._registry.require(lora_id)
-        if not profile.path.is_file():
+        if not _profile_asset_available(profile):
             invalidated = self._registry.invalidate(
                 lora_id,
                 target=LoRAState.DISABLED,
@@ -456,7 +468,7 @@ class LoRAValidationMatrixRunner:
             for profile in self._registry.list(
                 states=(LoRAState.DISCOVERED, LoRAState.PENDING)
             )
-            if profile.path.is_file()
+            if _profile_asset_available(profile)
         ]
         candidates.sort(
             key=lambda profile: (
