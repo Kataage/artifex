@@ -336,7 +336,14 @@ operations:
 qualification:
   evidence_dir: data/qualification
   minimum_soak_hours: 8
-  hash_paths: []
+  asset_paths: {}
+  required_asset_labels:
+    - production_checkpoint
+    - refiner_checkpoint
+    - vae
+    - upscale_model
+    - llm_model
+    - semantic_model
   require_native_windows: true
   require_uv: true
   require_nvidia_gpu: true
