@@ -1,0 +1,1471 @@
+{
+  "lexicon_id": "artifex-ilxl-danbooru-core",
+  "version": "2026-10-06.2",
+  "tags": [
+    {
+      "tag": "solo",
+      "category": "meta",
+      "aliases": [
+        "single character",
+        "one character"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "1girl",
+      "category": "meta",
+      "aliases": [
+        "one girl",
+        "single girl"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "2girls",
+      "category": "meta",
+      "aliases": [
+        "two girls"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "multiple_girls",
+      "category": "meta",
+      "aliases": [
+        "multiple girls",
+        "group of girls"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "full_body",
+      "category": "composition",
+      "aliases": [
+        "full body",
+        "full-body"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "upper_body",
+      "category": "composition",
+      "aliases": [
+        "upper body",
+        "upper-body"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "cowboy_shot",
+      "category": "composition",
+      "aliases": [
+        "cowboy shot",
+        "medium full shot"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "close-up",
+      "category": "composition",
+      "aliases": [
+        "close up",
+        "close-up",
+        "closeup"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "portrait",
+      "category": "composition",
+      "aliases": [
+        "portrait composition",
+        "portrait shot"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "wide_shot",
+      "category": "composition",
+      "aliases": [
+        "wide shot",
+        "wide composition"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "from_below",
+      "category": "camera",
+      "aliases": [
+        "low angle",
+        "from below",
+        "slightly from below"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "from_above",
+      "category": "camera",
+      "aliases": [
+        "high angle",
+        "from above",
+        "slightly from above"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "straight-on",
+      "category": "camera",
+      "aliases": [
+        "eye level",
+        "straight on",
+        "front view"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "side_view",
+      "category": "camera",
+      "aliases": [
+        "side view",
+        "profile view"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "back_view",
+      "category": "camera",
+      "aliases": [
+        "back view",
+        "from behind"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "dutch_angle",
+      "category": "camera",
+      "aliases": [
+        "dutch angle",
+        "tilted camera"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "pov",
+      "category": "camera",
+      "aliases": [
+        "point of view",
+        "pov shot"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "fisheye",
+      "category": "camera",
+      "aliases": [
+        "fisheye",
+        "fisheye lens"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "sitting",
+      "category": "pose",
+      "aliases": [
+        "sit",
+        "seated"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "standing",
+      "category": "pose",
+      "aliases": [
+        "stand",
+        "standing pose"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "lying",
+      "category": "pose",
+      "aliases": [
+        "lying down",
+        "laying down"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "kneeling",
+      "category": "pose",
+      "aliases": [
+        "kneel",
+        "on knees"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "squatting",
+      "category": "pose",
+      "aliases": [
+        "squat",
+        "squatting pose"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "walking",
+      "category": "pose",
+      "aliases": [
+        "walk",
+        "walking pose"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "running",
+      "category": "pose",
+      "aliases": [
+        "run",
+        "running pose"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "jumping",
+      "category": "pose",
+      "aliases": [
+        "jump",
+        "jumping pose"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "leaning",
+      "category": "pose",
+      "aliases": [
+        "leaning pose",
+        "leaning forward"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "crossed_legs",
+      "category": "pose",
+      "aliases": [
+        "crossed legs",
+        "legs crossed"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "arms_crossed",
+      "category": "pose",
+      "aliases": [
+        "arms crossed",
+        "crossed arms"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "hands_on_hips",
+      "category": "pose",
+      "aliases": [
+        "hands on hips"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "hand_on_hip",
+      "category": "pose",
+      "aliases": [
+        "hand on hip",
+        "one hand on hip"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "arms_up",
+      "category": "pose",
+      "aliases": [
+        "arms up",
+        "raised arms"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "outstretched_arms",
+      "category": "pose",
+      "aliases": [
+        "outstretched arms",
+        "arms out"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "looking_at_viewer",
+      "category": "gaze",
+      "aliases": [
+        "looking at viewer",
+        "look at viewer",
+        "eye contact"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "looking_away",
+      "category": "gaze",
+      "aliases": [
+        "looking away",
+        "averted gaze"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "looking_back",
+      "category": "gaze",
+      "aliases": [
+        "looking back",
+        "looking over shoulder"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "smile",
+      "category": "expression",
+      "aliases": [
+        "soft smile",
+        "gentle smile",
+        "smiling"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "grin",
+      "category": "expression",
+      "aliases": [
+        "grinning",
+        "big grin"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "frown",
+      "category": "expression",
+      "aliases": [
+        "frowning",
+        "sad frown"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "open_mouth",
+      "category": "expression",
+      "aliases": [
+        "open mouth",
+        "mouth open"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "closed_mouth",
+      "category": "expression",
+      "aliases": [
+        "closed mouth",
+        "mouth closed"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "blush",
+      "category": "expression",
+      "aliases": [
+        "blushing",
+        "flushed cheeks"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "embarrassed",
+      "category": "expression",
+      "aliases": [
+        "embarrassed expression",
+        "shy expression"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "surprised",
+      "category": "expression",
+      "aliases": [
+        "surprised expression",
+        "surprise"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "angry",
+      "category": "expression",
+      "aliases": [
+        "angry expression",
+        "anger"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "crying",
+      "category": "expression",
+      "aliases": [
+        "crying expression",
+        "crying"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "tears",
+      "category": "expression",
+      "aliases": [
+        "teary eyes",
+        "tears"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "closed_eyes",
+      "category": "expression",
+      "aliases": [
+        "eyes closed",
+        "closed eyes"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "one_eye_closed",
+      "category": "expression",
+      "aliases": [
+        "one eye closed",
+        "wink",
+        "winking"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "dress",
+      "category": "clothing",
+      "aliases": [
+        "dress"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "white_dress",
+      "category": "clothing",
+      "aliases": [
+        "white dress"
+      ],
+      "implies": [
+        "dress"
+      ]
+    },
+    {
+      "tag": "black_dress",
+      "category": "clothing",
+      "aliases": [
+        "black dress"
+      ],
+      "implies": [
+        "dress"
+      ]
+    },
+    {
+      "tag": "skirt",
+      "category": "clothing",
+      "aliases": [
+        "skirt"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "miniskirt",
+      "category": "clothing",
+      "aliases": [
+        "mini skirt",
+        "short skirt",
+        "miniskirt"
+      ],
+      "implies": [
+        "skirt"
+      ]
+    },
+    {
+      "tag": "pleated_skirt",
+      "category": "clothing",
+      "aliases": [
+        "pleated skirt"
+      ],
+      "implies": [
+        "skirt"
+      ]
+    },
+    {
+      "tag": "shirt",
+      "category": "clothing",
+      "aliases": [
+        "shirt"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "white_shirt",
+      "category": "clothing",
+      "aliases": [
+        "white shirt"
+      ],
+      "implies": [
+        "shirt"
+      ]
+    },
+    {
+      "tag": "black_shirt",
+      "category": "clothing",
+      "aliases": [
+        "black shirt"
+      ],
+      "implies": [
+        "shirt"
+      ]
+    },
+    {
+      "tag": "blouse",
+      "category": "clothing",
+      "aliases": [
+        "blouse"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "sweater",
+      "category": "clothing",
+      "aliases": [
+        "sweater"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "hoodie",
+      "category": "clothing",
+      "aliases": [
+        "hoodie"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "jacket",
+      "category": "clothing",
+      "aliases": [
+        "jacket"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "coat",
+      "category": "clothing",
+      "aliases": [
+        "coat"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "uniform",
+      "category": "clothing",
+      "aliases": [
+        "uniform"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "school_uniform",
+      "category": "clothing",
+      "aliases": [
+        "school uniform"
+      ],
+      "implies": [
+        "uniform"
+      ]
+    },
+    {
+      "tag": "sailor_collar",
+      "category": "clothing",
+      "aliases": [
+        "sailor collar"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "swimsuit",
+      "category": "clothing",
+      "aliases": [
+        "swimsuit",
+        "swimwear"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "bikini",
+      "category": "clothing",
+      "aliases": [
+        "bikini"
+      ],
+      "implies": [
+        "swimsuit"
+      ]
+    },
+    {
+      "tag": "thighhighs",
+      "category": "clothing",
+      "aliases": [
+        "thigh highs",
+        "thigh-highs",
+        "thighhighs"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "knee_highs",
+      "category": "clothing",
+      "aliases": [
+        "knee highs",
+        "knee-high socks"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "socks",
+      "category": "clothing",
+      "aliases": [
+        "socks"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "shoes",
+      "category": "clothing",
+      "aliases": [
+        "shoes"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "boots",
+      "category": "clothing",
+      "aliases": [
+        "boots"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "sneakers",
+      "category": "clothing",
+      "aliases": [
+        "sneakers"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "gloves",
+      "category": "clothing",
+      "aliases": [
+        "gloves"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "hat",
+      "category": "clothing",
+      "aliases": [
+        "hat"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "ribbon",
+      "category": "clothing",
+      "aliases": [
+        "ribbon"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "necktie",
+      "category": "clothing",
+      "aliases": [
+        "necktie",
+        "tie"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "window",
+      "category": "setting",
+      "aliases": [
+        "window",
+        "window frame",
+        "windowsill"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "indoors",
+      "category": "setting",
+      "aliases": [
+        "indoors",
+        "inside"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "outdoors",
+      "category": "setting",
+      "aliases": [
+        "outdoors",
+        "outside"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "bedroom",
+      "category": "setting",
+      "aliases": [
+        "bedroom"
+      ],
+      "implies": [
+        "indoors"
+      ]
+    },
+    {
+      "tag": "classroom",
+      "category": "setting",
+      "aliases": [
+        "classroom"
+      ],
+      "implies": [
+        "indoors"
+      ]
+    },
+    {
+      "tag": "street",
+      "category": "setting",
+      "aliases": [
+        "city street",
+        "street",
+        "urban street"
+      ],
+      "implies": [
+        "outdoors"
+      ]
+    },
+    {
+      "tag": "city",
+      "category": "setting",
+      "aliases": [
+        "city",
+        "urban city"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "rooftop",
+      "category": "setting",
+      "aliases": [
+        "rooftop",
+        "roof top"
+      ],
+      "implies": [
+        "outdoors"
+      ]
+    },
+    {
+      "tag": "sky",
+      "category": "setting",
+      "aliases": [
+        "sky"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "clouds",
+      "category": "setting",
+      "aliases": [
+        "clouds",
+        "cloudy sky"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "beach",
+      "category": "setting",
+      "aliases": [
+        "beach",
+        "seaside"
+      ],
+      "implies": [
+        "outdoors"
+      ]
+    },
+    {
+      "tag": "ocean",
+      "category": "setting",
+      "aliases": [
+        "ocean",
+        "sea"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "pool",
+      "category": "setting",
+      "aliases": [
+        "pool",
+        "swimming pool"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "forest",
+      "category": "setting",
+      "aliases": [
+        "forest",
+        "woods"
+      ],
+      "implies": [
+        "outdoors"
+      ]
+    },
+    {
+      "tag": "garden",
+      "category": "setting",
+      "aliases": [
+        "garden"
+      ],
+      "implies": [
+        "outdoors"
+      ]
+    },
+    {
+      "tag": "park",
+      "category": "setting",
+      "aliases": [
+        "park"
+      ],
+      "implies": [
+        "outdoors"
+      ]
+    },
+    {
+      "tag": "cafe",
+      "category": "setting",
+      "aliases": [
+        "cafe",
+        "coffee shop"
+      ],
+      "implies": [
+        "indoors"
+      ]
+    },
+    {
+      "tag": "kitchen",
+      "category": "setting",
+      "aliases": [
+        "kitchen"
+      ],
+      "implies": [
+        "indoors"
+      ]
+    },
+    {
+      "tag": "bathroom",
+      "category": "setting",
+      "aliases": [
+        "bathroom"
+      ],
+      "implies": [
+        "indoors"
+      ]
+    },
+    {
+      "tag": "stage",
+      "category": "setting",
+      "aliases": [
+        "stage",
+        "concert stage"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "night",
+      "category": "time",
+      "aliases": [
+        "night",
+        "nighttime"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "day",
+      "category": "time",
+      "aliases": [
+        "day",
+        "daytime"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "sunset",
+      "category": "time",
+      "aliases": [
+        "sunset",
+        "sunset light",
+        "golden sunset"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "sunrise",
+      "category": "time",
+      "aliases": [
+        "sunrise",
+        "dawn"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "backlighting",
+      "category": "lighting",
+      "aliases": [
+        "backlighting",
+        "backlit"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "rim_lighting",
+      "category": "lighting",
+      "aliases": [
+        "rim lighting",
+        "rim light",
+        "sunset rim light"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "sunlight",
+      "category": "lighting",
+      "aliases": [
+        "sunlight",
+        "natural sunlight"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "moonlight",
+      "category": "lighting",
+      "aliases": [
+        "moonlight"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "neon_lights",
+      "category": "lighting",
+      "aliases": [
+        "neon lights",
+        "neon lighting"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "volumetric_lighting",
+      "category": "lighting",
+      "aliases": [
+        "volumetric lighting",
+        "god rays"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "soft_lighting",
+      "category": "lighting",
+      "aliases": [
+        "soft lighting",
+        "soft light"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "dramatic_lighting",
+      "category": "lighting",
+      "aliases": [
+        "dramatic lighting"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "wind",
+      "category": "atmosphere",
+      "aliases": [
+        "wind",
+        "windy",
+        "airy breeze"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "floating_hair",
+      "category": "atmosphere",
+      "aliases": [
+        "floating hair",
+        "hair blowing"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "petals",
+      "category": "atmosphere",
+      "aliases": [
+        "petals",
+        "flower petals"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "cherry_blossoms",
+      "category": "atmosphere",
+      "aliases": [
+        "cherry blossoms",
+        "sakura"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "rain",
+      "category": "atmosphere",
+      "aliases": [
+        "rain",
+        "raining"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "snow",
+      "category": "atmosphere",
+      "aliases": [
+        "snow",
+        "snowing"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "fog",
+      "category": "atmosphere",
+      "aliases": [
+        "fog",
+        "mist"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "lens_flare",
+      "category": "effect",
+      "aliases": [
+        "lens flare"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "depth_of_field",
+      "category": "effect",
+      "aliases": [
+        "depth of field",
+        "shallow depth of field"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "blurry_background",
+      "category": "effect",
+      "aliases": [
+        "blurry background",
+        "blurred background"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "bokeh",
+      "category": "effect",
+      "aliases": [
+        "bokeh"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "extra_digits",
+      "category": "negative_control",
+      "aliases": [
+        "extra fingers",
+        "extra digits",
+        "too many fingers"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "missing_fingers",
+      "category": "negative_control",
+      "aliases": [
+        "missing fingers"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "bad_hands",
+      "category": "negative_control",
+      "aliases": [
+        "bad hands",
+        "poor hands"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "bad_anatomy",
+      "category": "negative_control",
+      "aliases": [
+        "bad anatomy",
+        "anatomy error"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "text",
+      "category": "negative_control",
+      "aliases": [
+        "text"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "watermark",
+      "category": "negative_control",
+      "aliases": [
+        "watermark"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "signature",
+      "category": "negative_control",
+      "aliases": [
+        "signature"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "multiple_views",
+      "category": "negative_control",
+      "aliases": [
+        "multiple views",
+        "multiple panels"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "cropped",
+      "category": "negative_control",
+      "aliases": [
+        "cropped",
+        "cut off"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "lowres",
+      "category": "negative_control",
+      "aliases": [
+        "low resolution",
+        "lowres"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "low_quality",
+      "category": "negative_control",
+      "aliases": [
+        "low quality"
+      ],
+      "implies": []
+    },
+    {
+      "tag": "worst_quality",
+      "category": "negative_control",
+      "aliases": [
+        "worst quality"
+      ],
+      "implies": []
+    }
+  ],
+  "phrase_aliases": {
+    "sitting on window frame": [
+      "sitting",
+      "window"
+    ],
+    "sitting on the window frame": [
+      "sitting",
+      "window"
+    ],
+    "sitting in an open window": [
+      "sitting",
+      "window"
+    ],
+    "perched in an open window": [
+      "sitting",
+      "window"
+    ],
+    "half outside an open window": [
+      "window"
+    ],
+    "body partly outside the window": [
+      "window"
+    ],
+    "three-quarter view": [
+      "straight-on"
+    ],
+    "three quarter view": [
+      "straight-on"
+    ],
+    "gentle expression": [
+      "smile"
+    ],
+    "calm expression": [
+      "closed_mouth"
+    ],
+    "airy": [
+      "wind"
+    ],
+    "sunset rim light": [
+      "sunset",
+      "rim_lighting"
+    ],
+    "soft sunset light": [
+      "sunset",
+      "soft_lighting"
+    ],
+    "city street at night": [
+      "street",
+      "city",
+      "night"
+    ],
+    "night city": [
+      "city",
+      "night"
+    ],
+    "school rooftop": [
+      "rooftop"
+    ],
+    "standing by a window": [
+      "standing",
+      "window"
+    ],
+    "leaning against wall": [
+      "leaning"
+    ],
+    "hands resting on hips": [
+      "hands_on_hips"
+    ],
+    "arms folded": [
+      "arms_crossed"
+    ],
+    "look over shoulder": [
+      "looking_back"
+    ],
+    "bright smile": [
+      "smile"
+    ],
+    "gentle smile": [
+      "smile"
+    ],
+    "white one-piece dress": [
+      "white_dress"
+    ],
+    "black one-piece dress": [
+      "black_dress"
+    ],
+    "casual hoodie": [
+      "hoodie"
+    ],
+    "school uniform": [
+      "school_uniform"
+    ],
+    "sailor-style school uniform": [
+      "school_uniform",
+      "sailor_collar"
+    ],
+    "poolside": [
+      "pool",
+      "outdoors"
+    ],
+    "seaside": [
+      "beach",
+      "ocean"
+    ],
+    "moonlit night": [
+      "night",
+      "moonlight"
+    ],
+    "golden hour": [
+      "sunset",
+      "soft_lighting"
+    ],
+    "soft natural light": [
+      "soft_lighting"
+    ],
+    "strong backlight": [
+      "backlighting"
+    ],
+    "windy atmosphere": [
+      "wind",
+      "floating_hair"
+    ],
+    "falling cherry blossoms": [
+      "cherry_blossoms",
+      "petals"
+    ],
+    "rainy street": [
+      "rain",
+      "street"
+    ],
+    "snowy park": [
+      "snow",
+      "park"
+    ],
+    "cinematic depth of field": [
+      "depth_of_field",
+      "blurry_background"
+    ]
+  },
+  "conflict_groups": [
+    [
+      "from_above",
+      "from_below",
+      "straight-on"
+    ],
+    [
+      "close-up",
+      "upper_body",
+      "cowboy_shot",
+      "full_body",
+      "wide_shot"
+    ],
+    [
+      "standing",
+      "sitting",
+      "lying",
+      "kneeling",
+      "squatting"
+    ],
+    [
+      "open_mouth",
+      "closed_mouth"
+    ],
+    [
+      "looking_at_viewer",
+      "looking_away"
+    ],
+    [
+      "day",
+      "night"
+    ]
+  ],
+  "profiles": [
+    {
+      "id": "ilxl-danbooru-v2",
+      "version": "2",
+      "model_families": [
+        "ilxl"
+      ],
+      "checkpoint_globs": [],
+      "positive_category_order": [
+        "meta",
+        "character",
+        "trigger",
+        "composition",
+        "camera",
+        "pose",
+        "gaze",
+        "expression",
+        "clothing",
+        "setting",
+        "time",
+        "lighting",
+        "atmosphere",
+        "effect",
+        "trusted"
+      ],
+      "negative_category_order": [
+        "negative_control",
+        "character",
+        "trigger",
+        "clothing",
+        "pose",
+        "setting",
+        "trusted"
+      ],
+      "required_tags": [],
+      "forbidden_tags": [],
+      "field_required": [
+        "composition",
+        "camera",
+        "pose",
+        "expression"
+      ]
+    },
+    {
+      "id": "ilxl-danbooru-character-first-v2",
+      "version": "2",
+      "model_families": [
+        "ilxl"
+      ],
+      "checkpoint_globs": [],
+      "positive_category_order": [
+        "character",
+        "trigger",
+        "meta",
+        "composition",
+        "camera",
+        "pose",
+        "gaze",
+        "expression",
+        "clothing",
+        "setting",
+        "time",
+        "lighting",
+        "atmosphere",
+        "effect",
+        "trusted"
+      ],
+      "negative_category_order": [
+        "negative_control",
+        "character",
+        "trigger",
+        "clothing",
+        "pose",
+        "setting",
+        "trusted"
+      ],
+      "required_tags": [],
+      "forbidden_tags": [],
+      "field_required": [
+        "composition",
+        "camera",
+        "pose",
+        "expression"
+      ]
+    }
+  ]
+}
