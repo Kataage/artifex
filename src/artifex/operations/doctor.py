@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from importlib.util import find_spec
+
 from pydantic import BaseModel, ConfigDict
 
 from artifex.characters import CharacterRegistry
@@ -72,6 +74,29 @@ class DoctorService:
                         and self._settings.evaluation.vision_model
                     )
                     else "evaluation vision_base_url/model are not configured"
+                ),
+            ),
+            DoctorCheck(
+                name="semantic_embeddings",
+                ready=(
+                    self._settings.evaluation.semantic_provider == "siglip2"
+                    and find_spec("torch") is not None
+                    and find_spec("transformers") is not None
+                ),
+                detail=(
+                    (
+                        f"production semantic provider: "
+                        f"{self._settings.evaluation.semantic_model} "
+                        f"({self._settings.evaluation.semantic_device})"
+                    )
+                    if self._settings.evaluation.semantic_provider == "siglip2"
+                    and find_spec("torch") is not None
+                    and find_spec("transformers") is not None
+                    else (
+                        "degraded local_fallback is not production-ready"
+                        if self._settings.evaluation.semantic_provider == "local_fallback"
+                        else "install production semantic dependencies with: uv sync --extra semantic"
+                    )
                 ),
             ),
             DoctorCheck(
