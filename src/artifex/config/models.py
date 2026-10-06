@@ -196,6 +196,30 @@ class LoRARegistryConfig(StrictModel):
     production_quality_threshold: float = Field(default=0.70, ge=0, le=1)
     production_flexibility_threshold: float = Field(default=0.50, ge=0, le=1)
     maximum_character_loras_per_scene: int = Field(default=4, ge=1)
+    maximum_total_loras_per_scene: int = Field(default=8, ge=1)
+    default_style_lora_ids: tuple[str, ...] = ()
+    default_utility_lora_ids: tuple[str, ...] = ()
+    rescan_interval_seconds: float = Field(default=300.0, gt=0)
+    validation_enabled: bool = True
+    validation_interval_seconds: float = Field(default=60.0, gt=0)
+    validation_assets_per_cycle: int = Field(default=1, ge=1, le=20)
+    validation_weights: tuple[float, ...] = (0.70, 0.85, 1.00)
+    validation_character_ids: tuple[str, ...] = ()
+    validation_seed: int = Field(default=730241, ge=0)
+    validation_output_prefix: str = "ARTIFEX/validation"
+
+    @model_validator(mode="after")
+    def validate_lora_lifecycle(self) -> LoRARegistryConfig:
+        if self.maximum_total_loras_per_scene < self.maximum_character_loras_per_scene:
+            raise ValueError(
+                "maximum_total_loras_per_scene must be >= "
+                "maximum_character_loras_per_scene"
+            )
+        if not self.validation_weights:
+            raise ValueError("validation_weights must not be empty")
+        if any(weight < -4 or weight > 4 for weight in self.validation_weights):
+            raise ValueError("validation_weights must be within [-4, 4]")
+        return self
 
 
 class PromptCompilerConfig(StrictModel):
