@@ -539,13 +539,25 @@ class ProductionCoordinator:
                 if isinstance(raw_retry_actions, list | tuple)
                 else ()
             )
+            backend_provenance = dict(self._backend.provenance())
+            raw_history = row.payload_json.get("retry_history", ())
+            latest_retry = (
+                raw_history[-1]
+                if isinstance(raw_history, list) and raw_history
+                else None
+            )
+            effective_workflow = (
+                retry_inputs.workflow_template_id
+                or backend_provenance.get("workflow_template")
+            )
             provenance = {
-                **dict(self._backend.provenance()),
+                **backend_provenance,
+                "workflow_template": effective_workflow,
                 "compiled_prompt": compiled.model_dump(mode="json"),
                 "lora_plan": lora_plan.model_dump(mode="json"),
                 "retry_actions": list(retry_actions),
                 "retry_seed_revision": retry_inputs.seed_revision,
-                "workflow_template_id": retry_inputs.workflow_template_id,
+                "retry_execution": latest_retry,
             }
             previous = self._attempts.latest_for_scene(scene_id)
             attempt = self._attempts.create(
