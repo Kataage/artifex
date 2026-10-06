@@ -73,7 +73,7 @@ async def test_identity_hard_gate_overrides_strong_global_score(tmp_path: Path) 
         SimilarityService(
             FakeEmbeddings(images={str(tmp_path / "current.png"): (1.0, 0.0)})
         ),
-        EvaluationConfig(),
+        EvaluationConfig(identity_reference_required=False),
     )
 
     result = await engine.evaluate(_context(tmp_path))
@@ -97,7 +97,7 @@ async def test_image_similarity_hard_gate_rejects_duplicate(tmp_path: Path) -> N
                 }
             )
         ),
-        EvaluationConfig(),
+        EvaluationConfig(identity_reference_required=False),
     )
 
     result = await engine.evaluate(_context(tmp_path, (old,)))
@@ -115,7 +115,7 @@ async def test_strong_result_is_accepted(tmp_path: Path) -> None:
         SimilarityService(
             FakeEmbeddings(images={str(tmp_path / "current.png"): (1.0, 0.0)})
         ),
-        EvaluationConfig(),
+        EvaluationConfig(identity_reference_required=False),
     )
 
     result = await engine.evaluate(_context(tmp_path))
@@ -131,7 +131,7 @@ async def test_low_face_quality_routes_to_review(tmp_path: Path) -> None:
         SimilarityService(
             FakeEmbeddings(images={str(tmp_path / "current.png"): (1.0, 0.0)})
         ),
-        EvaluationConfig(),
+        EvaluationConfig(identity_reference_required=False),
     )
 
     result = await engine.evaluate(_context(tmp_path))
