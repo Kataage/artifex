@@ -11,7 +11,9 @@ from artifex.comfy import (
     WorkflowTemplateRegistry,
 )
 from artifex.config.models import ArtifexSettings
+from artifex.domain import LoRAPolicy, LoRAState
 from artifex.evaluation import load_calibration_profile
+from artifex.loras import LoRARegistry
 from artifex.operations.health import HealthChecker, HealthReport
 
 
@@ -42,11 +44,13 @@ class DoctorService:
         characters: CharacterRegistry,
         *,
         comfy: ComfyUIClient | None = None,
+        loras: LoRARegistry | None = None,
     ) -> None:
         self._settings = settings
         self._health = health
         self._characters = characters
         self._comfy = comfy
+        self._loras = loras
 
     async def run(self) -> DoctorReport:
         health = await self._health.check_all(include_worker=False)
@@ -92,6 +96,7 @@ class DoctorService:
                 semantic_detail = f"invalid semantic calibration: {exc}"
 
         workflow_check = await self._workflow_dependency_check()
+        lora_check = self._lora_asset_check()
         checks = (
             DoctorCheck(
                 name="production_checkpoint",
@@ -133,6 +138,7 @@ class DoctorService:
                 detail=semantic_detail,
             ),
             workflow_check,
+            lora_check,
             DoctorCheck(
                 name="vram_release_policy",
                 ready=self._settings.comfyui.release_vram_after_attempt,
@@ -169,6 +175,51 @@ class DoctorService:
             ),
         )
         return DoctorReport(health=health, checks=checks)
+
+    def _lora_asset_check(self) -> DoctorCheck:
+        if self._loras is None:
+            return DoctorCheck(
+                name="lora_assets",
+                ready=False,
+                detail="LoRA registry probe is not attached",
+            )
+        profiles = self._loras.list()
+        counts = {
+            state.value: sum(1 for profile in profiles if profile.state is state)
+            for state in LoRAState
+        }
+        missing_required: list[str] = []
+        for character in self._characters.list(enabled_only=True):
+            if character.lora_policy is not LoRAPolicy.REQUIRED:
+                continue
+            if not self._loras.for_character(
+                character.id,
+                model_family=self._settings.production.model_family,
+                production_only=True,
+            ):
+                missing_required.append(character.id)
+        detail = (
+            " ".join(
+                f"{state}={counts[state]}"
+                for state in (
+                    "production",
+                    "pending",
+                    "discovered",
+                    "failed",
+                    "disabled",
+                    "validated",
+                )
+            )
+        )
+        if missing_required:
+            detail += "; required character LoRA missing: " + ", ".join(
+                sorted(missing_required)
+            )
+        return DoctorCheck(
+            name="lora_assets",
+            ready=not missing_required,
+            detail=detail,
+        )
 
     async def _workflow_dependency_check(self) -> DoctorCheck:
         if self._comfy is None:
