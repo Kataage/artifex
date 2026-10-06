@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import LoRARegistryConfig
@@ -37,7 +39,14 @@ class LoRAValidationService:
         self._registry = registry
         self._config = config
 
-    def record(self, lora_id: str, report: LoRAValidationReport) -> LoRAProfile:
+    def record(
+        self,
+        lora_id: str,
+        report: LoRAValidationReport,
+        *,
+        run_id: str | None = None,
+        validated_at: datetime | None = None,
+    ) -> LoRAProfile:
         profile = self._registry.require(lora_id)
         if profile.state in {LoRAState.DISABLED, LoRAState.FAILED, LoRAState.DISCOVERED}:
             profile = self._registry.transition_state(lora_id, LoRAState.PENDING)
@@ -57,6 +66,9 @@ class LoRAValidationService:
                 "quality_score": report.quality_score,
                 "flexibility_score": report.flexibility_score,
                 "readiness": readiness,
+                "last_validation_at": validated_at or datetime.now(UTC),
+                "last_validation_run_id": run_id,
+                "missing_since": None,
             }
         )
         if report.recommended_weight is not None:
