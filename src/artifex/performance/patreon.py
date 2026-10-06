@@ -65,7 +65,7 @@ class PatreonV2PublicationProvider:
         payload = response.json()
         data = payload.get("data")
         if not isinstance(data, dict):
-            raise ValueError("Patreon post response is missing data object")
+            raise TypeError("Patreon post response is missing data object")
         attributes = data.get("attributes")
         if not isinstance(attributes, dict):
             attributes = {}
@@ -78,9 +78,7 @@ class PatreonV2PublicationProvider:
         published_raw = attributes.get("published_at")
         published_at = None
         if isinstance(published_raw, str) and published_raw.strip():
-            published_at = datetime.fromisoformat(
-                published_raw.replace("Z", "+00:00")
-            )
+            published_at = datetime.fromisoformat(published_raw)
         return PatreonPost(
             id=str(data.get("id") or post_id),
             title=(
