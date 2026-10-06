@@ -20,7 +20,6 @@ from artifex.domain import (
 )
 from artifex.packs import (
     ContentPackPlan,
-    EditorialArchetype,
     ScenePlan,
     VisualSpecification,
 )
