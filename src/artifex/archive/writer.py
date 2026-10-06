@@ -238,6 +238,7 @@ class PackArchive:
                         "result_state": evaluation.result_state,
                         "scores": evaluation.scores_json,
                         "reasons": evaluation.reasons_json,
+                        "classification": evaluation.classification_json,
                         "created_at": evaluation.created_at.isoformat(),
                     }
                     for evaluation in evaluations
