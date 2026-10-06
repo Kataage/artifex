@@ -476,24 +476,6 @@ class LoRAValidationMatrixRunner:
         if not samples:
             raise ValueError("LoRA validation matrix produced no samples")
 
-        identity = fmean(sample.identity_score for sample in samples)
-        quality = fmean(sample.quality_score for sample in samples)
-
-        case_scores: list[float] = []
-        for case in self._cases:
-            case_samples = [
-                sample for sample in samples if sample.case_id == case.id
-            ]
-            if not case_samples:
-                continue
-            case_scores.append(
-                fmean(
-                    min(sample.identity_score, sample.quality_score)
-                    for sample in case_samples
-                )
-            )
-        flexibility = min(case_scores) if case_scores else 0.0
-
         weight_scores: dict[float, tuple[float, float, float]] = {}
         for weight in self._config.validation_weights:
             weighted = [sample for sample in samples if sample.weight == weight]
@@ -509,11 +491,36 @@ class LoRAValidationMatrixRunner:
                     for sample in weighted
                 ),
             )
+        if not weight_scores:
+            raise ValueError("LoRA validation matrix has no configured weight samples")
 
         best_weight = max(
             weight_scores,
             key=lambda weight: (weight_scores[weight][2], -abs(weight - 1.0)),
         )
+        best_samples = [
+            sample for sample in samples if sample.weight == best_weight
+        ]
+        identity = fmean(sample.identity_score for sample in best_samples)
+        quality = fmean(sample.quality_score for sample in best_samples)
+
+        case_scores: list[float] = []
+        for case in self._cases:
+            case_samples = [
+                sample
+                for sample in best_samples
+                if sample.case_id == case.id
+            ]
+            if not case_samples:
+                continue
+            case_scores.append(
+                fmean(
+                    min(sample.identity_score, sample.quality_score)
+                    for sample in case_samples
+                )
+            )
+        flexibility = min(case_scores) if case_scores else 0.0
+
         passing = sorted(
             weight
             for weight, values in weight_scores.items()
