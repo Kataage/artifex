@@ -252,7 +252,12 @@ def build_doctor(core: CoreServices) -> DoctorService:
         comfy=core.comfy,
         research_probe=core.research.health,
     )
-    return DoctorService(core.settings, checker, core.characters)
+    return DoctorService(
+        core.settings,
+        checker,
+        core.characters,
+        comfy=core.comfy,
+    )
 
 
 class ArtifexApplication:
