@@ -65,6 +65,14 @@ class HealthyComfy:
 
         return ComfyHealth(available=True, version="test", devices=("gpu",))
 
+    async def validate_requirements(self, requirements):
+        from artifex.comfy import WorkflowRequirementStatus
+
+        return WorkflowRequirementStatus(
+            ready=True,
+            detail=f"{requirements.template_id}: ready",
+        )
+
     async def aclose(self) -> None:
         return None
 
@@ -131,7 +139,12 @@ async def test_doctor_reports_complete_production_readiness(
         llm_probe=healthy_llm,
         evaluator_probe=healthy_evaluator,
     )
-    report = await DoctorService(settings, health, characters).run()
+    report = await DoctorService(
+        settings,
+        health,
+        characters,
+        comfy=HealthyComfy(),  # type: ignore[arg-type]
+    ).run()
 
     assert report.ready is True
     assert report.health.require("database").state is ComponentState.HEALTHY
