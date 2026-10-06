@@ -19,6 +19,8 @@ from artifex.evaluation.repository import EvaluationRepository, GenerationAttemp
 from artifex.evaluation.selection import AttemptSelector, SelectionResult
 from artifex.evaluation.semantic import (
     EmbeddingModelDescriptor,
+    SemanticArchiveIndexer,
+    SemanticBackfillReport,
     SemanticEmbeddingRepository,
     SemanticIndex,
     SigLIP2EmbeddingProvider,
@@ -46,6 +48,8 @@ __all__ = [
     "OpenAICompatibleVisionEvaluationProvider",
     "RawEvaluationSignals",
     "SelectionResult",
+    "SemanticArchiveIndexer",
+    "SemanticBackfillReport",
     "SemanticCalibrationManifest",
     "SemanticCalibrationProfile",
     "SemanticCalibrator",
