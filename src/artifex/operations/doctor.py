@@ -108,12 +108,22 @@ class DoctorService:
                 ),
             ),
             DoctorCheck(
-                name="comfy_output_dir",
-                ready=self._settings.comfyui.output_dir is not None,
+                name="comfy_output_transport",
+                ready=(
+                    self._settings.comfyui.output_mode == "api"
+                    or self._settings.comfyui.output_dir is not None
+                ),
                 detail=(
-                    str(self._settings.comfyui.output_dir)
-                    if self._settings.comfyui.output_dir is not None
-                    else "comfyui.output_dir is not configured"
+                    (
+                        "ComfyUI outputs are downloaded through /view to "
+                        f"{self._settings.comfyui.download_dir}"
+                    )
+                    if self._settings.comfyui.output_mode == "api"
+                    else (
+                        str(self._settings.comfyui.output_dir)
+                        if self._settings.comfyui.output_dir is not None
+                        else "comfyui.output_dir is not configured"
+                    )
                 ),
             ),
             DoctorCheck(
