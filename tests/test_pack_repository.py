@@ -47,9 +47,10 @@ def _plan() -> ContentPackPlan:
                 title="Closer",
                 purpose="develop mood",
                 character_ids=("char-a",),
+                role="detail",
                 continuity_constraints=("same dress",),
                 visual=visual.model_copy(update={"camera": "medium shot"}),
-                publication_tier="member",
+                publication_tier="public",
             ),
         ),
     )
