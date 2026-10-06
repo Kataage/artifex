@@ -462,6 +462,11 @@ class PatreonPerformanceConfig(StrictModel):
 
 class PatreonConfig(StrictModel):
     enabled: bool = True
+    api_enabled: bool = False
+    api_base_url: str = "https://www.patreon.com"
+    api_access_token_env: str = "PATREON_ACCESS_TOKEN"
+    api_timeout_seconds: float = Field(default=30.0, gt=0)
+    api_user_agent: str = "Artifex - Patreon Performance Sync"
     default_archetype: Literal[
         "public_preview_member_continuation",
         "sfw_complete_member_alternate",
