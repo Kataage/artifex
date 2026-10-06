@@ -129,10 +129,62 @@ class EditorialConfig(StrictModel):
         return self
 
 
+class LlmModelProfileConfig(StrictModel):
+    source: Literal["huggingface", "url", "local"] = "huggingface"
+    repository: str | None = None
+    revision: str = "main"
+    filename: str | None = None
+    url: str | None = None
+    path: Path | None = None
+    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> LlmModelProfileConfig:
+        if self.source == "huggingface" and not (self.repository and self.filename):
+            raise ValueError("huggingface LLM profile requires repository and filename")
+        if self.source == "url" and not (self.url and self.filename):
+            raise ValueError("url LLM profile requires url and filename")
+        if self.source == "local" and self.path is None:
+            raise ValueError("local LLM profile requires path")
+        return self
+
+
+class LlmBootstrapConfig(StrictModel):
+    enabled: bool = True
+    auto_download: bool = True
+    profile: str = "spark-x2.5-4b-heretic-jp-q8_0"
+    models_dir: Path = Path("models/llm")
+    profiles: dict[str, LlmModelProfileConfig] = Field(
+        default_factory=lambda: {
+            "spark-x2.5-4b-heretic-jp-q8_0": LlmModelProfileConfig(
+                source="huggingface",
+                repository="soyaakinohara/Spark-X2.5-4B-Heretic-jp-gguf",
+                revision="f01809e437fb3046ae9afd31d684556f9ae5dd46",
+                filename="Spark-X2.5-4B-Heretic-jp-Q8_0.gguf",
+            )
+        }
+    )
+
+    def selected(self) -> LlmModelProfileConfig:
+        try:
+            return self.profiles[self.profile]
+        except KeyError as exc:
+            raise ValueError(f"unknown LLM bootstrap profile: {self.profile}") from exc
+
+    def model_path(self) -> Path:
+        profile = self.selected()
+        if profile.source == "local":
+            assert profile.path is not None
+            return profile.path
+        assert profile.filename is not None
+        return self.models_dir / profile.filename
+
+
 class LlmConfig(StrictModel):
     backend: Literal["llama_cpp", "openai_compatible"] = "llama_cpp"
-    base_url: str = "http://127.0.0.1:8080"
+    base_url: str = "http://127.0.0.1:8899"
     model: str = "spark-x2.5-4b-heretic-jp"
+    bootstrap: LlmBootstrapConfig = Field(default_factory=LlmBootstrapConfig)
     structured_output: Literal["json_schema", "json_object"] = "json_schema"
     temperature: float = Field(default=0.9, ge=0, le=2)
     timeout_seconds: float = Field(default=180.0, gt=0)
@@ -229,9 +281,60 @@ class PromptCompilerConfig(StrictModel):
     extra_lexicon_paths: tuple[Path, ...] = ()
 
 
+class RenderNodeConfig(StrictModel):
+    type: Literal["comfyui"] = "comfyui"
+    enabled: bool = True
+    base_url: str
+    output_mode: Literal["filesystem", "api"] = "api"
+    output_dir: Path | None = None
+    download_dir: Path = Path("data/render-cache")
+    attestation_url: str | None = None
+    attestation_token_env: str | None = "ARTIFEX_RENDER_NODE_TOKEN"
+
+
+class RenderNodesConfig(StrictModel):
+    primary: str | None = None
+    nodes: dict[str, RenderNodeConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_primary(self) -> RenderNodesConfig:
+        if not self.nodes:
+            if self.primary is not None:
+                raise ValueError("render_nodes.primary requires at least one node")
+            return self
+        if self.primary is None:
+            raise ValueError("render_nodes.primary is required when nodes are configured")
+        node = self.nodes.get(self.primary)
+        if node is None:
+            raise ValueError(f"unknown primary render node: {self.primary}")
+        if not node.enabled:
+            raise ValueError(f"primary render node is disabled: {self.primary}")
+        return self
+
+    def primary_node(self) -> tuple[str, RenderNodeConfig] | None:
+        if not self.nodes or self.primary is None:
+            return None
+        return self.primary, self.nodes[self.primary]
+
+
+class RenderAgentConfig(StrictModel):
+    node_id: str = "main"
+    bind_host: str = "127.0.0.1"
+    port: int = Field(default=8190, ge=1, le=65535)
+    token_env: str | None = "ARTIFEX_RENDER_NODE_TOKEN"
+    require_token: bool = True
+    asset_paths: dict[str, Path] = Field(default_factory=dict)
+    lora_roots: tuple[Path, ...] = ()
+    extensions: tuple[str, ...] = (".safetensors",)
+    metadata_header_max_mib: int = Field(default=16, ge=1)
+
+
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
+    output_mode: Literal["filesystem", "api"] = "filesystem"
     output_dir: Path | None = None
+    download_dir: Path = Path("data/render-cache")
+    render_node_id: str = "legacy"
     timeout_seconds: float = Field(default=30.0, gt=0)
     execution_timeout_seconds: float = Field(default=900.0, gt=0)
     poll_interval_seconds: float = Field(default=1.0, gt=0)
@@ -536,6 +639,8 @@ class ArtifexSettings(StrictModel):
     characters: CharacterRegistryConfig = Field(default_factory=CharacterRegistryConfig)
     loras: LoRARegistryConfig = Field(default_factory=LoRARegistryConfig)
     prompts: PromptCompilerConfig = Field(default_factory=PromptCompilerConfig)
+    render_nodes: RenderNodesConfig = Field(default_factory=RenderNodesConfig)
+    render_agent: RenderAgentConfig = Field(default_factory=RenderAgentConfig)
     comfyui: ComfyUiConfig = Field(default_factory=ComfyUiConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     trends: TrendConfig = Field(default_factory=TrendConfig)
@@ -562,4 +667,17 @@ class ArtifexSettings(StrictModel):
             raise ValueError(
                 "context section budgets must leave headroom for system/schema overhead"
             )
+
+        primary = self.render_nodes.primary_node()
+        if primary is not None:
+            node_id, node = primary
+            updates: dict[str, object] = {
+                "base_url": node.base_url,
+                "output_mode": node.output_mode,
+                "download_dir": node.download_dir,
+                "render_node_id": node_id,
+            }
+            if node.output_dir is not None:
+                updates["output_dir"] = node.output_dir
+            self.comfyui = self.comfyui.model_copy(update=updates)
         return self

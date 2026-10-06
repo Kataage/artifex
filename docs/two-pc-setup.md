@@ -1,0 +1,154 @@
+# Two-PC Artifex topology
+
+Artifex supports a split native-Windows deployment where the controller and renderer are separate machines.
+
+- **PC-A / controller**: Artifex, local LLM, research/planning, SQLite, archive, evaluation, Discord/Patreon integration.
+- **PC-B / render node**: ComfyUI, production checkpoint, refiner, VAE, upscaler, LoRAs and the lightweight Artifex render-node attestation server.
+
+No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A is required.
+
+## PC-B: renderer
+
+ComfyUI must listen on an address reachable from PC-A. Keep the ComfyUI port restricted to the trusted LAN/firewall scope.
+
+Create a small renderer config such as:
+
+```yaml
+render_agent:
+  node_id: rtx3060
+  bind_host: 0.0.0.0
+  port: 8190
+  token_env: ARTIFEX_RENDER_NODE_TOKEN
+  require_token: true
+  asset_paths:
+    production_checkpoint: D:/AI/ComfyUI/models/checkpoints/production.safetensors
+    refiner_checkpoint: D:/AI/ComfyUI/models/checkpoints/anime-refiner-beta1.1.safetensors
+    vae: D:/AI/ComfyUI/models/vae/pppanimixVAE_ilxl.safetensors
+    upscale_model: D:/AI/ComfyUI/models/upscale_models/4xRealisticrescaler_100000G.pt
+  lora_roots:
+    - D:/AI/ComfyUI/models/loras
+
+comfyui:
+  base_url: http://127.0.0.1:8188
+```
+
+Set the same strong token on PC-A and PC-B through the `ARTIFEX_RENDER_NODE_TOKEN` environment variable. Do not put the token in YAML.
+
+Inspect the local evidence once:
+
+```powershell
+uv run artifex render-node attest --config .\config\render-node.yaml --json
+```
+
+Then keep the lightweight attestation endpoint running:
+
+```powershell
+uv run artifex render-node serve --config .\config\render-node.yaml
+```
+
+The agent exposes only health and authenticated asset/LoRA attestation data. Image generation remains on ComfyUI.
+
+## PC-A: controller
+
+The recommended first-run path is the setup command. It probes the renderer's
+ComfyUI endpoint, writes only the controller-specific overrides, configures API
+output retrieval and the render attestation endpoint, and downloads the selected
+LLM unless explicitly skipped:
+
+```powershell
+uv run artifex setup `
+  --comfy-url http://192.168.1.50:8188 `
+  --render-node-id rtx3060 `
+  --llm-models-dir D:/AI/models/llm `
+  --output .\config\local.yaml
+```
+
+The default attestation URL is derived from the same host on port 8190. Override
+it with `--attestation-url` when PC-B uses another port. Existing config files
+are never overwritten unless `--force` is supplied. Use
+`--skip-llm-download` when the model is already managed separately.
+
+The generated config is intentionally a small override, not a copy of every
+Artifex default. A production checkpoint still needs to be selected explicitly
+because automatically choosing one from a machine with multiple ILXL
+checkpoints would be unsafe.
+
+Configure the primary renderer manually when needed:
+
+
+```yaml
+render_nodes:
+  primary: rtx3060
+  nodes:
+    rtx3060:
+      type: comfyui
+      enabled: true
+      base_url: http://192.168.1.50:8188
+      output_mode: api
+      download_dir: data/render-cache
+      attestation_url: http://192.168.1.50:8190
+      attestation_token_env: ARTIFEX_RENDER_NODE_TOKEN
+
+production:
+  checkpoint: production.safetensors
+```
+
+`output_mode: api` makes PC-A retrieve completed images through ComfyUI's `/view` API. The renderer's output directory therefore does not need to be mounted on PC-A.
+
+The legacy `comfyui:` configuration remains supported. When `render_nodes.primary` is configured, the primary node overlays the connection/output transport fields while existing sampling/workflow settings remain in `comfyui:`.
+
+## LLM bootstrap on PC-A
+
+The default local model profile is currently Spark-X2.5-4B-Heretic-jp Q8_0. It is a default, not a hard-coded lock.
+
+```yaml
+llm:
+  bootstrap:
+    enabled: true
+    auto_download: true
+    profile: spark-x2.5-4b-heretic-jp-q8_0
+    models_dir: D:/AI/models/llm
+```
+
+Check or download it explicitly with:
+
+```powershell
+uv run artifex llm bootstrap --config .\config\local.yaml --json
+```
+
+Downloads use a `.part` file and HTTP Range resume. An existing verified model is reused. `artifex daemon` also runs the bootstrap automatically before production when the local llama.cpp backend has `auto_download: true`.
+
+A different model can be selected by adding another bootstrap profile or by using a local profile; Artifex is not tied permanently to Spark.
+
+## Remote LoRAs
+
+PC-B's attestation scans the configured LoRA roots and returns filename, relative ComfyUI asset name, safetensors metadata and SHA-256. PC-A stores only the inventory/provenance.
+
+New or changed remote LoRAs return to discovery/validation. Missing LoRAs are disabled after a successful inventory refresh. A network outage alone does not mark remote LoRAs as deleted.
+
+Generation submits the renderer-relative LoRA name to ComfyUI, so the LoRA file itself does not need to exist on PC-A.
+
+## More render nodes
+
+The configuration is intentionally a node map rather than one fixed ComfyUI URL:
+
+```yaml
+render_nodes:
+  primary: rtx3060
+  nodes:
+    rtx3060:
+      base_url: http://192.168.1.50:8188
+      attestation_url: http://192.168.1.50:8190
+    future-gpu:
+      enabled: false
+      base_url: http://192.168.1.60:8188
+      attestation_url: http://192.168.1.60:8190
+```
+
+Current production dispatch uses the configured primary node. The node model deliberately leaves room for later scheduling/failover across multiple renderers without changing Pack, workflow or provenance formats.
+
+## Qualification
+
+For the split topology, qualification records controller-local hashes and primary-renderer attestations in one session. Final verification re-fetches the remote attestation and rejects model drift.
+
+The controller no longer needs a local filesystem path to the renderer checkpoint/VAE/upscaler. The primary renderer must expose authenticated attestation evidence for those assets.

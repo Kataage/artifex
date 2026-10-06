@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import typer
 from sqlalchemy import select
 
@@ -31,6 +32,7 @@ from artifex.llm import (
     LlmQualificationService,
     OpenAICompatibleClient,
     StructuredGenerator,
+    bootstrap_llm,
 )
 from artifex.performance import (
     PatreonV2PublicationProvider,
@@ -44,6 +46,7 @@ from artifex.qualification import (
     QualificationStage,
     QualificationStatus,
 )
+from artifex.render_node import build_attestation, serve_attestation
 from artifex.research import (
     ResearchIntent,
     ResearchProviderError,
@@ -53,6 +56,7 @@ from artifex.research import (
 )
 from artifex.review import ReviewQueueRepository
 from artifex.series import SeriesRepository
+from artifex.setup import configure_two_pc
 from artifex.telemetry import EventSeverity
 
 app = typer.Typer(
@@ -108,6 +112,12 @@ qualify_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(qualify_app, name="qualify")
+render_node_app = typer.Typer(
+    name="render-node",
+    help="Serve and inspect a lightweight remote ComfyUI render-node attestation.",
+    no_args_is_help=True,
+)
+app.add_typer(render_node_app, name="render-node")
 
 ConfigOption = Annotated[
     Path | None,
@@ -117,6 +127,82 @@ ConfigOption = Annotated[
 
 def _settings(config: Path | None) -> ArtifexSettings:
     return load_settings(user_config=config)
+
+
+@app.command("setup")
+def setup(
+    comfy_url: Annotated[
+        str,
+        typer.Option(
+            "--comfy-url",
+            help="Reachable ComfyUI base URL on the render PC.",
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="Controller override YAML to create.",
+        ),
+    ] = Path("config/local.yaml"),
+    render_node_id: Annotated[
+        str,
+        typer.Option("--render-node-id"),
+    ] = "renderer",
+    attestation_url: Annotated[
+        str | None,
+        typer.Option(
+            "--attestation-url",
+            help="Render attestation URL; defaults to the ComfyUI host on port 8190.",
+        ),
+    ] = None,
+    llm_models_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--llm-models-dir",
+            help="Optional controller directory for the selected GGUF.",
+        ),
+    ] = None,
+    download_llm: Annotated[
+        bool,
+        typer.Option("--download-llm/--skip-llm-download"),
+    ] = True,
+    force: Annotated[bool, typer.Option("--force")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Create a minimal two-PC controller config and optionally fetch the LLM."""
+    settings = _settings(None)
+    if llm_models_dir is not None:
+        bootstrap = settings.llm.bootstrap.model_copy(
+            update={"models_dir": llm_models_dir}
+        )
+        settings = settings.model_copy(
+            update={
+                "llm": settings.llm.model_copy(
+                    update={"bootstrap": bootstrap}
+                )
+            }
+        )
+    try:
+        result = configure_two_pc(
+            settings,
+            comfyui_base_url=comfy_url,
+            output_path=output,
+            render_node_id=render_node_id,
+            attestation_url=attestation_url,
+            force=force,
+        )
+        payload = result.model_dump(mode="json")
+        if download_llm:
+            generated = load_settings(user_config=result.config_path)
+            model = bootstrap_llm(generated.llm)
+            payload["llm_download"] = model.model_dump(mode="json")
+        else:
+            payload["llm_download"] = None
+    except (FileExistsError, OSError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"setup error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(payload, as_json=json_output)
 
 
 async def _calibrate_semantic(
@@ -350,6 +436,55 @@ def characters_audit(
                 typer.echo(f"{name}: {', '.join(values)}")
     finally:
         asyncio.run(core.close())
+
+
+@render_node_app.command("attest")
+def render_node_attest(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Print the local render-node asset/GPU attestation without starting a server."""
+    settings = _settings(config)
+    try:
+        payload = build_attestation(settings).model_dump(mode="json")
+    except (OSError, ValueError) as exc:
+        typer.echo(f"render-node attestation error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(payload, as_json=json_output)
+
+
+@render_node_app.command("serve")
+def render_node_serve(
+    config: ConfigOption = None,
+) -> None:
+    """Serve authenticated model/LoRA attestations for the Artifex controller."""
+    settings = _settings(config)
+    typer.echo(
+        "render-node "
+        f"{settings.render_agent.node_id} listening on "
+        f"{settings.render_agent.bind_host}:{settings.render_agent.port}"
+    )
+    try:
+        serve_attestation(settings)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"render-node server error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@llm_app.command("bootstrap")
+def llm_bootstrap(
+    force: Annotated[bool, typer.Option("--force")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+    config: ConfigOption = None,
+) -> None:
+    """Ensure the selected local LLM model is present, resuming downloads when possible."""
+    settings = _settings(config)
+    try:
+        result = bootstrap_llm(settings.llm, force=force)
+    except (OSError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"LLM bootstrap error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(result.model_dump(mode="json"), as_json=json_output)
 
 
 @llm_app.command("qualify")
@@ -1250,6 +1385,17 @@ def doctor(config: ConfigOption = None) -> None:
 def daemon(config: ConfigOption = None) -> None:
     """Start the long-running autonomous Artifex daemon."""
     settings = _settings(config)
+    if (
+        settings.llm.backend == "llama_cpp"
+        and settings.llm.bootstrap.enabled
+        and settings.llm.bootstrap.auto_download
+    ):
+        try:
+            model = bootstrap_llm(settings.llm)
+        except (OSError, ValueError, httpx.HTTPError) as exc:
+            typer.echo(f"LLM bootstrap error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"LLM model ready: {model.path}")
     application = build_application(settings)
     try:
         asyncio.run(application.run())

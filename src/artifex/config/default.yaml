@@ -64,8 +64,20 @@ editorial:
 
 llm:
   backend: llama_cpp
-  base_url: http://127.0.0.1:8080
+  base_url: http://127.0.0.1:8899
   model: spark-x2.5-4b-heretic-jp
+  bootstrap:
+    enabled: true
+    auto_download: true
+    profile: spark-x2.5-4b-heretic-jp-q8_0
+    models_dir: models/llm
+    profiles:
+      spark-x2.5-4b-heretic-jp-q8_0:
+        source: huggingface
+        repository: soyaakinohara/Spark-X2.5-4B-Heretic-jp-gguf
+        revision: f01809e437fb3046ae9afd31d684556f9ae5dd46
+        filename: Spark-X2.5-4B-Heretic-jp-Q8_0.gguf
+        sha256: null
   structured_output: json_schema
   temperature: 0.9
   timeout_seconds: 180
@@ -113,9 +125,28 @@ loras:
   production_flexibility_threshold: 0.50
   maximum_character_loras_per_scene: 4
 
+render_nodes:
+  primary: null
+  nodes: {}
+
+render_agent:
+  node_id: main
+  bind_host: 127.0.0.1
+  port: 8190
+  token_env: ARTIFEX_RENDER_NODE_TOKEN
+  require_token: true
+  asset_paths: {}
+  lora_roots: []
+  extensions:
+    - .safetensors
+  metadata_header_max_mib: 16
+
 comfyui:
   base_url: http://127.0.0.1:8188
+  output_mode: filesystem
   output_dir: null
+  download_dir: data/render-cache
+  render_node_id: legacy
   timeout_seconds: 30
   execution_timeout_seconds: 900
   poll_interval_seconds: 1

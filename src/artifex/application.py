@@ -36,7 +36,7 @@ from artifex.evaluation import (
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
-from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
+from artifex.loras import LoRARegistry, LoRAResolver, RenderAwareLoRADiscovery
 from artifex.loras.automated import (
     LoRAValidationMatrixRunner,
     ProductionLoRAValidationProbe,
@@ -157,9 +157,10 @@ def build_core(settings: ArtifexSettings) -> CoreServices:
     characters.load_directories(settings.characters.profile_dirs)
 
     loras = LoRARegistry(database)
-    LoRADiscovery(
+    RenderAwareLoRADiscovery(
         loras,
         characters,
+        settings.render_nodes,
         extensions=settings.loras.extensions,
         max_header_bytes=settings.loras.metadata_header_max_mib * 1024 * 1024,
     ).scan(settings.loras.roots)
@@ -404,8 +405,13 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     settings = _apply_semantic_calibration(settings)
     if not settings.production.checkpoint:
         raise ValueError("production.checkpoint must be configured")
-    if settings.comfyui.output_dir is None:
-        raise ValueError("comfyui.output_dir must be configured")
+    if (
+        settings.comfyui.output_mode == "filesystem"
+        and settings.comfyui.output_dir is None
+    ):
+        raise ValueError(
+            "comfyui.output_dir must be configured when output_mode=filesystem"
+        )
     if not settings.evaluation.vision_base_url or not settings.evaluation.vision_model:
         raise ValueError(
             "evaluation.vision_base_url and evaluation.vision_model must be configured"
@@ -652,9 +658,10 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         interval_seconds=settings.trends.refresh_interval_seconds,
     )
     lora_discovery_maintenance = LoRADiscoveryMaintenance(
-        LoRADiscovery(
+        RenderAwareLoRADiscovery(
             core.loras,
             core.characters,
+            settings.render_nodes,
             extensions=settings.loras.extensions,
             max_header_bytes=(
                 settings.loras.metadata_header_max_mib * 1024 * 1024

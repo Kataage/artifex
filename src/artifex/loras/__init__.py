@@ -1,5 +1,6 @@
 from artifex.loras.discovery import LoRADiscovery
 from artifex.loras.registry import InvalidLoRAStateTransition, LoRARegistry
+from artifex.loras.remote import RemoteLoRADiscovery, RenderAwareLoRADiscovery
 from artifex.loras.resolver import (
     LoRAPlan,
     LoRAPlanEntry,
@@ -18,4 +19,6 @@ __all__ = [
     "LoRAResolver",
     "LoRAValidationReport",
     "LoRAValidationService",
+    "RemoteLoRADiscovery",
+    "RenderAwareLoRADiscovery",
 ]

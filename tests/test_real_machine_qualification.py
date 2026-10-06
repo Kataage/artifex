@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from artifex.characters import CharacterRegistry
-from artifex.config.models import ArtifexSettings, QualificationConfig, StorageConfig
+from artifex.config.models import (
+    ArtifexSettings,
+    QualificationConfig,
+    RenderNodeConfig,
+    RenderNodesConfig,
+    StorageConfig,
+)
 from artifex.db import Database
 from artifex.db.models import AgentEventRow, GenerationAttemptRow, PackRow, SceneRow
 from artifex.domain import (
@@ -26,6 +32,7 @@ from artifex.qualification import (
     QualificationStage,
     QualificationStatus,
 )
+from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
 
 
@@ -523,4 +530,102 @@ def test_restart_stage_rejects_duplicate_prompt_submission(tmp_path: Path) -> No
             status=QualificationStatus.PASS,
             pack_ids=(pack_id,),
         )
+    database.dispose()
+
+
+def test_remote_render_asset_is_attested_and_revalidated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = ArtifexSettings(
+        render_nodes=RenderNodesConfig(
+            primary="gpu-box",
+            nodes={
+                "gpu-box": RenderNodeConfig(
+                    base_url="http://render.test:8188",
+                    output_mode="api",
+                    attestation_url="http://render.test:8190",
+                )
+            },
+        ),
+        storage=StorageConfig(
+            database_url=f"sqlite:///{(tmp_path / 'remote-qualification.sqlite3').as_posix()}",
+            packs_dir=tmp_path / "packs",
+            minimum_free_gib=0,
+        ),
+        qualification=QualificationConfig(
+            evidence_dir=tmp_path / "qualification",
+            asset_paths={},
+            required_asset_labels=("production_checkpoint",),
+            require_native_windows=False,
+            require_uv=False,
+            require_nvidia_gpu=False,
+            require_lora_validation_evidence=True,
+            require_stable_asset_hashes=True,
+            require_stable_workflow_snapshot=True,
+        ),
+    )
+    database = Database(settings.storage.database_url)
+    database.migrate()
+    characters = CharacterRegistry(database)
+    loras = LoRARegistry(database)
+    current_digest = {"value": "a" * 64}
+
+    def fake_attestation(
+        node_id: str,
+        _config: RenderNodeConfig,
+    ) -> RenderNodeAttestation:
+        assert node_id == "gpu-box"
+        return RenderNodeAttestation(
+            node_id="gpu-box",
+            created_at=datetime.now(UTC),
+            hostname="render-pc",
+            os={
+                "system": "Windows",
+                "release": "11",
+                "version": "test",
+                "machine": "AMD64",
+            },
+            nvidia_gpus=(
+                {
+                    "name": "RTX 3060",
+                    "uuid": "GPU-test",
+                    "driver_version": "999",
+                    "memory_total_mib": 12288,
+                },
+            ),
+            comfyui_base_url="http://127.0.0.1:8188",
+            assets=(
+                RenderAssetDigest(
+                    label="production_checkpoint",
+                    path=r"D:\ComfyUI\models\checkpoints\production.safetensors",
+                    sha256=current_digest["value"],
+                    bytes=123456,
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "artifex.qualification.service.fetch_render_attestation",
+        fake_attestation,
+    )
+    service = QualificationService(settings, database, characters, loras)
+    session = service.start(_doctor())
+
+    assert session.doctor_ready is True
+    remote = next(
+        asset for asset in session.assets if asset.label == "production_checkpoint"
+    )
+    assert remote.source == "render_node"
+    assert remote.node_id == "gpu-box"
+    assert remote.sha256 == "a" * 64
+
+    current_digest["value"] = "b" * 64
+    verified = service.verify(session.session_id)
+
+    assert verified["ready"] is False
+    assert any(
+        "production_checkpoint hash changed during qualification" in issue
+        for issue in verified["issues"]
+    )
     database.dispose()

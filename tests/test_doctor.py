@@ -201,7 +201,7 @@ async def test_doctor_fails_when_required_production_configuration_is_missing(
 
     assert report.ready is False
     assert checks["production_checkpoint"].ready is False
-    assert checks["comfy_output_dir"].ready is False
+    assert checks["comfy_output_transport"].ready is False
     assert checks["vision_evaluator"].ready is False
     assert checks["character_catalog"].ready is False
     database.dispose()
