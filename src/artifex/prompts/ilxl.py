@@ -122,7 +122,7 @@ class ILXLDanbooruAdapter:
         trusted_concepts: set[str] = set()
         positive: list[str] = []
         negative: list[str] = []
-        generated_positive: list[str] = []
+        generated_positive: list[str] = list(profile.required_tags)
         generated_negative: list[str] = []
         unresolved: list[str] = []
         forbidden: list[str] = [*profile.forbidden_tags]
@@ -139,9 +139,6 @@ class ILXLDanbooruAdapter:
                     continue
                 destination.append(cleaned)
                 source_categories.setdefault(cleaned, category)
-
-        for tag in profile.required_tags:
-            generated_positive.append(tag)
 
         for character in characters:
             trusted_concepts.update(
