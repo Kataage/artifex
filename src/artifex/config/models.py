@@ -509,7 +509,15 @@ class OperationsConfig(StrictModel):
 class QualificationConfig(StrictModel):
     evidence_dir: Path = Path("data/qualification")
     minimum_soak_hours: float = Field(default=8.0, gt=0)
-    hash_paths: tuple[Path, ...] = ()
+    asset_paths: dict[str, Path] = Field(default_factory=dict)
+    required_asset_labels: tuple[str, ...] = (
+        "production_checkpoint",
+        "refiner_checkpoint",
+        "vae",
+        "upscale_model",
+        "llm_model",
+        "semantic_model",
+    )
     require_native_windows: bool = True
     require_uv: bool = True
     require_nvidia_gpu: bool = True
