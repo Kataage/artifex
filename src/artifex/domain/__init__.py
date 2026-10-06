@@ -1,6 +1,7 @@
 from artifex.domain.enums import (
     AgentState,
     CharacterStatus,
+    ContentRating,
     LoRAPolicy,
     LoRAState,
     PackState,
@@ -16,6 +17,7 @@ __all__ = [
     "CharacterProfile",
     "CharacterSource",
     "CharacterStatus",
+    "ContentRating",
     "LoRAPolicy",
     "LoRAProfile",
     "LoRAState",
