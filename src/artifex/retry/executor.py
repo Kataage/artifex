@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ProductionConfig
