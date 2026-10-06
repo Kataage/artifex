@@ -67,10 +67,13 @@ class AssetDigest(QualificationModel):
     sha256: str
     bytes: int = Field(ge=0)
     file_count: int = Field(default=1, ge=1)
+    source: str = "local"
+    node_id: str | None = None
+    attested_at: datetime | None = None
 
 
 class QualificationSession(QualificationModel):
-    schema_version: int = 1
+    schema_version: int = 2
     session_id: str
     created_at: datetime
     updated_at: datetime
