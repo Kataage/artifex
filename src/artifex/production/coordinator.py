@@ -401,6 +401,7 @@ class ProductionCoordinator:
                 lora_plan = self._loras.resolve(
                     plan.character_ids,
                     model_family=self._production.model_family,
+                    clothing=plan.visual.clothing,
                 )
                 compiled = self._prompts.compile(plan, lora_plan)
             except (LoRAResolutionError, KeyError, ValueError, RuntimeError) as exc:
