@@ -20,6 +20,11 @@ dependencies = [
 discord = [
     "discord.py>=2.6.0",
 ]
+semantic = [
+    "torch>=2.7.0",
+    "transformers>=4.52.0",
+    "sentencepiece>=0.2.0",
+]
 dev = [
     "discord.py>=2.6.0",
     "pytest>=8.4.0",

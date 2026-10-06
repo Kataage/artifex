@@ -23,6 +23,7 @@ EXPECTED_TABLES = {
     "research_runs",
     "review_queue",
     "scenes",
+    "semantic_embeddings",
     "series",
     "seasonal_signals",
     "settings",
@@ -43,4 +44,4 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         engine.dispose()
 
     assert EXPECTED_TABLES <= tables
-    assert current_revision(url) == "0006_content_classification"
+    assert current_revision(url) == "0007_semantic_embeddings"

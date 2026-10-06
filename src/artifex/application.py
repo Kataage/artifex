@@ -27,8 +27,12 @@ from artifex.evaluation import (
     GenerationAttemptRepository,
     LocalSimilarityEmbeddingProvider,
     OpenAICompatibleVisionEvaluationProvider,
+    SemanticEmbeddingRepository,
+    SemanticIndex,
+    SigLIP2EmbeddingProvider,
     SimilarityAwareSignalProvider,
     SimilarityService,
+    load_calibration_profile,
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
@@ -87,6 +91,10 @@ from artifex.trends import (
     current_web_trend_provider,
     tag_trend_provider,
 )
+
+
+class SemanticRuntime(Protocol):
+    async def aclose(self) -> None: ...
 
 
 class DiscordRuntime(Protocol):
@@ -255,6 +263,7 @@ class ArtifexApplication:
         llm: OpenAICompatibleClient,
         vision: OpenAICompatibleVisionEvaluationProvider,
         *,
+        semantic: SemanticRuntime | None = None,
         discord: DiscordRuntime | None = None,
         discord_token: str | None = None,
     ) -> None:
@@ -262,6 +271,7 @@ class ArtifexApplication:
         self._daemon = daemon
         self._llm = llm
         self._vision = vision
+        self._semantic = semantic
         self._discord = discord
         self._discord_token = discord_token
 
@@ -283,11 +293,79 @@ class ArtifexApplication:
         if self._discord is not None:
             await self._discord.close()
         await self._vision.aclose()
+        if self._semantic is not None:
+            await self._semantic.aclose()
         await self._llm.aclose()
         await self._core.close()
 
 
+def _apply_semantic_calibration(settings: ArtifexSettings) -> ArtifexSettings:
+    evaluation = settings.evaluation
+    if evaluation.semantic_provider != "siglip2":
+        return settings
+
+    path = evaluation.semantic_calibration_path
+    if not path.is_file():
+        if evaluation.require_semantic_calibration:
+            raise ValueError(
+                "production semantic calibration is missing: "
+                f"{path}. Run 'artifex semantic calibrate' against a curated "
+                "ILXL/Hololive regression corpus."
+            )
+        return settings
+
+    profile = load_calibration_profile(path)
+    if profile.profile_id != evaluation.semantic_calibration_profile:
+        raise ValueError(
+            "semantic calibration profile id mismatch: "
+            f"{profile.profile_id} != {evaluation.semantic_calibration_profile}"
+        )
+    if profile.provider != "transformers_siglip2":
+        raise ValueError(
+            "semantic calibration provider mismatch: "
+            f"{profile.provider} != transformers_siglip2"
+        )
+    if profile.model != evaluation.semantic_model:
+        raise ValueError(
+            "semantic calibration model mismatch: "
+            f"{profile.model} != {evaluation.semantic_model}"
+        )
+    if not profile.validated and evaluation.require_semantic_calibration:
+        raise ValueError(
+            f"semantic calibration profile is not validated: {path}"
+        )
+    if (
+        evaluation.semantic_revision is not None
+        and evaluation.semantic_revision != profile.revision
+    ):
+        raise ValueError(
+            "semantic calibration revision mismatch: "
+            f"{profile.revision} != {evaluation.semantic_revision}"
+        )
+
+    calibrated_evaluation = evaluation.model_copy(
+        update={
+            "semantic_revision": profile.revision,
+            "identity_reference_hard_min": profile.identity_hard_min,
+            "identity_reference_accept_min": profile.identity_accept_min,
+            "similarity_hard_max": profile.similarity_hard_max,
+        }
+    )
+    calibrated_planner = settings.planner.model_copy(
+        update={
+            "hard_similarity_threshold": profile.planner_hard_similarity_threshold,
+        }
+    )
+    return settings.model_copy(
+        update={
+            "evaluation": calibrated_evaluation,
+            "planner": calibrated_planner,
+        }
+    )
+
+
 def build_application(settings: ArtifexSettings) -> ArtifexApplication:
+    settings = _apply_semantic_calibration(settings)
     if not settings.production.checkpoint:
         raise ValueError("production.checkpoint must be configured")
     if settings.comfyui.output_dir is None:
@@ -302,8 +380,29 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.database.dispose()
         raise ValueError("no enabled character profiles were loaded")
 
-    local_embeddings = LocalSimilarityEmbeddingProvider()
-    similarity = SimilarityService(local_embeddings)
+    semantic_embeddings: SigLIP2EmbeddingProvider | LocalSimilarityEmbeddingProvider
+    if settings.evaluation.semantic_provider == "siglip2":
+        semantic_embeddings = SigLIP2EmbeddingProvider(
+            model=settings.evaluation.semantic_model,
+            revision=settings.evaluation.semantic_revision,
+            device=settings.evaluation.semantic_device,
+            cache_dir=settings.evaluation.semantic_cache_dir,
+            local_files_only=settings.evaluation.semantic_local_files_only,
+        )
+    else:
+        if not settings.evaluation.allow_degraded_semantic:
+            core.database.dispose()
+            raise ValueError(
+                "local_fallback semantic embeddings are degraded; "
+                "set evaluation.allow_degraded_semantic=true only for diagnostics"
+            )
+        semantic_embeddings = LocalSimilarityEmbeddingProvider()
+
+    semantic_index = SemanticIndex(
+        SemanticEmbeddingRepository(core.database),
+        semantic_embeddings,
+    )
+    similarity = SimilarityService(semantic_embeddings, semantic_index)
 
     llm = OpenAICompatibleClient(
         settings.llm,
@@ -350,7 +449,11 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     research_director = ResearchDirector(core.research, settings.research)
     context_memory = ContextMemoryManager(
         settings.context,
-        ConceptMemoryRetriever(concepts, local_embeddings),
+        ConceptMemoryRetriever(
+            concepts,
+            semantic_embeddings,
+            index=semantic_index,
+        ),
     )
 
     packs = PackRepository(core.database)
@@ -486,6 +589,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         daemon,
         llm,
         vision,
+        semantic=semantic_embeddings,
         discord=discord_runtime,
         discord_token=discord_token,
     )

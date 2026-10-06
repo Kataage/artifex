@@ -125,6 +125,24 @@ comfyui:
 
 evaluation:
   provider: openai_compatible_vision
+  semantic_provider: siglip2
+  semantic_model: google/siglip2-base-patch16-224
+  semantic_revision: null
+  semantic_device: cpu
+  semantic_cache_dir: null
+  semantic_local_files_only: false
+  allow_degraded_semantic: false
+  semantic_calibration_profile: siglip2-hololive-ilxl-v1
+  semantic_calibration_path: data/calibration/siglip2-hololive-ilxl-v1.json
+  require_semantic_calibration: true
+  identity_reference_required: true
+  identity_reference_limit_per_character: 8
+  identity_reference_hard_min: 0.30
+  identity_reference_accept_min: 0.40
+  duplicate_reference_limit: 128
+  novelty_reference_limit: 192
+  global_diversity_reference_limit: 64
+  historical_reference_scan_limit: 2000
   vision_base_url: null
   vision_model: null
   vision_api_key_env: null
