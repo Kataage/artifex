@@ -44,6 +44,51 @@ def _source_url(profile: LlmModelProfileConfig) -> str | None:
     return f"https://huggingface.co/{repository}/resolve/{revision}/{filename}?download=true"
 
 
+def _expected_download_size(
+    response: httpx.Response,
+    *,
+    resume_from: int,
+    append: bool,
+) -> int | None:
+    if append:
+        content_range = response.headers.get("Content-Range")
+        if content_range is None:
+            raise ValueError("resumed LLM download is missing Content-Range")
+        try:
+            unit, value = content_range.split(" ", 1)
+            byte_range, total_text = value.split("/", 1)
+            start_text, end_text = byte_range.split("-", 1)
+            start = int(start_text)
+            end = int(end_text)
+            total = int(total_text)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid LLM download Content-Range: {content_range}"
+            ) from exc
+        if unit.casefold() != "bytes" or start != resume_from or end < start:
+            raise ValueError(
+                f"unexpected LLM download Content-Range: {content_range}"
+            )
+        if end >= total:
+            raise ValueError(
+                f"invalid LLM download Content-Range total: {content_range}"
+            )
+        return total
+
+    content_length = response.headers.get("Content-Length")
+    if content_length is None:
+        return None
+    try:
+        size = int(content_length)
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid LLM download Content-Length: {content_length}"
+        ) from exc
+    if size < 0:
+        raise ValueError(f"invalid LLM download Content-Length: {content_length}")
+    return size
+
+
 def bootstrap_llm(
     config: LlmConfig,
     *,
@@ -107,11 +152,21 @@ def bootstrap_llm(
             append = resume_from > 0 and response.status_code == 206
             if resume_from > 0 and not append:
                 resume_from = 0
+            expected_size = _expected_download_size(
+                response,
+                resume_from=resume_from,
+                append=append,
+            )
             mode = "ab" if append else "wb"
             with partial.open(mode) as handle:
                 for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                     if chunk:
                         handle.write(chunk)
+        if expected_size is not None and partial.stat().st_size != expected_size:
+            raise ValueError(
+                "LLM download ended before the expected file size was reached: "
+                f"{partial.stat().st_size} != {expected_size}"
+            )
     finally:
         if owns_client:
             http.close()
