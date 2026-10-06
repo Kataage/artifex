@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from importlib.resources import files
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from artifex.comfy.models import WorkflowPatchRequest
+from artifex.comfy.models import WorkflowPatchRequest, WorkflowRequirements
 
 
 class PatchPoint(BaseModel):
@@ -41,6 +42,8 @@ class WorkflowTemplateLike(Protocol):
     model_family: str
 
     def patch(self, request: WorkflowPatchRequest) -> dict[str, dict[str, Any]]: ...
+
+    def requirements(self, request: WorkflowPatchRequest) -> WorkflowRequirements: ...
 
 
 class WorkflowTemplate(BaseModel):
@@ -120,6 +123,28 @@ class WorkflowTemplate(BaseModel):
         if request.loras:
             self._patch_lora_chain(graph, request)
         return graph
+
+    def requirements(self, request: WorkflowPatchRequest) -> WorkflowRequirements:
+        graph = self.patch(request)
+        raw = json.dumps(
+            self.prompt,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return WorkflowRequirements(
+            template_id=self.template_id,
+            source_sha256=hashlib.sha256(raw).hexdigest(),
+            node_types=tuple(
+                sorted(
+                    {
+                        str(node.get("class_type", ""))
+                        for node in graph.values()
+                        if node.get("class_type")
+                    }
+                )
+            ),
+        )
 
     def _patch_lora_chain(
         self,
