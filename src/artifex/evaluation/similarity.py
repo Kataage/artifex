@@ -57,7 +57,7 @@ class SimilarityService:
     async def _image_vector(self, path: Path) -> Sequence[float]:
         if self._index is None:
             return await self._provider.embed_image(path)
-        subject_id = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()
+        subject_id = SemanticIndex.image_subject_id(path)
         return await self._index.embed_image(
             "image",
             subject_id,
