@@ -197,6 +197,34 @@ class ComfyUIClient:
     async def object_info(self) -> dict[str, Any]:
         return await self._request_json("GET", "/object_info")
 
+    async def download_output(
+        self,
+        output: ComfyOutput,
+        destination_dir: Path,
+    ) -> Path:
+        """Download one ComfyUI output through /view into controller-local storage."""
+        root = destination_dir.expanduser().resolve(strict=False)
+        relative = Path(output.subfolder.replace("\\", "/")) / output.filename
+        target = (root / relative).resolve(strict=False)
+        try:
+            target.relative_to(root)
+        except ValueError as exc:
+            raise ComfyUIProtocolError(
+                f"ComfyUI output escapes download directory: {relative}"
+            ) from exc
+        response = await self._request(
+            "GET",
+            "/view",
+            params={
+                "filename": output.filename,
+                "subfolder": output.subfolder,
+                "type": output.output_type,
+            },
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(response.content)
+        return target
+
     async def validate_requirements(
         self,
         requirements: WorkflowRequirements,
@@ -334,13 +362,19 @@ class ComfyUIClient:
         method: str,
         path: str,
         *,
-        json: dict[str, Any] | None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
     ) -> httpx.Response:
         last_error: Exception | None = None
 
         for attempt in range(self._config.request_attempts):
             try:
-                response = await self._client.request(method, path, json=json)
+                response = await self._client.request(
+                    method,
+                    path,
+                    json=json,
+                    params=params,
+                )
                 if response.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"ComfyUI server error {response.status_code}",
