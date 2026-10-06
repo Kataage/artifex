@@ -110,6 +110,7 @@ class EvaluationRow(Base):
     result_state: Mapped[str] = mapped_column(String(32), index=True)
     scores_json: Mapped[dict[str, Any]] = mapped_column(JSON)
     reasons_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    classification_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
