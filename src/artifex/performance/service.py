@@ -5,8 +5,6 @@ import re
 from datetime import UTC, datetime
 from statistics import fmean
 
-from sqlalchemy import select
-
 from artifex.config.models import PatreonPerformanceConfig
 from artifex.db import Database
 from artifex.db.models import ConceptRow, PackRow
