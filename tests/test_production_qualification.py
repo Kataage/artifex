@@ -565,13 +565,13 @@ async def test_technical_failure_routes_retry_through_repair_workflow(
     first, second = backend.requests
     assert first.seed != second.seed
     assert first.workflow_template_id is None
-    assert second.workflow_template_id == "ilxl_repair_v1"
+    assert second.workflow_template_id == "illust_main_repair_v1"
     with database.session() as session:
         attempts = session.scalars(
             select(GenerationAttemptRow)
             .order_by(GenerationAttemptRow.ordinal.asc())
         ).all()
-        assert attempts[-1].provenance_json["workflow_template"] == "ilxl_repair_v1"
+        assert attempts[-1].provenance_json["workflow_template"] == "illust_main_repair_v1"
     database.dispose()
 
 
