@@ -33,7 +33,7 @@ def _optional_datetime(value: object) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return value
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return datetime.fromisoformat(str(value))
 
 
 def _record_from_mapping(raw: dict[str, Any]) -> ManualPerformanceRecord:
@@ -103,7 +103,7 @@ def load_manual_performance(path: Path) -> ManualPerformanceImport:
                     f"invalid JSONL line {index}: {exc}"
                 ) from exc
             if not isinstance(raw, dict):
-                raise ValueError(
+                raise TypeError(
                     f"JSONL line {index} must contain an object"
                 )
             records.append(_record_from_mapping(raw))
@@ -129,10 +129,10 @@ def load_manual_performance(path: Path) -> ManualPerformanceImport:
                 )
             )
         if not isinstance(raw, dict):
-            raise ValueError("performance JSON root must be an object or list")
+            raise TypeError("performance JSON root must be an object or list")
         records_raw = raw.get("records")
         if not isinstance(records_raw, list):
-            raise ValueError("performance JSON object requires records[]")
+            raise TypeError("performance JSON object requires records[]")
         return ManualPerformanceImport(
             platform=str(raw.get("platform") or "patreon"),
             source=str(raw.get("source") or "manual"),
