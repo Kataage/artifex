@@ -404,8 +404,13 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     settings = _apply_semantic_calibration(settings)
     if not settings.production.checkpoint:
         raise ValueError("production.checkpoint must be configured")
-    if settings.comfyui.output_dir is None:
-        raise ValueError("comfyui.output_dir must be configured")
+    if (
+        settings.comfyui.output_mode == "filesystem"
+        and settings.comfyui.output_dir is None
+    ):
+        raise ValueError(
+            "comfyui.output_dir must be configured when output_mode=filesystem"
+        )
     if not settings.evaluation.vision_base_url or not settings.evaluation.vision_model:
         raise ValueError(
             "evaluation.vision_base_url and evaluation.vision_model must be configured"
