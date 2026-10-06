@@ -89,6 +89,8 @@ class IllustMainWorkflowTemplate:
         detail_mode = 0 if self.repair else UiWorkflowCompiler.MODE_BYPASS
         compiler.set_mode_for_role("detailer_body", detail_mode)
         compiler.set_mode_for_role("detailer_clothes", detail_mode)
+        compiler.set_mode_for_role("repair_body_paste", detail_mode)
+        compiler.set_mode_for_role("repair_clothes_paste", detail_mode)
 
         compiler.set_widget_for_role(
             "base_checkpoint",
