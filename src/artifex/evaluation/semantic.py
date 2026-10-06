@@ -94,8 +94,8 @@ class SigLIP2EmbeddingProvider:
                 "uv sync --extra semantic"
             ) from exc
 
-        auto_model = getattr(transformers, "AutoModel")
-        auto_processor = getattr(transformers, "AutoProcessor")
+        auto_model = transformers.AutoModel
+        auto_processor = transformers.AutoProcessor
         load_kwargs: dict[str, Any] = {
             "local_files_only": self._local_files_only,
             "trust_remote_code": False,
