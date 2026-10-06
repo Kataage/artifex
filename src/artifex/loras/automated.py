@@ -429,11 +429,11 @@ class LoRAValidationMatrixRunner:
                 report=report.model_dump(mode="json"),
             )
         except Exception as exc:  # noqa: BLE001
-            current = self._registry.get(lora_id)
+            latest = self._registry.get(lora_id)
             if (
-                current is not None
-                and current.checksum == run.checksum
-                and current.state is not LoRAState.DISABLED
+                latest is not None
+                and latest.checksum == run.checksum
+                and latest.state is not LoRAState.DISABLED
             ):
                 self._registry.invalidate(
                     lora_id,
