@@ -428,7 +428,7 @@ class LoRAValidationMatrixRunner:
                 },
                 report=report.model_dump(mode="json"),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             current = self._registry.get(lora_id)
             if (
                 current is not None
