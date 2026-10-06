@@ -38,6 +38,12 @@ from artifex.performance import (
     load_manual_performance,
 )
 from artifex.policy import PolicyDecisionRepository
+from artifex.qualification import (
+    REQUIRED_STAGES,
+    QualificationService,
+    QualificationStage,
+    QualificationStatus,
+)
 from artifex.research import (
     ResearchIntent,
     ResearchProviderError,
@@ -96,6 +102,12 @@ performance_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(performance_app, name="performance")
+qualify_app = typer.Typer(
+    name="qualify",
+    help="Collect and verify target-Windows production qualification evidence.",
+    no_args_is_help=True,
+)
+app.add_typer(qualify_app, name="qualify")
 
 ConfigOption = Annotated[
     Path | None,
@@ -573,6 +585,192 @@ def _print_payload(payload: object, *, as_json: bool) -> None:
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         typer.echo(str(payload))
+
+
+def _qualification_service(
+    core: CoreServices,
+) -> QualificationService:
+    return QualificationService(
+        core.settings,
+        core.database,
+        core.characters,
+        core.loras,
+    )
+
+
+def _qualification_details(values: list[str] | None) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for item in values or []:
+        if "=" not in item:
+            raise ValueError(
+                f"qualification detail must be key=value: {item}"
+            )
+        key, raw_value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError("qualification detail key must not be empty")
+        try:
+            value: object = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value
+        result[key] = value
+    return result
+
+
+@qualify_app.command("start")
+def qualify_start(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Capture doctor, machine, workflow, GPU and asset-hash baseline evidence."""
+    core = build_core(_settings(config))
+    try:
+        doctor = asyncio.run(build_doctor(core).run())
+        service = _qualification_service(core)
+        session = service.start(doctor)
+        payload = {
+            "session_id": session.session_id,
+            "doctor_ready": session.doctor_ready,
+            "evidence_path": str(
+                core.settings.qualification.evidence_dir
+                / session.session_id
+                / "qualification.json"
+            ),
+            "environment_requirements": session.environment.get(
+                "requirements",
+                {},
+            ),
+            "missing_asset_labels": session.environment.get(
+                "missing_asset_labels",
+                [],
+            ),
+        }
+        _print_payload(payload, as_json=json_output)
+    finally:
+        asyncio.run(core.close())
+
+
+@qualify_app.command("stages")
+def qualify_stages(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List the strict real-machine qualification ladder."""
+    values = [stage.value for stage in REQUIRED_STAGES]
+    if json_output:
+        _print_payload(values, as_json=True)
+        return
+    for index, stage in enumerate(values, start=1):
+        typer.echo(f"{index}. {stage}")
+
+
+@qualify_app.command("record")
+def qualify_record(
+    session_id: Annotated[str, typer.Argument(help="Qualification session ID.")],
+    stage: Annotated[str, typer.Argument(help="Qualification stage name.")],
+    status: Annotated[
+        str,
+        typer.Option("--status", help="pass, fail, or skipped."),
+    ],
+    pack_ids: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--pack-id",
+            help="Finalized Pack ID. Repeat for multi-Pack stages.",
+        ),
+    ] = None,
+    details: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--detail",
+            help="Verified key=value observation. Repeat as needed.",
+        ),
+    ] = None,
+    note: Annotated[str | None, typer.Option("--note")] = None,
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Record one real-machine stage after validating its persisted evidence."""
+    core = build_core(_settings(config))
+    try:
+        service = _qualification_service(core)
+        try:
+            parsed_stage = QualificationStage(stage.casefold())
+            parsed_status = QualificationStatus(status.casefold())
+            if parsed_status is QualificationStatus.PENDING:
+                raise ValueError("record status cannot be pending")
+            session = service.record(
+                session_id,
+                parsed_stage,
+                status=parsed_status,
+                pack_ids=tuple(pack_ids or ()),
+                note=note,
+                details=_qualification_details(details),
+            )
+        except (KeyError, OSError, ValueError) as exc:
+            typer.echo(f"qualification record error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        evidence = session.stage(parsed_stage)
+        _print_payload(
+            evidence.model_dump(mode="json"),
+            as_json=json_output,
+        )
+    finally:
+        asyncio.run(core.close())
+
+
+@qualify_app.command("status")
+def qualify_status(
+    session_id: Annotated[str, typer.Argument(help="Qualification session ID.")],
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show captured qualification stages and baseline readiness."""
+    core = build_core(_settings(config))
+    try:
+        service = _qualification_service(core)
+        try:
+            session = service.load(session_id)
+        except (KeyError, OSError, ValueError) as exc:
+            typer.echo(f"qualification status error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        if json_output:
+            _print_payload(session.model_dump(mode="json"), as_json=True)
+            return
+        typer.echo(
+            f"session={session.session_id} doctor_ready={session.doctor_ready} "
+            f"host={session.hostname}"
+        )
+        for stage in REQUIRED_STAGES:
+            evidence = session.stage(stage)
+            typer.echo(
+                f"{stage.value}\t{evidence.status.value}\t"
+                f"packs={','.join(evidence.pack_ids) or '-'}\t"
+                f"{evidence.note or ''}"
+            )
+    finally:
+        asyncio.run(core.close())
+
+
+@qualify_app.command("verify")
+def qualify_verify(
+    session_id: Annotated[str, typer.Argument(help="Qualification session ID.")],
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Revalidate all evidence and fail until the strict ladder is complete."""
+    core = build_core(_settings(config))
+    try:
+        service = _qualification_service(core)
+        try:
+            result = service.verify(session_id)
+        except (KeyError, OSError, ValueError) as exc:
+            typer.echo(f"qualification verify error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        _print_payload(result, as_json=json_output)
+        if result["ready"] is not True:
+            raise typer.Exit(code=1)
+    finally:
+        asyncio.run(core.close())
 
 
 @performance_app.command("import")
