@@ -466,7 +466,7 @@ class QualificationService:
                             node_id=asset.node_id,
                             attested_at=attestation.created_at,
                         )
-                    except (OSError, ValueError, Exception) as exc:
+                    except Exception as exc:  # noqa: BLE001
                         issues.append(
                             f"asset {asset.label} cannot be revalidated: {exc}"
                         )
