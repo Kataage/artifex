@@ -26,7 +26,6 @@ from artifex.db.models import (
 from artifex.domain import LoRAState, PackState
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorReport
-from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     AssetDigest,
@@ -35,6 +34,7 @@ from artifex.qualification.models import (
     QualificationStageEvidence,
     QualificationStatus,
 )
+from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
 
 _PACK_STAGES = frozenset(
     {
