@@ -15,7 +15,14 @@ from PIL import Image
 from sqlalchemy import func, select
 
 from artifex.db import Database
-from artifex.db.models import SemanticEmbeddingRow
+from artifex.db.models import (
+    ConceptRow,
+    GenerationAttemptRow,
+    PackRow,
+    SceneRow,
+    SemanticEmbeddingRow,
+)
+from artifex.domain import PackState
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +278,10 @@ class SemanticEmbeddingRepository:
 class SemanticIndex:
     """Persistent cache keyed by subject, source hash and embedding model version."""
 
+    @staticmethod
+    def image_subject_id(path: Path) -> str:
+        return hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()
+
     def __init__(
         self,
         repository: SemanticEmbeddingRepository,
@@ -351,3 +362,129 @@ class SemanticIndex:
             metadata=merged_metadata,
         )
         return vector
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticBackfillReport:
+    concepts_scanned: int
+    concepts_indexed: int
+    images_scanned: int
+    images_indexed: int
+    missing_image_paths: int
+
+
+def _concept_payload_text(payload: Mapping[str, Any]) -> str | None:
+    if payload.get("selected") is not True:
+        return None
+    candidate = payload.get("candidate")
+    if not isinstance(candidate, dict):
+        return None
+
+    character_ids = candidate.get("character_ids", ())
+    if isinstance(character_ids, list | tuple):
+        characters = ",".join(str(value) for value in character_ids)
+    else:
+        characters = str(character_ids)
+    fields = (
+        characters,
+        str(candidate.get("format", "")),
+        str(candidate.get("theme", "")),
+        str(candidate.get("setting", "")),
+        str(candidate.get("mood", "")),
+        str(candidate.get("visual_hook", "")),
+        str(candidate.get("progression", "")),
+    )
+    text = " | ".join(value for value in fields if value)
+    return text or None
+
+
+def _attempt_output_paths(attempt: GenerationAttemptRow) -> tuple[Path, ...]:
+    raw = attempt.provenance_json.get("output_paths", ())
+    if not isinstance(raw, list | tuple):
+        return ()
+    return tuple(Path(value) for value in raw if isinstance(value, str) and value)
+
+
+class SemanticArchiveIndexer:
+    """Backfill every selected Concept and finalized selected image into SQLite."""
+
+    def __init__(self, database: Database, index: SemanticIndex) -> None:
+        self._database = database
+        self._index = index
+
+    async def backfill(self) -> SemanticBackfillReport:
+        with self._database.session() as session:
+            concepts = tuple(
+                session.scalars(
+                    select(ConceptRow).order_by(
+                        ConceptRow.created_at.asc(),
+                        ConceptRow.id.asc(),
+                    )
+                ).all()
+            )
+            attempts = tuple(
+                session.scalars(
+                    select(GenerationAttemptRow)
+                    .join(
+                        SceneRow,
+                        SceneRow.selected_attempt_id == GenerationAttemptRow.id,
+                    )
+                    .join(PackRow, SceneRow.pack_id == PackRow.id)
+                    .where(PackRow.state == PackState.FINALIZED.value)
+                    .order_by(
+                        GenerationAttemptRow.created_at.asc(),
+                        GenerationAttemptRow.id.asc(),
+                    )
+                ).all()
+            )
+            for row in (*concepts, *attempts):
+                session.expunge(row)
+
+        concepts_indexed = 0
+        for row in concepts:
+            text = _concept_payload_text(row.payload_json)
+            if text is None:
+                continue
+            candidate = row.payload_json.get("candidate")
+            character_ids = (
+                candidate.get("character_ids", ())
+                if isinstance(candidate, dict)
+                else ()
+            )
+            await self._index.embed_text(
+                "concept",
+                row.id,
+                text,
+                metadata={"character_ids": list(character_ids)},
+            )
+            concepts_indexed += 1
+
+        images_scanned = 0
+        images_indexed = 0
+        missing_image_paths = 0
+        for attempt in attempts:
+            for path in _attempt_output_paths(attempt):
+                images_scanned += 1
+                if not path.is_file():
+                    missing_image_paths += 1
+                    continue
+                await self._index.embed_image(
+                    "image",
+                    SemanticIndex.image_subject_id(path),
+                    path,
+                    metadata={
+                        "path": str(path),
+                        "attempt_id": attempt.id,
+                        "scene_id": attempt.scene_id,
+                        "historical_finalized": True,
+                    },
+                )
+                images_indexed += 1
+
+        return SemanticBackfillReport(
+            concepts_scanned=len(concepts),
+            concepts_indexed=concepts_indexed,
+            images_scanned=images_scanned,
+            images_indexed=images_indexed,
+            missing_image_paths=missing_image_paths,
+        )
