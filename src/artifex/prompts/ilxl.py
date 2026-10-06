@@ -16,7 +16,8 @@ _LEADING_NEGATION = re.compile(r"^(?:no|not|avoid)\s+", re.IGNORECASE)
 
 
 def _tag_key(tag: str) -> str:
-    return _SPACES.sub(" ", tag.replace("_", " ").strip().casefold())
+    normalized = _SPLIT.sub(" ", tag.replace("_", " "))
+    return _SPACES.sub(" ", normalized.strip().casefold())
 
 
 def _dedupe(tags: Iterable[str]) -> tuple[str, ...]:
