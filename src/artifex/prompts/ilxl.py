@@ -119,6 +119,7 @@ class ILXLDanbooruAdapter:
     ) -> CompiledPrompt:
         profile = self._profile(lora_plan.model_family)
         source_categories: dict[str, str] = {}
+        trusted_concepts: set[str] = set()
         positive: list[str] = []
         negative: list[str] = []
         generated_positive: list[str] = []
@@ -143,6 +144,17 @@ class ILXLDanbooruAdapter:
             generated_positive.append(tag)
 
         for character in characters:
+            trusted_concepts.update(
+                _tag_key(value)
+                for value in (
+                    character.id,
+                    character.display_name,
+                    *character.aliases,
+                    *character.canonical_tags,
+                    *character.required_tags,
+                )
+                if value.strip()
+            )
             add_trusted(
                 (*character.canonical_tags, *character.required_tags),
                 destination=positive,
@@ -158,12 +170,15 @@ class ILXLDanbooruAdapter:
                 )
                 forbidden.extend(outfit.forbidden_tags)
 
+        trigger_tags = tuple(
+            tag
+            for entry in lora_plan.entries
+            for tag in entry.trigger_tags
+            if tag.strip()
+        )
+        trusted_concepts.update(_tag_key(tag) for tag in trigger_tags)
         add_trusted(
-            (
-                tag
-                for entry in lora_plan.entries
-                for tag in entry.trigger_tags
-            ),
+            trigger_tags,
             destination=positive,
             category="trigger",
         )
@@ -195,7 +210,7 @@ class ILXLDanbooruAdapter:
                 resolved = self._lexicon.resolve(segment)
                 if resolved.matched:
                     generated_positive.extend(resolved.tags)
-                else:
+                elif _tag_key(segment) not in trusted_concepts:
                     unresolved.append(f"positive_constraint:{segment}")
 
         for constraint in scene.visual.negative_constraints:
