@@ -36,17 +36,17 @@ from artifex.evaluation import (
 )
 from artifex.llm import OpenAICompatibleClient, StructuredGenerator
 from artifex.llm.provenance import LlmCallRepository
-from artifex.loras import (
-    LoRADiscovery,
-    LoRADiscoveryMaintenance,
-    LoRARegistry,
-    LoRAResolver,
-    LoRAValidationMaintenance,
+from artifex.loras import LoRADiscovery, LoRARegistry, LoRAResolver
+from artifex.loras.automated import (
     LoRAValidationMatrixRunner,
-    LoRAValidationRunRepository,
-    LoRAValidationService,
     ProductionLoRAValidationProbe,
 )
+from artifex.loras.maintenance import (
+    LoRADiscoveryMaintenance,
+    LoRAValidationMaintenance,
+)
+from artifex.loras.runs import LoRAValidationRunRepository
+from artifex.loras.validation import LoRAValidationService
 from artifex.memory import ConceptMemoryRetriever, ContextMemoryManager
 from artifex.operations import (
     HealthChecker,
