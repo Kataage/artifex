@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from artifex.characters import CharacterRegistry
 from artifex.config.models import ArtifexSettings
+from artifex.evaluation import load_calibration_profile
 from artifex.operations.health import HealthChecker, HealthReport
 
 
@@ -41,6 +42,46 @@ class DoctorService:
 
     async def run(self) -> DoctorReport:
         health = await self._health.check_all(include_worker=False)
+        semantic_dependencies = (
+            self._settings.evaluation.semantic_provider == "siglip2"
+            and find_spec("torch") is not None
+            and find_spec("transformers") is not None
+        )
+        semantic_calibrated = False
+        semantic_detail: str
+        calibration_path = self._settings.evaluation.semantic_calibration_path
+        if self._settings.evaluation.semantic_provider != "siglip2":
+            semantic_detail = "degraded local_fallback is not production-ready"
+        elif not semantic_dependencies:
+            semantic_detail = (
+                "install production semantic dependencies with: uv sync --extra semantic"
+            )
+        elif not calibration_path.is_file():
+            semantic_detail = (
+                f"semantic calibration is missing: {calibration_path}; "
+                "run artifex semantic calibrate"
+            )
+        else:
+            try:
+                profile = load_calibration_profile(calibration_path)
+                semantic_calibrated = (
+                    profile.validated
+                    and profile.profile_id
+                    == self._settings.evaluation.semantic_calibration_profile
+                    and profile.model == self._settings.evaluation.semantic_model
+                    and (
+                        self._settings.evaluation.semantic_revision is None
+                        or profile.revision
+                        == self._settings.evaluation.semantic_revision
+                    )
+                )
+                semantic_detail = (
+                    f"{profile.model}@{profile.revision}; "
+                    f"corpus={profile.corpus_id}; validated={profile.validated}"
+                )
+            except (OSError, ValueError) as exc:
+                semantic_detail = f"invalid semantic calibration: {exc}"
+
         checks = (
             DoctorCheck(
                 name="production_checkpoint",
@@ -78,26 +119,8 @@ class DoctorService:
             ),
             DoctorCheck(
                 name="semantic_embeddings",
-                ready=(
-                    self._settings.evaluation.semantic_provider == "siglip2"
-                    and find_spec("torch") is not None
-                    and find_spec("transformers") is not None
-                ),
-                detail=(
-                    (
-                        f"production semantic provider: "
-                        f"{self._settings.evaluation.semantic_model} "
-                        f"({self._settings.evaluation.semantic_device})"
-                    )
-                    if self._settings.evaluation.semantic_provider == "siglip2"
-                    and find_spec("torch") is not None
-                    and find_spec("transformers") is not None
-                    else (
-                        "degraded local_fallback is not production-ready"
-                        if self._settings.evaluation.semantic_provider == "local_fallback"
-                        else "install production semantic dependencies with: uv sync --extra semantic"
-                    )
-                ),
+                ready=semantic_dependencies and semantic_calibrated,
+                detail=semantic_detail,
             ),
             DoctorCheck(
                 name="native_research_provider",
