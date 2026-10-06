@@ -34,8 +34,17 @@ class PlanningContextBuilder:
     def build(self, *, as_of: datetime | None = None) -> PlanningContext:
         now = as_of or datetime.now(UTC)
         options: list[CharacterOption] = []
+        profiles = self._characters.list(enabled_only=True)
+        performance_by_character = (
+            self._performance.character_effects(
+                tuple(profile.id for profile in profiles),
+                as_of=now,
+            )
+            if self._performance is not None
+            else {}
+        )
 
-        for profile in self._characters.list(enabled_only=True):
+        for profile in profiles:
             if profile.readiness < self._character_config.minimum_readiness:
                 continue
 
@@ -61,11 +70,7 @@ class PlanningContextBuilder:
                     max(lora.readiness for lora in production_loras),
                 )
 
-            performance = (
-                self._performance.character_effect(profile.id, as_of=now)
-                if self._performance is not None
-                else None
-            )
+            performance = performance_by_character.get(profile.id)
             options.append(
                 CharacterOption(
                     id=profile.id,
