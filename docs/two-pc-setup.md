@@ -11,7 +11,41 @@ No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A i
 
 ComfyUI must listen on an address reachable from PC-A. Keep the ComfyUI port restricted to the trusted LAN/firewall scope.
 
-Create a small renderer config such as:
+You can generate the PC-B configuration without hand-editing YAML or having
+ComfyUI running yet. **Replace these sample paths/IPs with the actual PC values**:
+
+```powershell
+uv run artifex render-node configure `
+  --node-id rtx3060 `
+  --bind-host 0.0.0.0 `
+  --port 8190 `
+  --comfy-url http://127.0.0.1:8188 `
+  --checkpoint-path "E:/ComfyUI/models/checkpoints/my-model.safetensors" `
+  --refiner-path "E:/ComfyUI/models/checkpoints/my-refiner.safetensors" `
+  --vae-path "E:/ComfyUI/models/vae/my-vae.safetensors" `
+  --upscaler-path "E:/ComfyUI/models/upscale_models/my-upscaler.pt" `
+  --lora-dir "E:/ComfyUI/models/loras" `
+  --output .\\config\\render-node.yaml
+```
+
+Later you can update only the changed settings **without losing the rest**:
+
+```powershell
+uv run artifex render-node configure `
+  --output .\\config\\render-node.yaml `
+  --checkpoint-path "F:/AI/checkpoints/new-model.safetensors" `
+  --lora-dir "F:/AI/loras" `
+  --bind-host 192.168.1.60 `
+  --update
+```
+
+Repeat `--lora-dir` to configure multiple folders. With `--update`, providing
+this flag replaces the whole LoRA roots list; omitting it preserves the list.
+`--force` replaces the complete file, whereas `--update` preserves unrelated
+settings. Set the token value through an environment variable, not these flags.
+Restrict the ComfyUI and attestation ports to the trusted LAN.
+
+Alternatively, edit a renderer config YAML directly, for example:
 
 ```yaml
 render_agent:
@@ -80,9 +114,33 @@ uv run artifex setup `
   --output .\config\local.yaml
 ```
 
+To reconfigure PC-A without replacing unrelated settings, supply `--update`.
+You can change its ComfyUI/attestation IP, checkpoint name, model directory,
+LLM endpoint, semantic model location or downloaded image directory:
+
+```powershell
+uv run artifex setup `
+  --output .\\config\\local.yaml `
+  --comfy-url http://192.168.1.60:8188 `
+  --attestation-url http://192.168.1.60:8190 `
+  --production-checkpoint my-model.safetensors `
+  --render-cache-dir "E:/Artifex/render-cache" `
+  --llm-models-dir "E:/Models/GGUF" `
+  --llm-url http://127.0.0.1:8899 `
+  --skip-llm-download `
+  --update
+```
+
+If no IP has changed, you may omit `--comfy-url` and `--render-node-id`
+with `--update`; the saved node and URL will be reused. You can add
+`--semantic-model-path` if qualification requires a separately stored local
+semantic model. Changing PC-B's LAN IP or port also requires updating PC-A's
+matching endpoint and restarting the affected services.
+
 The default attestation URL is derived from the same host on port 8190. Override
 it with `--attestation-url` when PC-B uses another port. Existing config files
-are never overwritten unless `--force` is supplied. Use
+are never silently overwritten; use `--update` to merge changes safely or
+`--force` to replace the full YAML. Use
 `--skip-llm-download` when the model is already managed separately.
 
 The generated config is intentionally a small override, not a copy of every
@@ -90,7 +148,7 @@ Artifex default. A production checkpoint still needs to be selected explicitly
 because automatically choosing one from a machine with multiple ILXL
 checkpoints would be unsafe. Setup is safe to re-run with identical options if
 the LLM download was interrupted: an identical generated YAML is reused;
-an operator-modified configuration is not overwritten without `--force`.
+an operator-modified configuration is not overwritten without `--update` or `--force`.
 
 Configure the primary renderer manually when needed:
 
