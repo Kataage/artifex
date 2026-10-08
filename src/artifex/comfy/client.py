@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from artifex.comfy.admission import ComfySubmissionFence
 from artifex.comfy.errors import (
     ComfyErrorKind,
     ComfyUIError,
@@ -24,7 +25,6 @@ from artifex.comfy.models import (
     WorkflowRequirements,
     WorkflowRequirementStatus,
 )
-from artifex.comfy.admission import ComfySubmissionFence
 from artifex.comfy.templates import WorkflowTemplateLike
 from artifex.config.models import ComfyUiConfig
 
