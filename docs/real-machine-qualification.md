@@ -55,9 +55,36 @@ Unattended production requires at least three finalized Packs:
 
     uv run artifex qualify record <SESSION> unattended_multi_pack --status pass --pack-id <PACK1> --pack-id <PACK2> --pack-id <PACK3>
 
-The overnight soak must meet the configured minimum duration and record fatal error count plus peak VRAM/RAM, minimum free disk and telemetry row count:
+The overnight soak MUST use an actual read-only observer trace from
+the same qualification session. Start the normal Artifex daemon first,
+then on PC-A run the following in another terminal (saving evidence
+under `qualification.evidence_dir`):
 
-    uv run artifex qualify record <SESSION> overnight_soak --status pass --detail duration_hours=8.5 --detail fatal_errors=0 --detail peak_vram_mib=11000 --detail peak_ram_mib=24000 --detail minimum_free_disk_gib=100.0 --detail telemetry_rows=5000
+```powershell
+uv run artifex qualify soak-observe `
+  --config .\\config\\local.yaml `
+  --session-id <SESSION> `
+  --output .\\data\\qualification\\soak-unique.jsonl `
+  --hours 8 --sample-seconds 300
+
+uv run artifex qualify soak-check `
+  --config .\\config\\local.yaml `
+  --evidence .\\data\\qualification\\soak-unique.jsonl
+
+uv run artifex qualify record <SESSION> overnight_soak `
+  --status pass `
+  --soak-evidence .\\data\\qualification\\soak-unique.jsonl `
+  --config .\\config\\local.yaml
+```
+
+The last command hashes the evidence automatically and performs the
+strict review. It only records PASS if the session identity, controller,
+renderer, configuration, model hashes, actual duration, sampling,
+service health, at least 3 new Packs and zero serious failures match.
+`qualify verify` rechecks the original evidence and digest. Do not
+use manually entered elapsed time or resource values; these are no
+longer accepted as stage evidence. Without `--session-id`, a standalone
+observer trace is diagnostic only and cannot qualify a session.
 
 When Discord is enabled, verify status, pause, resume, approve, reject and retry against the real guild/channel. If Discord is disabled, only this stage may be skipped automatically.
 
