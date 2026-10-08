@@ -94,6 +94,11 @@ def test_managed_gateway_refuses_existing_comfy_and_non_loopback_listen(
     )
     with pytest.raises(ValueError, match="exactly one"):
         manager.start(threading.Event())
+    settings.render_agent.comfyui_process.arguments = (
+        "main.py", "--listen", "127.0.0.1", "--port", "8199",
+    )
+    with pytest.raises(ValueError, match="matching the local upstream"):
+        manager.start(threading.Event())
 
 
 def test_gateway_supervisor_refuses_foreign_upstream_after_managed_child_exit(
