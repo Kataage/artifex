@@ -34,4 +34,6 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run python -c "import artifex; print('Artifex import OK')"
       - run: uv run artifex --help
+      - run: uv run artifex startup --help
+      - run: uv run artifex startup status --role controller --json
       - run: uv run artifex research status --json

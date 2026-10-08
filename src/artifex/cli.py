@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import httpx
 import typer
@@ -65,6 +65,7 @@ from artifex.series import SeriesRepository
 from artifex.setup import configure_two_pc
 from artifex.setup_renderer import configure_renderer
 from artifex.telemetry import EventSeverity
+from artifex.windows_tasks import StartupRole, install_task, task_status, uninstall_task
 
 app = typer.Typer(
     name="artifex",
@@ -125,6 +126,12 @@ render_node_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(render_node_app, name="render-node")
+startup_app = typer.Typer(
+    name="startup",
+    help="Manage opt-in Windows logon startup tasks for both Artifex PCs.",
+    no_args_is_help=True,
+)
+app.add_typer(startup_app, name="startup")
 
 ConfigOption = Annotated[
     Path | None,
@@ -151,6 +158,71 @@ def preflight(
     _print_payload(report.model_dump(mode="json"), as_json=json_output)
     if not report.ready:
         raise typer.Exit(code=1)
+
+
+def _startup_role(value: str) -> StartupRole:
+    selected = value.strip().casefold()
+    if selected not in {"controller", "renderer"}:
+        raise ValueError("startup role must be controller or renderer")
+    return cast(StartupRole, selected)
+
+
+@startup_app.command("install")
+def startup_install(
+    role: Annotated[str, typer.Option("--role")] = "controller",
+    config: ConfigOption = None,
+    replace: Annotated[
+        bool, typer.Option("--replace", help="Update only an existing Artifex-owned task."),
+    ] = False,
+    restart_count: Annotated[int, typer.Option("--restart-count", min=0, max=999)] = 10,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Explicitly register a non-admin, current-user Windows logon startup task."""
+    try:
+        selected = _startup_role(role)
+        target = config or Path(
+            "config/local.yaml" if selected == "controller" else "config/render-node.yaml"
+        )
+        # Reject malformed config before writing anything to Task Scheduler.
+        _settings(target)
+        result = install_task(
+            selected, config=target, replace=replace, restart_count=restart_count
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"startup install error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@startup_app.command("status")
+def startup_status(
+    role: Annotated[str, typer.Option("--role")] = "controller",
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read Windows Task Scheduler registration without modifying it."""
+    try:
+        result = task_status(_startup_role(role))
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(f"startup status error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@startup_app.command("uninstall")
+def startup_uninstall(
+    role: Annotated[str, typer.Option("--role")] = "controller",
+) -> None:
+    """Remove only an Artifex-owned startup task; do not stop a running daemon."""
+    try:
+        selected = _startup_role(role)
+        removed = uninstall_task(selected)
+        typer.echo(
+            f"{selected}: startup task removed"
+            if removed else f"{selected}: startup task not installed"
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(f"startup uninstall error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("setup")
