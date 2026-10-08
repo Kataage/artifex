@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+import socket
 import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -246,3 +250,79 @@ def test_ambiguous_foreign_listener_is_never_claimed(
     with pytest.raises(RuntimeError, match="not a verified child"):
         manager.start(threading.Event())
     assert mock.terminate_calls == mock.kill_calls == 0
+
+
+
+@pytest.mark.skipif(os.name != "nt", reason="real Windows CIM and native TCP ownership")
+def test_native_venv_python_launcher_matches_actual_mock_tcp_listener(
+    tmp_path: Path,
+) -> None:
+    """No GPU: check actual CIM parent, TCP owner and durable ownership receipt."""
+    import artifex.render_node.comfy_process as process_module
+    from artifex.render_node.process_identity import windows_process_identity
+    from artifex.render_node.socket_audit import audit_renderer_sockets
+
+    # Reserve a unique ephemeral port and release it before mock process starts.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        port = reserved.getsockname()[1]
+    settings = _settings(tmp_path)
+    settings.render_agent.comfyui_process.executable = Path(sys.executable)
+    settings.render_agent.comfyui_process.working_directory = tmp_path
+    settings.comfyui.base_url = f"http://127.0.0.1:{port}"
+    marker = tmp_path / "listener-ready.txt"
+    release = tmp_path / "listener-release.txt"
+    code = (
+        "import os,sys,socket,time,pathlib;"
+        "s=socket.socket();s.bind(('127.0.0.1',int(sys.argv[1])));s.listen(1);"
+        "pathlib.Path(sys.argv[2]).write_text(str(os.getpid()));"
+        "deadline=time.monotonic()+25;"
+        "release=pathlib.Path(sys.argv[3]);"
+        "\nwhile not release.exists() and time.monotonic()<deadline: time.sleep(0.1)\n"
+        "s.close()"
+    )
+    args = ("-c", code, str(port), str(marker), str(release))
+    settings.render_agent.comfyui_process.arguments = args
+    child = subprocess.Popen(
+        [sys.executable, *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=str(tmp_path),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    manager = ManagedComfyUI(settings)
+    try:
+        deadline = time.monotonic() + 12
+        while not marker.exists() and time.monotonic() < deadline:
+            if child.poll() is not None:
+                pytest.fail("Mock Python listener exited before ready")
+            time.sleep(0.1)
+        assert marker.exists(), "Mock listener never became ready"
+        actual_pid = int(marker.read_text())
+        report = audit_renderer_sockets(settings, owned_pid=actual_pid)
+        assert report.status == "owned_loopback_observed", report
+        manager.process = child
+        manager._record_owned_process()
+        manager._verify_owned_listener()
+        receipt = manager._current_receipt
+        assert receipt is not None
+        assert receipt.identity.pid == actual_pid
+        assert matches_owned_process(settings, receipt, receipt.identity)
+        if actual_pid != child.pid:
+            assert receipt.schema_version == 2
+            assert receipt.launcher_identity is not None
+            assert receipt.launcher_identity.pid == child.pid
+            assert receipt.identity.parent_pid == child.pid
+            assert receipt.identity.executable
+        else:
+            assert receipt.schema_version == 1
+        # Closing the supervisor must not kill the owned test listener.
+        manager.close()
+        assert windows_process_identity(actual_pid) is not None
+    finally:
+        release.write_text("stop", encoding="utf-8")
+        if child.poll() is None:
+            child.wait(timeout=15)
+        else:
+            child.wait(timeout=5)
+        manager.close()
