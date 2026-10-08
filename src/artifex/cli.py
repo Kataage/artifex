@@ -35,6 +35,7 @@ from artifex.llm import (
     StructuredGenerator,
     bootstrap_llm,
 )
+from artifex.llm.server import ManagedLlmServer
 from artifex.performance import (
     PatreonV2PublicationProvider,
     ingest_manual_performance,
@@ -1533,6 +1534,24 @@ def doctor(config: ConfigOption = None) -> None:
         asyncio.run(core.close())
 
 
+async def _run_daemon_with_llm_manager(settings: ArtifexSettings) -> None:
+    manager = ManagedLlmServer(settings.llm)
+    try:
+        await manager.start()
+        application = build_application(settings)
+        if not settings.llm.server.enabled:
+            await application.run()
+            return
+        async with asyncio.TaskGroup() as group:
+            watcher = group.create_task(manager.watch())
+            try:
+                await application.run()
+            finally:
+                watcher.cancel()
+    finally:
+        await manager.close()
+
+
 @app.command()
 def daemon(config: ConfigOption = None) -> None:
     """Start the long-running autonomous Artifex daemon."""
@@ -1548,9 +1567,8 @@ def daemon(config: ConfigOption = None) -> None:
             typer.echo(f"LLM bootstrap error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
         typer.echo(f"LLM model ready: {model.path}")
-    application = build_application(settings)
     try:
-        asyncio.run(application.run())
+        asyncio.run(_run_daemon_with_llm_manager(settings))
     except KeyboardInterrupt:
         typer.echo("Artifex stopped.")
 
