@@ -222,6 +222,22 @@ def bootstrap_llm(
             partial.unlink(missing_ok=True)
 
         resume_from = partial.stat().st_size if partial.is_file() else 0
+        if resume_from and _sha256(partial).casefold() == expected_sha:
+            # A completed download may have been interrupted before rename;
+            # don't issue an invalid bytes=<EOF>- range against the server.
+            partial.replace(target)
+            _write_integrity_receipt(
+                target, source_url=source_url, sha256=expected_sha
+            )
+            return LlmBootstrapResult(
+                profile=bootstrap.profile,
+                path=target,
+                downloaded=True,
+                resumed_from_bytes=resume_from,
+                bytes=target.stat().st_size,
+                sha256=expected_sha,
+                source_url=source_url,
+            )
         headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
         with http.stream("GET", source_url, headers=headers) as response:
             response.raise_for_status()
