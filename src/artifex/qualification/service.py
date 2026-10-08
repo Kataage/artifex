@@ -962,13 +962,15 @@ class QualificationService:
                 try:
                     attestation = remote_cache.get(node_id)
                     if attestation is None:
-                        attestation = fetch_render_attestation(node_id, primary[1], fresh=True)
+                        attestation = fetch_render_attestation(
+                            node_id, primary[1], fresh=True
+                        )
                         remote_cache[node_id] = attestation
                     if attestation.inventory_errors:
                         raise ValueError("render node inventory is incomplete")
                     matches = [
                         item for item in attestation.loras
-                        if item.relative_path.replace("\\\\", "/")
+                        if item.relative_path.replace("\\", "/")
                         == str(profile.metadata.get("asset_name", "")).replace("\\\\", "/")
                     ]
                     if len(matches) != 1 or matches[0].sha256 != profile.checksum:
