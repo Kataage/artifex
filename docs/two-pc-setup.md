@@ -81,6 +81,38 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## PC-B Task Scheduler hard-termination safety
+
+Artifex now installs the managed renderer scheduled task with
+`-DisallowHardTerminate`, `MultipleInstances=IgnoreNew` and
+`ExecutionTimeLimit=0`. Microsoft documents that the scheduler may
+otherwise call `TerminateProcess` when a task does not respond.
+
+The following PC-B command reads the **actual registered task**, checks
+its Artifex ownership marker, one expected action, configured executable,
+arguments, working directory and all three safety options, but makes no
+changes or stops:
+
+```powershell
+uv run artifex startup audit --role renderer --config .\\config\\render-node.yaml
+```
+
+The existing `startup status` output now includes the scheduler's actual
+`action_count`, `allow_hard_terminate`, `multiple_instances` and
+`execution_time_limit_seconds`. Unknown or older unsafe registrations
+fail closed. With the renderer fully stopped during an explicit maintenance
+window, upgrade an older Artifex-owned task using `startup install
+--role renderer --replace`. Replacing a **running** managed task is now
+refused even with `--replace` and even when invoked directly, rather
+than only via deployment activation.
+
+**Limit:** `DisallowHardTerminate` does not guarantee that Windows
+logout/shutdown, Task Scheduler job-object behavior, or other processes
+cannot stop ComfyUI. Do not issue an uncontrolled task stop while the GPU
+is busy. The audit reports `restart_authorized=false` and
+`child_survival_qualified=false`; the real two-PC qualification remains
+required.
+
 ## PC-B exclusive supervisor process lease (Task Scheduler overlap safety)
 
 With the protected managed gateway enabled, the renderer supervisor now
