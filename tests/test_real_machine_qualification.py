@@ -280,6 +280,9 @@ def _bound_soak_trace(
     evidence_name: str = "soak.jsonl",
 ) -> tuple[str, Path]:
     """Synthetic 8-hour clock trace for binding tests, never hardware evidence."""
+    # This fixture contains no actual CIM/Task Scheduler/PC-B measurements.
+    # Production two-PC soak-run retains the strict owner policy.
+    settings.qualification.require_renderer_owner_observation = False
     settings.render_nodes = RenderNodesConfig(
         primary="gpu-b",
         nodes={

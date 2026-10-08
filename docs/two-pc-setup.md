@@ -125,6 +125,46 @@ is busy. The audit reports `restart_authorized=false` and
 `child_survival_qualified=false`; the real two-PC qualification remains
 required.
 
+## Continuous PC-B ownership surveillance during the eight-hour soak
+
+The existing `qualify soak-run` and `qualify soak-observe` commands on PC-A
+now sample the **actual PC-B owner audit** over the authenticated
+`GET /v1/owner-audit` channel at **every** monitoring interval when a primary
+renderer is configured and `qualification.require_renderer_owner_observation`
+is enabled (the two-PC default). There is no extra operator-side command
+to repeat every few minutes.
+
+Each fsynced JSONL sample records the owner snapshot timestamp, actual
+ComfyUI listener PID and creation time, launcher PID, scheduler state,
+all nine ownership checks, and whether the live observation was stable.
+It deliberately omits process command lines, passwords, tokens and config
+contents. The trace header uses schema v2 and explicitly declares
+`owner_observation_required=true` for such runs. A missing sample,
+unreachable audit endpoint, stale observation, failed ownership check,
+unverified node identity, or **changed ComfyUI PID or creation timestamp**
+makes the overall eight-hour trace fail review. Monitoring gaps continue
+to be checked against the monotonic clock; recovered connectivity cannot
+erase a previous outage. A surviving Task Scheduler supervisor alone
+does not demonstrate child survival and never overrides a failed owner
+audit.
+
+Review an existing trace safely on PC-A:
+
+```powershell
+uv run artifex qualify soak-check --config .\config\local.yaml --evidence PATH\TO\soak.jsonl --json
+```
+
+The assessment includes `owner_observed_samples` and `owner_incidents`
+alongside the original GPU/DB/Pack counters. A production qualification
+stage revalidates the trace with the currently enforced owner-audit policy:
+an older schema-v1 or artificially downgraded trace **cannot** fulfill the
+two-PC ownership requirement even if its other telemetry looks healthy.
+Existing synthetic legacy tests retain their explicit test-only policy.
+This adds **observation**, not process management: the monitor neither
+sends GPU work nor stops, restarts or takes ownership of ComfyUI. A
+passing soak trace is still not automatic production readiness: all 14
+qualification stages and current PC-B preflight must pass separately.
+
 ## Automatically bind PC-B owner evidence to PC-A qualification
 
 With PC-A's `render_nodes.primary` configured and authenticated

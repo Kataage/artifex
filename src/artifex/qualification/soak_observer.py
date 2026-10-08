@@ -19,7 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import make_url
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node import fetch_render_attestation
+from artifex.render_node.client import fetch_renderer_owner_audit
 
 _MAX_BYTES = 12 * 1024 * 1024
 _MAX_SAMPLES = 5000
@@ -32,7 +34,9 @@ class SoakHeader(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["start"] = "start"
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
+    # Schema 2 flags a real PC-B owner audit on every interval.
+    owner_observation_required: bool = False
     run_id: str
     qualification_session_id: str | None = Field(default=None, min_length=1)
     controller_host: str
@@ -41,6 +45,27 @@ class SoakHeader(BaseModel):
     target_seconds: float = Field(gt=0, le=259200)
     interval_seconds: float = Field(ge=10, le=3600)
     config_sha256: str = Field(min_length=64, max_length=64)
+
+
+class SoakOwnerObservation(BaseModel):
+    """Bounded per-interval authenticated PC-B snapshot; never restart authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str = Field(min_length=1)
+    captured_utc: datetime
+    status: Literal["observed_stable", "blocked", "inconclusive", "unsupported"]
+    process_observation_verified: bool
+    actual_listener_pid: int | None = Field(default=None, ge=1)
+    actual_process_started_utc: str | None = None
+    launcher_pid: int | None = Field(default=None, ge=1)
+    receipt_schema: int | None = None
+    scheduler_state: str | None = None
+    checks: dict[str, Literal["pass", "fail", "unknown"]]
+    restart_authorized: Literal[False] = False
+    child_survival_qualified: Literal[False] = False
+    production_qualified: Literal[False] = False
+    mutated_services: Literal[False] = False
 
 
 class SoakSample(BaseModel):
@@ -59,6 +84,8 @@ class SoakSample(BaseModel):
     severe_events: int | None = Field(default=None, ge=0)
     finalized_packs: int | None = Field(default=None, ge=0)
     asset_sha256: dict[str, str] = Field(default_factory=dict)
+    # Absent on legacy traces, but mandatory for active two-PC qualification.
+    owner_observation: SoakOwnerObservation | None = None
     errors: tuple[str, ...] = ()
 
 
@@ -86,6 +113,8 @@ class SoakAssessment(BaseModel):
     peak_ram_mib: float | None
     minimum_free_disk_gib: float | None
     evidence_sha256: str
+    owner_observed_samples: int = 0
+    owner_incidents: int = 0
     issues: tuple[str, ...]
 
 
@@ -182,6 +211,7 @@ def sample_soak(settings: ArtifexSettings, elapsed_seconds: float) -> SoakSample
     llm_ok = False
     comfyui_ok = False
     renderer_ok = False
+    owner_observation: SoakOwnerObservation | None = None
     gpu: float | None = None
     ram = _physical_ram_mib()
     if ram is None:
@@ -235,6 +265,39 @@ def sample_soak(settings: ArtifexSettings, elapsed_seconds: float) -> SoakSample
             except (httpx.HTTPError, ValueError, TypeError) as exc:
                 errors.append(f"PC-B ComfyUI /system_stats: {type(exc).__name__}")
             assets: dict[str, str] = {}
+            if settings.qualification.require_renderer_owner_observation:
+                try:
+                    observed = fetch_renderer_owner_audit(
+                        node_id, node, client=client, timeout_seconds=25,
+                    )
+                    audit = observed.audit
+                    owner_observation = SoakOwnerObservation(
+                        node_id=observed.node_id,
+                        captured_utc=audit.captured_utc,
+                        status=audit.status,
+                        process_observation_verified=audit.process_observation_verified,
+                        actual_listener_pid=audit.actual_listener_pid,
+                        actual_process_started_utc=audit.actual_process_started_utc,
+                        launcher_pid=audit.launcher_pid,
+                        receipt_schema=audit.receipt_schema,
+                        scheduler_state=audit.scheduler_state,
+                        checks={key: value.status for key, value in audit.checks.items()},
+                        restart_authorized=audit.restart_authorized,
+                        child_survival_qualified=audit.child_survival_qualified,
+                        production_qualified=audit.production_qualified,
+                        mutated_services=audit.mutated_services,
+                    )
+                    if (
+                        audit.status != "observed_stable"
+                        or not audit.process_observation_verified
+                        or not _REQUIRED_CHECKS.issubset(audit.checks)
+                        or any(audit.checks[key].status != "pass" for key in _REQUIRED_CHECKS)
+                    ):
+                        errors.append("PC-B actual ComfyUI ownership is not verified")
+                except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
+                    errors.append(
+                        f"PC-B authenticated owner audit: {type(exc).__name__}"
+                    )
             try:
                 remote = fetch_render_attestation(
                     node_id, node, client=client, timeout_seconds=60
@@ -258,7 +321,8 @@ def sample_soak(settings: ArtifexSettings, elapsed_seconds: float) -> SoakSample
         llm_ok=llm_ok, comfyui_ok=comfyui_ok, renderer_ok=renderer_ok,
         gpu_used_mib=gpu, ram_used_mib=ram, free_disk_gib=free_gib,
         telemetry_rows=telemetry, severe_events=severe, finalized_packs=packs,
-        asset_sha256=assets, errors=tuple(errors),
+        asset_sha256=assets, owner_observation=owner_observation,
+        errors=tuple(errors),
     )
 
 
@@ -298,9 +362,15 @@ def observe_soak(
         raise FileExistsError(f"Soak evidence cannot overwrite existing file: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     primary = settings.render_nodes.primary_node()
+    owner_required = (
+        primary is not None
+        and settings.qualification.require_renderer_owner_observation
+    )
     run_id = uuid4().hex
     header = SoakHeader(
         run_id=run_id, qualification_session_id=qualification_session_id,
+        schema_version=2 if owner_required else 1,
+        owner_observation_required=owner_required,
         controller_host=socket.gethostname(),
         renderer_id=primary[0] if primary else "(unconfigured)",
         started_at=now(), target_seconds=target * 3600,
@@ -343,12 +413,14 @@ def observe_soak(
         )
         _write_record(handle, finish)
     return verify_soak_evidence(
-        output, minimum_hours=settings.qualification.minimum_soak_hours
+        output, minimum_hours=settings.qualification.minimum_soak_hours,
+        require_owner_observation=owner_required,
     )
 
 
 def verify_soak_evidence(
     path: Path, *, minimum_hours: float = 8,
+    require_owner_observation: bool = False,
 ) -> SoakAssessment:
     """Verify monitored span, coverage, live health, actual DB progress.
 
@@ -367,6 +439,14 @@ def verify_soak_evidence(
     samples = tuple(SoakSample.model_validate_json(line) for line in lines[1:-1])
     tail = SoakEnd.model_validate_json(lines[-1])
     problems: list[str] = []
+    owner_required = require_owner_observation or header.owner_observation_required
+    if owner_required and (
+        header.schema_version != 2 or not header.owner_observation_required
+    ):
+        problems.append("Trace does not declare mandatory authenticated owner monitoring")
+    owner_observed_samples = 0
+    owner_incidents = 0
+    original_process: tuple[int, str] | None = None
     if tail.stopped_early:
         problems.append("Monitor stopped early due to initial failure or sample limit")
     if tail.elapsed_seconds < minimum_hours * 3600:
@@ -391,6 +471,39 @@ def verify_soak_evidence(
             problems.append(f"Sample {index}: LLM, ComfyUI or authenticated PC-B unavailable")
         if item.errors:
             problems.append(f"Sample {index}: " + ", ".join(item.errors[:3]))
+        if owner_required:
+            owner = item.owner_observation
+            issue: str | None = None
+            if owner is None:
+                issue = "authenticated PC-B owner snapshot missing"
+            else:
+                owner_observed_samples += 1
+                if owner.node_id != header.renderer_id:
+                    issue = "owner snapshot belongs to another renderer"
+                elif (
+                    owner.status != "observed_stable"
+                    or not owner.process_observation_verified
+                    or not _REQUIRED_CHECKS.issubset(owner.checks)
+                    or any(owner.checks[key] != "pass" for key in _REQUIRED_CHECKS)
+                ):
+                    issue = "ComfyUI ownership audit blocked or incomplete"
+                elif owner.actual_listener_pid is None or not owner.actual_process_started_utc:
+                    issue = "owned renderer execution identity missing"
+                elif owner.captured_utc.tzinfo is None or (
+                    abs((item.observed_at - owner.captured_utc).total_seconds()) > 90
+                ):
+                    issue = "PC-B owner observation missing timestamp or stale"
+                else:
+                    identity = (
+                        owner.actual_listener_pid, owner.actual_process_started_utc
+                    )
+                    if original_process is None:
+                        original_process = identity
+                    elif original_process != identity:
+                        issue = "ComfyUI PID or creation time changed during unattended run"
+            if issue is not None:
+                owner_incidents += 1
+                problems.append(f"Sample {index}: {issue}")
         if None in (
             item.gpu_used_mib, item.ram_used_mib, item.free_disk_gib,
             item.telemetry_rows, item.severe_events, item.finalized_packs,
@@ -447,5 +560,7 @@ def verify_soak_evidence(
         peak_ram_mib=max(ram_values) if ram_values else None,
         minimum_free_disk_gib=min(disk_values) if disk_values else None,
         evidence_sha256=hashlib.sha256(raw).hexdigest(),
+        owner_observed_samples=owner_observed_samples,
+        owner_incidents=owner_incidents,
         issues=tuple(dict.fromkeys(problems)),
     )
