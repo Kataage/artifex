@@ -81,6 +81,98 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Resolve missing node packages, then install reviewed pinned dependencies
+
+`workflow-audit` identifies what the running ComfyUI is missing.
+`deps-resolve` adds a **read-only candidate lookup** using two
+ComfyUI-Manager index files from the **same pinned Git commit**:
+
+```powershell
+uv run artifex onboard deps-resolve `
+  --config .\\config\\local.yaml --json
+```
+
+Artifex automatically requests the current ComfyUI-Manager main commit SHA
+and fetches `extension-node-map.json` and `custom-node-list.json` at
+that immutable revision. You can supply `--manager-commit <FULL_SHA>`
+for reproducibility. The output shows missing class types, candidate GitHub
+repositories with matches corroborated by the same pinned index, and
+unresolved classes. A suggested repository is **not** necessarily safe,
+licensed, compatible with your ComfyUI version, or the unique provider of
+a node class. The planner never executes third-party code.
+
+For **installation**, use a reviewed `schema_version: 1` JSON manifest
+with exact source URLs, SHA-256 hashes, byte sizes and license details.
+The following model record is an illustrative structure—not a real
+downloadable asset or a license recommendation:
+
+```json
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "id": "chosen-base-model",
+      "kind": "model",
+      "name": "model.safetensors",
+      "model_folder": "checkpoints",
+      "url": "https://huggingface.co/owner/repository/resolve/0123456789abcdef0123456789abcdef01234567/model.safetensors",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size_bytes": 123456,
+      "license_id": "CHECK-ACTUAL-LICENSE",
+      "license_url": "https://huggingface.co/owner/repository"
+    }
+  ]
+}
+```
+
+For a custom node, use `"kind": "custom_node"`, a simple destination
+`"name"`, `"repository": "owner/repository"`,
+`"commit": "<FULL_40_CHARACTER_SHA>"`, and a matching exact
+`"url": "https://codeload.github.com/owner/repository/zip/<FULL_SHA>"`
+plus the exact archive size, SHA-256 and license information.
+**Never treat illustrative hash values as verified hashes.** Artifex
+does not fabricate those facts from a registry suggestion. The
+operator must review and pin dependency source and license metadata
+before introducing third-party code.
+
+Preview the manifest safely (the default performs **no download**):
+
+```powershell
+uv run artifex onboard deps-install `
+  --manifest .\\config\\approved-dependencies.json `
+  --comfy-root "D:/AI/Artifex/tools/ComfyUI/comfyui-0123456789ab/ComfyUI"
+```
+
+To perform installation, explicitly accept the licenses you reviewed:
+
+```powershell
+uv run artifex onboard deps-install `
+  --manifest .\\config\\approved-dependencies.json `
+  --comfy-root "D:/AI/Artifex/tools/ComfyUI/comfyui-0123456789ab/ComfyUI" `
+  --apply --accept-licenses
+```
+
+Installing a custom-node ZIP also requires `--allow-custom-code`,
+because its Python is imported by ComfyUI on a later restart.
+The installer only writes into **Artifex-created isolated ComfyUI
+directories**, never into an existing user ComfyUI install. It refuses
+to overwrite any model or node. Model files require a full GitHub
+release or pinned Hugging Face revision and expected SHA-256/size;
+node ZIPs require a full GitHub commit URL and the same verification.
+All bytes are downloaded and staged before placement. No arbitrary
+`install.py`, pip requirements, or shell scripts are executed.
+Third-party custom nodes may still require explicitly managed Python
+dependencies; their mere placement does not guarantee functionality.
+Once they are placed, restart the isolated ComfyUI separately and
+repeat `workflow-audit` and `deployment verify` to ensure runtime
+dependencies truly load.
+
+**Current limit:** `deps-resolve` automatically finds likely GitHub
+origins but does not generate a trusted SHA-256/size/license manifest
+from ambiguous community index data. Artifex must not convert an
+unverified suggestion into silent executable installation. Model
+sources are not inferred from filenames, which are ambiguous.
+
 ## Isolated ComfyUI setup and exact workflow dependency audit
 
 To **avoid changing your existing ComfyUI installation**, Artifex can download
