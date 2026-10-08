@@ -596,7 +596,10 @@ def test_remote_render_asset_is_attested_and_revalidated(
     def fake_attestation(
         node_id: str,
         _config: RenderNodeConfig,
+        *,
+        fresh: bool = False,
     ) -> RenderNodeAttestation:
+        assert fresh is True
         assert node_id == "gpu-box"
         return RenderNodeAttestation(
             node_id="gpu-box",
