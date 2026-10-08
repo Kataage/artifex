@@ -621,6 +621,19 @@ def render_node_configure(
     token_env: Annotated[
         str | None, typer.Option("--token-env", help="Environment variable NAME only, never the secret."),
     ] = None,
+    comfy_exe: Annotated[
+        Path | None, typer.Option("--comfy-exe", help="PC-B Python or ComfyUI executable."),
+    ] = None,
+    comfy_workdir: Annotated[
+        Path | None, typer.Option("--comfy-workdir", help="PC-B ComfyUI project directory."),
+    ] = None,
+    comfy_arg: Annotated[
+        list[str] | None,
+        typer.Option("--comfy-arg", help="One ComfyUI launch argument; repeat as needed."),
+    ] = None,
+    disable_comfy_management: Annotated[
+        bool, typer.Option("--disable-comfy-management"),
+    ] = False,
     update: Annotated[
         bool, typer.Option("--update", help="Preserve other YAML settings and change supplied values."),
     ] = False,
@@ -652,6 +665,10 @@ def render_node_configure(
             asset_paths=supplied_assets,
             lora_roots=tuple(lora_dir) if lora_dir is not None else None,
             token_env=token_env,
+            comfy_executable=comfy_exe,
+            comfy_working_directory=comfy_workdir,
+            comfy_arguments=tuple(comfy_arg) if comfy_arg is not None else None,
+            disable_comfy_management=disable_comfy_management,
             update=update,
             force=force,
         )
