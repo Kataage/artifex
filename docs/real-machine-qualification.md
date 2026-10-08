@@ -17,9 +17,20 @@ future local client submissions are not atomically blocked.
 Regression tests verify that a live ComfyUI child is **not** killed if its
 health endpoint hangs, even when the supervisor errors or stops. An
 already exited child can be relaunched within the configured retry budget.
-The remaining real-PC proof must cover Task Scheduler restart behavior,
-external local clients and ongoing CUDA generation. Unverified provenance
-must remain an explicit qualification blocker.
+The protected supervisor now records a Windows CIM process identity
+receipt for each child it directly launches. Real-PC qualification must
+kill/restart only the **supervisor** during a running GPU generation,
+then verify the surviving ComfyUI PID is reattached without any generation
+cancellation or replacement. Test both a naturally exited original
+process (new spawn allowed after vacant TCP port verification) and a
+reused/foreign PID (strict refusal). Verify the receipt path configured by
+`render_agent.comfyui_process.ownership_receipt_path` persists on PC-B,
+and check that process creation time, executable and command line remain
+stable across supervisor restarts. These read-only identity checks are
+not permission to terminate a live ComfyUI child or bypass PC-B gateway
+admission, and neither they nor CI simulations prove Windows Task
+Scheduler's actual descendant-process behavior. Unverified provenance
+remains an explicit qualification blocker.
 
 ## Coordinated PC-A/PC-B acceptance and release
 

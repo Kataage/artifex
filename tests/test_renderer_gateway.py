@@ -82,7 +82,7 @@ def test_managed_gateway_refuses_existing_comfy_and_non_loopback_listen(
     settings = _settings(tmp_path)
     manager = ManagedComfyUI(settings)
     monkeypatch.setattr(manager, "_healthy", lambda: True)
-    with pytest.raises(RuntimeError, match="already-running external"):
+    with pytest.raises(RuntimeError, match="without a matching verified ownership receipt"):
         manager.start(threading.Event())
     settings.render_agent.comfyui_process.arguments = (
         "main.py", "--listen", "0.0.0.0", "--port", "8188",
