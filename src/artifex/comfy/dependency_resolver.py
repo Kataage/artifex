@@ -39,8 +39,8 @@ class DependencyResolution(BaseModel):
     unverifiable_model_choices: tuple[str, ...]
     ready: bool = False
     warnings: tuple[str, ...] = (
-        "Third-party index entries are suggestions, not verified licenses, "
-        "compatible versions, safe install scripts, or SHA-256-pinned releases.",
+        ("Third-party index entries are suggestions, not verified licenses, "
+         "compatible versions, safe install scripts, or SHA-256-pinned releases."),
     )
 
 
@@ -54,8 +54,7 @@ def _github_repository(value: str) -> str | None:
     if match is None:
         return None
     owner, name = match.groups()
-    if name.endswith(".git"):
-        name = name[:-4]
+    name = name.removesuffix(".git")
     if not owner or not name or owner == "." or name == ".":
         return None
     return f"https://github.com/{owner}/{name}"
@@ -84,7 +83,7 @@ def _manager_commit(http: httpx.Client) -> str:
     response.raise_for_status()
     data: Any = response.json()
     if not isinstance(data, dict):
-        raise ValueError("GitHub commit response was not an object")
+        raise TypeError("GitHub commit response was not an object")
     sha = data.get("sha")
     if not isinstance(sha, str) or not _COMMIT.fullmatch(sha):
         raise ValueError("GitHub did not provide an immutable manager commit")
@@ -95,13 +94,13 @@ def _candidate_registry(
     node_map: Any, known_sources: Any, required: set[str],
 ) -> tuple[tuple[NodeCandidate, ...], tuple[str, ...]]:
     if not isinstance(node_map, dict):
-        raise ValueError("ComfyUI Manager extension-node-map is not an object")
+        raise TypeError("ComfyUI Manager extension-node-map is not an object")
     # Listing file is an independent cross-check that this repository is in
     # the same pinned Manager index. Node class names alone are not evidence.
     if not isinstance(known_sources, dict) or not isinstance(
         known_sources.get("custom_nodes"), list
     ):
-        raise ValueError("ComfyUI Manager custom-node-list has invalid schema")
+        raise TypeError("ComfyUI Manager custom-node-list has invalid schema")
     allow: set[str] = set()
     for item in known_sources["custom_nodes"]:
         if not isinstance(item, dict) or not isinstance(item.get("files"), list):
