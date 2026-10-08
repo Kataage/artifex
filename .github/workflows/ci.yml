@@ -56,6 +56,7 @@ jobs:
       - run: uv run artifex onboard deps-resolve --help
       - run: uv run artifex onboard deps-install --help
       - run: uv run artifex onboard deps-draft --help
+      - run: uv run artifex onboard reconcile-renderer --help
       - run: uv run artifex onboard prepare-renderer --help
       - run: uv run artifex onboard models-draft --help
       - run: uv run artifex onboard model-sources-list --help
