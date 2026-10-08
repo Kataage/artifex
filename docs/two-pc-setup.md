@@ -168,8 +168,9 @@ uv run artifex qualify soak-run --config .\\config\\local.yaml
 This command runs live Doctor checks, automatically creates a new
 qualification session, generates a collision-resistant JSONL evidence
 path under `qualification.evidence_dir`, logs progress samples to
-stderr, and — only after at least 8 real hours (or a longer configured minimum)
-succeeds — registers the `overnight_soak` stage PASS. It emits a
+stderr, and registers the `overnight_soak` stage PASS **only if** the
+real observation lasts at least 8 hours (or a longer configured minimum)
+and passes every evidence check. It emits a
 machine-readable final JSON summary containing the session ID,
 observation metrics, remaining qualification stages, and
 `production_qualified=false`. On failure or interruption it never
