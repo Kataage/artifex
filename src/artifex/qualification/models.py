@@ -87,6 +87,9 @@ class QualificationSession(QualificationModel):
     doctor: dict[str, object]
     stages: dict[str, QualificationStageEvidence]
     notes: tuple[str, ...] = ()
+    # Independently recorded read-only PC-B owner snapshots. These are
+    # *not* any of the 14 stage PASS records and never permit GPU restart.
+    renderer_owner_observations: tuple[dict[str, object], ...] = ()
 
     def stage(self, stage: QualificationStage) -> QualificationStageEvidence:
         try:
