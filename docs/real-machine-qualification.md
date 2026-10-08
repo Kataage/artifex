@@ -2,6 +2,24 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## PC-B registered Task Scheduler hard-termination audit
+
+On PC-B run `uv run artifex startup audit --role renderer
+--config .\\config\\render-node.yaml`. It must prove the
+Artifex-owned registration has exactly one action matching the current
+executable/config/working directory, `AllowHardTerminate=false`,
+`MultipleInstances=IgnoreNew`, and unlimited execution time. An older
+task may require an explicitly authorized `startup install --replace`
+during a safe **stopped-task** maintenance window; a live task will not
+be replaced. Windows CI verifies the native PowerShell
+`New-ScheduledTaskSettingsSet -DisallowHardTerminate` behavior without
+registering or stopping any task.
+
+This prevents a documented Task Scheduler hard-stop mechanism but does
+not prove job-object/process-tree, sign-out or shutdown survival.
+Test those separately on the actual PC-B, recording the original
+ComfyUI PID and an active GPU job before and after supervisor loss.
+
 ## PC-B Task Scheduler supervisor exclusivity qualification
 
 In managed protected gateway mode, Artifex uses a cross-process OS lease
