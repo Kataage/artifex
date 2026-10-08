@@ -414,6 +414,28 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
     database.dispose()
 
 
+
+def test_verify_rejects_qualification_policy_downgrade(tmp_path: Path) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    settings.qualification.require_stable_asset_hashes = False
+    verified = service.verify(session.session_id)
+    assert verified["ready"] is False
+    assert "production configuration changed during qualification" in verified["issues"]
+    database.dispose()
+
+
+def test_verify_rejects_production_lora_disk_drift(tmp_path: Path) -> None:
+    service, database, _, loras, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    profile = loras.require("lora-1")
+    profile.path.write_bytes(b"changed-lora-after-qualification-start")
+    verified = service.verify(session.session_id)
+    assert verified["ready"] is False
+    assert any("production LoRA lora-1 on-disk hash changed" in item for item in verified["issues"])
+    database.dispose()
+
+
 def test_verify_fails_if_qualified_asset_changes(tmp_path: Path) -> None:
     service, database, _, _, _, asset = _service(tmp_path)
     session = service.start(_doctor())
