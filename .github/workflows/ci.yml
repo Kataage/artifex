@@ -38,6 +38,7 @@ jobs:
       - run: uv run artifex deployment verify --help
       - run: uv run artifex deployment pair-export --help
       - run: uv run artifex deployment pair-check --help
+      - run: uv run artifex deployment pair-smoke --help
       - run: uv run artifex onboard inspect --help
       - run: uv run artifex onboard renderer --help
       - run: uv run artifex onboard inspect --role controller --json
