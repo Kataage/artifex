@@ -33,6 +33,9 @@ ASSETS = {
 
 def _settings() -> ArtifexSettings:
     settings = ArtifexSettings()
+    # Legacy synthetic clock traces validate generic telemetry; new live
+    # owner-observation tests explicitly enable the real two-PC policy.
+    settings.qualification.require_renderer_owner_observation = False
     settings.render_nodes = RenderNodesConfig(
         primary="gpu-b",
         nodes={
