@@ -158,7 +158,7 @@ def test_owner_continuity_can_be_reviewed_without_production_qualification(
         ("process_restarted", "PID or creation time changed"),
         ("blocked", "blocked or incomplete"),
         ("unproven_tcp", "blocked or incomplete"),
-        ("stale", "snapshot missing timestamp or stale"),
+        ("stale", "observation missing timestamp or stale"),
         ("wrong_node", "belongs to another renderer"),
         ("transport_failure", "Probe exception"),
     ],
