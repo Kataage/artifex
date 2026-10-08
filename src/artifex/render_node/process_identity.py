@@ -241,5 +241,17 @@ def matches_owned_process(
         and _same_windows_path(receipt.executable, expected.executable)
         and _same_windows_path(receipt.working_directory, expected.working_directory)
         and receipt.expected_command_line == expected.expected_command_line
-        and receipt.identity == process
+        and (
+            receipt.identity == process
+            or (
+                # Schema-1 receipts issued before CIM ParentProcessId was
+                # collected did not store a parent. Preserve their original
+                # PID + creation time + image + command line semantics.
+                receipt.schema_version == 1
+                and receipt.identity.parent_pid is None
+                and receipt.identity.model_copy(
+                    update={"parent_pid": process.parent_pid},
+                ) == process
+            )
+        )
     )
