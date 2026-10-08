@@ -148,6 +148,53 @@ weight downloads still require explicit reviewed installation into
 an Artifex-created isolated ComfyUI environment; the existing
 `deps-install` safeguards and offline model hashing are unchanged.
 
+## Explicit gated real-image test after two-PC readiness
+
+After PC-B `deployment pair-export` and PC-A `deployment pair-check`
+succeed, PC-A can request **one actual production-workflow test image**:
+
+```powershell
+uv run artifex deployment pair-smoke `
+  --config .\\config\\local.yaml `
+  --renderer-report .\\data\\pair\\pc-b-evidence.json `
+  --output .\\data\\pair\\pair-smoke-proof.json `
+  --image-dir .\\data\\pair\\images `
+  --confirm-render
+```
+
+`--confirm-render` is required to submit GPU work; without it, **nothing
+is queued**. PC-A performs the full live, authenticated pair preflight
+again, checks model/LoRA/GPU evidence, and fails closed **before**
+submitting any generation if one prerequisite fails. When it passes,
+the existing `deployment verify --render-smoke` runs the configured
+production workflow on PC-B, inspects ComfyUI's queue/history, downloads
+its actual output, checks that Pillow can fully decode the image,
+and records the prompt ID, output location, image size, file size and
+SHA-256 in an evidence JSON. The primary render-node configuration
+controls API image transport and remote address even if old
+`comfyui.base_url` or `comfyui.output_mode` settings remain local.
+
+After **every attempted** render (including generation errors), PC-A
+requests **fresh authenticated** PC-B attestation. The result checks
+model checkpoint/refiner/VAE/upscale SHA-256 **and byte sizes**,
+host/node identity, GPU presence, and inventory error/LoRA count
+against the PC-B snapshot. Any post-render mismatch prevents
+`ready_for_qualification=true`; an image test can succeed but
+asset-stability verification can independently fail.
+
+The summary reports `preflight_ready`, `render_attempted`,
+`actual_render_verified`, `asset_stability_verified` and
+`ready_for_qualification`. The full JSON evidence file is created
+exclusively, **never overwritten**; even failed preflights and
+render attempts produce a diagnostic record with a nonzero exit code.
+An output from a previous run must not be reused as current evidence.
+
+**This is not production acceptance.** The output always explicitly
+sets `production_qualified=false`. Artifex still requires the separate
+14-stage production qualification ladder, genuine multi-Pack testing,
+restart/recovery checks, Discord controls when enabled and
+the unattended overnight/8-hour run for Issue #40.
+
 ## Integrated two-PC readiness evidence (read-only, no image queue)
 
 After completing initial per-host setup, verify **PC-B locally** and then
