@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -87,6 +88,11 @@ from artifex.series import SeriesRepository
 from artifex.setup import configure_two_pc
 from artifex.setup_renderer import configure_renderer
 from artifex.telemetry import EventSeverity
+from artifex.two_pc_readiness import (
+    collect_renderer_evidence,
+    read_renderer_evidence,
+    verify_pair_readiness,
+)
 from artifex.windows_tasks import StartupRole, install_task, task_status, uninstall_task
 
 app = typer.Typer(
@@ -257,6 +263,86 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@deployment_app.command("pair-export")
+def deployment_pair_export(
+    comfy_root: Annotated[
+        Path, typer.Option("--comfy-root", help="Actual PC-B ComfyUI or portable root."),
+    ],
+    output: Annotated[
+        Path, typer.Option("--output", help="New PC-B JSON evidence path; no overwrite."),
+    ],
+    config: ConfigOption = None,
+    probe_torch: Annotated[
+        bool, typer.Option("--probe-torch/--no-probe-torch", help="Probe PC-B CUDA/Torch."),
+    ] = True,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: inspect local dependencies/GPU/assets and export a portable report."""
+    config = config or Path("config/render-node.yaml")
+    if not config.is_file():
+        typer.echo(f"deployment pair-export error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+    if output.exists() or output.is_symlink():
+        typer.echo(f"deployment pair-export error: refusing to overwrite {output}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        report = collect_renderer_evidence(
+            _settings(config), comfy_root=comfy_root, probe_torch=probe_torch
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("x", encoding="utf-8") as handle:
+            handle.write(report.model_dump_json(indent=2) + "\n")
+        _print_payload(
+            {
+                "output": str(output),
+                "renderer_ready": report.native.ready and report.preflight.ready,
+                "torch_probed": report.torch_probed,
+                "node_id": report.node_id,
+                "hostname": report.hostname,
+            },
+            as_json=json_output,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        typer.echo(f"deployment pair-export error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not (
+        report.native.ready and report.preflight.ready and report.torch_probed
+        and any(x.name == "torch_cuda" and x.ready for x in report.native.checks)
+    ):
+        raise typer.Exit(code=1)
+
+
+@deployment_app.command("pair-check")
+def deployment_pair_check(
+    renderer_report: Annotated[
+        Path, typer.Option("--renderer-report", help="PC-B pair-export JSON copied to PC-A."),
+    ],
+    config: ConfigOption = None,
+    max_age_minutes: Annotated[
+        int, typer.Option("--max-age-minutes", min=1, max=1440),
+    ] = 60,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: corroborate PC-B report against real authenticated LAN/services."""
+    config = config or Path("config/local.yaml")
+    if not config.is_file():
+        typer.echo(f"deployment pair-check error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        report = asyncio.run(
+            verify_pair_readiness(
+                _settings(config), read_renderer_evidence(renderer_report),
+                local_hostname=socket.gethostname(), max_age_minutes=max_age_minutes,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"deployment pair-check error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not report.preflight_ready:
+        raise typer.Exit(code=1)
 
 
 @deployment_app.command("verify")
