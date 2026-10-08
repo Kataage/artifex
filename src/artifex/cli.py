@@ -359,6 +359,10 @@ def setup(
         str | None,
         typer.Option("--llama-gpu-layers", help="GPU offload layers: auto, all, or a nonnegative integer."),
     ] = None,
+    offline: Annotated[
+        bool,
+        typer.Option("--offline", help="Write controller config without requiring running PC-B."),
+    ] = False,
     download_llm: Annotated[
         bool,
         typer.Option("--download-llm/--skip-llm-download"),
@@ -407,6 +411,7 @@ def setup(
             llama_server_executable=llama_server_exe,
             llama_server_device=llama_device,
             llama_server_gpu_layers=llama_gpu_layers,
+            probe_comfyui=not offline,
             update=update,
             force=force,
         )
