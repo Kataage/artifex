@@ -96,6 +96,27 @@ def test_managed_gateway_refuses_existing_comfy_and_non_loopback_listen(
         manager.start(threading.Event())
 
 
+def test_gateway_supervisor_refuses_foreign_upstream_after_managed_child_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    settings.render_agent.comfyui_process.poll_seconds = 0.01
+    settings.render_agent.comfyui_process.restart_backoff_seconds = 0
+    manager = ManagedComfyUI(settings)
+
+    class ExitedChild:
+        def poll(self) -> int:
+            return 1
+
+    # A formerly owned process has exited. An unrelated service has acquired
+    # the same upstream port; never convert protected management to external.
+    manager.process = ExitedChild()  # type: ignore[assignment]
+    monkeypatch.setattr(manager, "_healthy", lambda: True)
+    with pytest.raises(RuntimeError, match="lost exclusive"):
+        manager.watch(threading.Event())
+    assert manager._external is False
+
+
 def test_gateway_auth_proxy_api_and_no_header_forwarding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
