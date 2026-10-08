@@ -202,11 +202,56 @@ must specify `sha256`. A corrupt existing GGUF is rejected rather than reused;
 working copy until the new download passes verification.
 
 `artifex daemon` also runs the bootstrap automatically before production when
-the local llama.cpp backend has `auto_download: true`. Bootstrap installs the
-GGUF but does not start llama-server: configure the compatible local
-llama.cpp server on PC-A separately, listening on `127.0.0.1:8899`.
+the local llama.cpp backend has `auto_download: true`. Bootstrap installs only
+the GGUF; to automatically manage the server executable itself, enable
+`llm.server.enabled` using the procedure below. Otherwise continue to
+run the server separately at the configured local endpoint.
 
 A different model can be selected by adding another bootstrap profile or by using a local profile; Artifex is not tied permanently to Spark.
+
+## Managed llama.cpp on PC-A (optional, recommended for unattended operation)
+
+Previously the GGUF download did not start `llama-server`. Artifex can now
+**launch, check and supervise** a local llama.cpp server as part of
+`artifex daemon`. Choose the `llama-server.exe` installed on PC-A; the
+program deliberately does **not** download or execute an arbitrary binary.
+
+```powershell
+uv run artifex setup `
+  --output .\\config\\local.yaml `
+  --llama-server-exe "E:/tools/llama.cpp/llama-server.exe" `
+  --llama-device CUDA0 `
+  --llama-gpu-layers auto `
+  --skip-llm-download `
+  --update
+```
+
+Passing `--llama-server-exe` enables managed mode. `--llama-device` uses
+the device identifier accepted by your installed llama.cpp release; check
+`llama-server --list-devices` on that machine. `--llama-gpu-layers`
+accepts `auto`, `all` or a nonnegative number. All values remain editable
+under `llm.server` in the operator YAML, including disabling the feature.
+The inference model is still selected through the independent `llm.bootstrap`
+profile, so model choice is not locked to Spark.
+
+With management enabled, `artifex daemon` uses the selected local GGUF,
+`llm.model` as the served model alias, the configured context length and
+the port from `llm.base_url`. It binds **only to 127.0.0.1/localhost or
+IPv6 loopback**; remote/cloud LLMs are never launched or killed. If a
+compatible server with the expected model alias is already healthy at that
+address, Artifex uses it **without taking process ownership**. Otherwise
+it launches its own process, waits for HTTP readiness, and retries bounded
+crashes or sustained unhealthiness. The manager stops only the child it
+started when Artifex exits; it never kills a third-party process.
+
+By default `llm.server.enabled: false` protects users who manage llama.cpp
+separately, and allows third-party OpenAI-compatible providers. You must
+install the llama.cpp binary yourself or point the executable field to one
+already on PATH. Startup failures surface the configured log path (default
+`data/logs/llama-server.log`). If the target port is held by an incompatible
+server, change `llm.base_url` or align the model alias; Artifex will not
+terminate that existing server. On PC-A choose GPU offload according to
+available VRAM; PC-B's ComfyUI GPU remains independent.
 
 ## Remote LoRAs
 

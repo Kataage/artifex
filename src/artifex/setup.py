@@ -77,6 +77,9 @@ def configure_two_pc(
     production_checkpoint: str | None = None,
     semantic_model_path: Path | None = None,
     llm_base_url: str | None = None,
+    llama_server_executable: str | None = None,
+    llama_server_device: str | None = None,
+    llama_server_gpu_layers: str | None = None,
     attestation_token_env: str = "ARTIFEX_RENDER_NODE_TOKEN",
     update: bool = False,
     force: bool = False,
@@ -148,6 +151,28 @@ def configure_two_pc(
         )
     if llm_base_url is not None:
         payload["llm"]["base_url"] = _normalize_base_url(llm_base_url)
+    server: dict[str, Any] = {}
+    if llama_server_executable is not None:
+        if not llama_server_executable.strip():
+            raise ValueError("llama-server executable must not be empty")
+        server.update(enabled=True, executable=llama_server_executable.strip())
+    if llama_server_device is not None:
+        if not llama_server_device.strip():
+            raise ValueError("llama-server device must not be empty")
+        server["device"] = llama_server_device.strip()
+    if llama_server_gpu_layers is not None:
+        if llama_server_gpu_layers in {"auto", "all"}:
+            server["gpu_layers"] = llama_server_gpu_layers
+        else:
+            try:
+                layers = int(llama_server_gpu_layers)
+            except ValueError as exc:
+                raise ValueError("llama-server gpu-layers must be auto, all or an integer") from exc
+            if layers < 0:
+                raise ValueError("llama-server gpu-layers must be nonnegative")
+            server["gpu_layers"] = layers
+    if server:
+        payload["llm"]["server"] = server
 
     write_override(target, payload, update=update, force=force)
 

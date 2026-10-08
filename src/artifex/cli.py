@@ -35,6 +35,7 @@ from artifex.llm import (
     StructuredGenerator,
     bootstrap_llm,
 )
+from artifex.llm.server import ManagedLlmServer
 from artifex.performance import (
     PatreonV2PublicationProvider,
     ingest_manual_performance,
@@ -202,6 +203,18 @@ def setup(
         str | None,
         typer.Option("--llm-url", help="Local llama.cpp/OpenAI-compatible server URL."),
     ] = None,
+    llama_server_exe: Annotated[
+        str | None,
+        typer.Option("--llama-server-exe", help="Local llama-server binary (enables lifecycle management)."),
+    ] = None,
+    llama_device: Annotated[
+        str | None,
+        typer.Option("--llama-device", help="Optional llama.cpp --device selector."),
+    ] = None,
+    llama_gpu_layers: Annotated[
+        str | None,
+        typer.Option("--llama-gpu-layers", help="GPU offload layers: auto, all, or a nonnegative integer."),
+    ] = None,
     download_llm: Annotated[
         bool,
         typer.Option("--download-llm/--skip-llm-download"),
@@ -247,6 +260,9 @@ def setup(
             production_checkpoint=production_checkpoint,
             semantic_model_path=semantic_model_path,
             llm_base_url=llm_url,
+            llama_server_executable=llama_server_exe,
+            llama_server_device=llama_device,
+            llama_server_gpu_layers=llama_gpu_layers,
             update=update,
             force=force,
         )
@@ -1533,6 +1549,24 @@ def doctor(config: ConfigOption = None) -> None:
         asyncio.run(core.close())
 
 
+async def _run_daemon_with_llm_manager(settings: ArtifexSettings) -> None:
+    manager = ManagedLlmServer(settings.llm)
+    try:
+        await manager.start()
+        application = build_application(settings)
+        if not settings.llm.server.enabled:
+            await application.run()
+            return
+        async with asyncio.TaskGroup() as group:
+            watcher = group.create_task(manager.watch())
+            try:
+                await application.run()
+            finally:
+                watcher.cancel()
+    finally:
+        await manager.close()
+
+
 @app.command()
 def daemon(config: ConfigOption = None) -> None:
     """Start the long-running autonomous Artifex daemon."""
@@ -1548,9 +1582,8 @@ def daemon(config: ConfigOption = None) -> None:
             typer.echo(f"LLM bootstrap error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
         typer.echo(f"LLM model ready: {model.path}")
-    application = build_application(settings)
     try:
-        asyncio.run(application.run())
+        asyncio.run(_run_daemon_with_llm_manager(settings))
     except KeyboardInterrupt:
         typer.echo("Artifex stopped.")
 

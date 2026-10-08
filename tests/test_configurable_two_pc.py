@@ -221,3 +221,59 @@ def test_controller_setup_cli_updates_without_reentering_saved_ip(
     assert payload["render_nodes"]["nodes"]["render-b"]["download_dir"] == str(
         (tmp_path / "new-cache").resolve()
     )
+
+
+def test_controller_can_enable_and_change_managed_llama_server(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "pc-a.yaml"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"system": {}, "devices": []})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        configure_two_pc(
+            ArtifexSettings(),
+            comfyui_base_url="http://renderer.test:8188",
+            output_path=config,
+            client=client,
+        )
+        configured = load_settings(user_config=config, env={})
+        configure_two_pc(
+            configured,
+            comfyui_base_url="http://renderer.test:8188",
+            output_path=config,
+            llama_server_executable="D:/AI/llama.cpp/llama-server.exe",
+            llama_server_device="CUDA0",
+            llama_server_gpu_layers="18",
+            update=True,
+            client=client,
+        )
+    merged = yaml.safe_load(config.read_text(encoding="utf-8"))
+    assert merged["llm"]["server"]["enabled"] is True
+    assert merged["llm"]["server"]["device"] == "CUDA0"
+    assert merged["llm"]["server"]["gpu_layers"] == 18
+    assert merged["render_nodes"]["nodes"]["renderer"]["base_url"] == (
+        "http://renderer.test:8188"
+    )
+    assert load_settings(user_config=config, env={}).llm.server.enabled
+
+
+def test_controller_rejects_bad_llama_server_gpu_setting(
+    tmp_path: Path,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"system": {}, "devices": []})
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(ValueError, match="gpu-layers"),
+    ):
+        configure_two_pc(
+                ArtifexSettings(),
+                comfyui_base_url="http://renderer.test:8188",
+                output_path=tmp_path / "invalid.yaml",
+                llama_server_gpu_layers="-5",
+                client=client,
+            )
+    assert not (tmp_path / "invalid.yaml").exists()
