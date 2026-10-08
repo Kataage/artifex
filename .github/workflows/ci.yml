@@ -35,6 +35,7 @@ jobs:
       - run: uv run python -c "import artifex; print('Artifex import OK')"
       - run: uv run artifex --help
       - run: uv run artifex startup --help
+      - run: uv run artifex render-node serve --help
       - run: uv run artifex maintenance fence --help
       - run: uv run artifex maintenance drain --help
       - run: uv run artifex deployment activate --help
