@@ -7,6 +7,80 @@ Artifex supports a split native-Windows deployment where the controller and rend
 
 No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A is required.
 
+## Native dependency diagnosis and verified llama.cpp binary installation
+
+Artifex separates read-only dependency checks from opt-in installation. No
+Docker, package-manager administrator permissions, local MCP tunnel, or
+automatic replacement of ComfyUI/custom nodes is required.
+
+**PC-A — inspect Windows, Python, uv, NVIDIA driver, chosen GGUF and
+llama-server binary:**
+
+```powershell
+uv run artifex onboard dependencies --role controller `
+  --config .\\config\\local.yaml --json
+```
+
+**PC-B — inspect the local ComfyUI Python/GPU/CUDA pairing:**
+
+```powershell
+uv run artifex onboard dependencies --role renderer `
+  --config .\\config\\render-node.yaml `
+  --comfy-root "E:/ComfyUI_windows_portable" `
+  --probe-torch --json
+```
+
+`--probe-torch` intentionally invokes the **selected local ComfyUI Python**
+with a bounded-time, read-only `import torch`/CUDA availability check.
+Omit it to inspect dependencies without running the selected Python.
+The report includes detected PyTorch version, built CUDA version, NVIDIA
+driver version and discovered devices. This checks presence/availability;
+it cannot guarantee that every installed custom node or model runs properly.
+
+**PC-A — install one explicitly selected official llama.cpp Windows release:**
+
+```powershell
+uv run artifex onboard llama-assets --tag b12345 --json
+uv run artifex onboard llama-install `
+  --tag b12345 `
+  --asset "EXACT-ASSET-NAME-FROM-LIST.zip" `
+  --output-dir "D:/AI/Artifex/tools/llama.cpp" `
+  --config .\\config\\local.yaml --configure
+```
+
+`b12345` and the ZIP name are **illustrative**: choose a currently
+published tag and a matching Windows x64 CPU/CUDA backend from
+<https://github.com/ggml-org/llama.cpp/releases>. CUDA 12, CUDA 13,
+Vulkan and CPU distributions may have different driver/runtime
+requirements. Do not guess the correct backend from an RTX model alone.
+
+`llama-assets` enumerates **only official Windows x64 ZIP assets that
+publish a GitHub SHA-256 digest**. Installation refuses a wrong tag,
+unrecognized URL, absent digest, hash/size mismatch, ZIP path escape,
+symlinks, duplicate file names or an unexpected archive layout.
+Downloads are staged and verified, then moved to a versioned directory
+atomically; an unrelated preexisting directory is never overwritten.
+A matching installation can be reused without downloading again.
+This verifies bytes against GitHub's published asset digest; it is not
+an independent digital signature or a software security certification.
+
+`--configure` is optional and only updates the explicitly supplied
+**existing** PC-A YAML, setting `llm.server.executable` to the verified
+binary and enabling lifecycle management. Without it the command
+only installs the binary, so manual settings are unchanged. The install
+command does **not** launch the binary and does **not** modify the local
+GGUF selection. Use `artifex llm bootstrap` to fetch an absent selected
+GGUF with the existing pinned download/verification flow. Re-run
+`onboard dependencies` and then `deployment verify` to inspect
+services after starting them.
+
+ComfyUI itself and its CUDA/PyTorch/custom-node dependencies are **not**
+auto-installed or upgraded by this step. Official ComfyUI distributions
+have GPU-generation-specific variants, and replacing a working complex
+ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
+`onboard renderer` for now, rather than installing into or modifying
+the operator's current ComfyUI directory.
+
 ## Native first-run discovery (no network or background changes)
 
 You can inspect each machine **before starting ComfyUI, llama.cpp or the

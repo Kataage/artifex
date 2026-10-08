@@ -39,5 +39,8 @@ jobs:
       - run: uv run artifex onboard inspect --help
       - run: uv run artifex onboard renderer --help
       - run: uv run artifex onboard inspect --role controller --json
+      - run: uv run artifex onboard dependencies --help
+      - run: uv run artifex onboard llama-assets --help
+      - run: uv run artifex onboard llama-install --help
       - run: uv run artifex startup status --role controller --json
       - run: uv run artifex research status --json
