@@ -117,11 +117,20 @@ uv run artifex qualify record <SESSION> discord_controls --status pass --config 
 
 The qualification service independently reads SQLite and verifies six **distinct**, authorized, successfully delivered interaction IDs against the current configuration and session start time. It persists the actual event IDs and rechecks them on `qualify verify`. Hand-entered `--detail verified_commands=...` values, events from a different guild/channel, denied interactions, duplicate IDs and events recorded before the session **cannot** satisfy the gate. If Discord is disabled, this stage alone is skipped automatically.
 
-**Outstanding qualification hardening:** the archive-reproduction gate below still relies on operator-reported `reproduction_verified` and `hash_match` in addition to archive consistency. Treat its PASS as provisional until a real independent reproduction witness is implemented and tested on the target setup.
+Archive reproduction now requires an **actual, new ComfyUI execution** of one archived selected attempt, rather than operator-supplied booleans. The selected Pack must have a valid manifest, an archived original image, persisted compiled prompts/LoRA plan, Seed, workflow ID, and original ComfyUI prompt ID. Those fields must agree with SQLite and current backend settings. Old Packs without complete provenance are **not automatically qualified**.
 
-Archive reproduction requires a finalized Pack whose manifest SHA still matches both SQLite payload and checkpoint provenance. Re-run the archived provenance against the pinned assets/workflow, compare the selected reproduction, then record:
+On PC-A, after Artifex and the renderer are healthy, explicitly permit one real GPU job:
 
-    uv run artifex qualify record <SESSION> archive_reproduction --status pass --pack-id <PACK> --detail reproduction_verified=true --detail hash_match=true
+```powershell
+uv run artifex qualify archive-reproduce <SESSION> <PACK> `
+  --confirm-render --config .\\config\\local.yaml
+```
+
+The command re-submits the selected attempt with its archived prompt/negative prompt, LoRA weights, Seed, and versioned template. It writes a fresh image to a unique qualification evidence directory (never overwriting the archived original), records the **new** ComfyUI prompt ID, independently hashes both images, and saves a JSON proof plus a SQLite `qualification.archive_replayed` event. If the SHA-256 digests of the **actual generated image bytes** differ, the command exits nonzero, retains the evidence for inspection, and does not register PASS. If they match, it records PASS using the evidence file hash; `qualify verify` recomputes the hashes, checks the original selected attempt, the archive manifest, and the replay event.
+
+Exact byte-for-byte reproducibility can be affected by GPU kernels, ComfyUI nodes and runtime versions. **A successful new render with different pixels is useful diagnostic evidence, but never an archive-reproduction PASS** under this strict rule. This is a distinct safety gate, not an indicator of semantic similarity.
+
+`--detail reproduction_verified=true --detail hash_match=true` is explicitly rejected; those previously documented self-reports are not valid production evidence. CI uses an injected fake backend to test the fail-closed verifier, and does not replace a real PC-A/PC-B replay.
 
 ## Final gate
 
