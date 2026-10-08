@@ -81,6 +81,70 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Draft missing checkpoint/VAE/upscaler/LoRA models from trusted Hub publishers
+
+Artifex can prepare **checksum-pinned model manifests** for missing model
+files without downloading multi-gigabyte weights during the discovery phase.
+For each model, select one or more repositories whose publisher and license
+you have reason to trust:
+
+```powershell
+uv run artifex onboard models-draft `
+  --config .\\config\\local.yaml `
+  --repo "publisher/illustration-models" `
+  --repo "publisher/upscalers" `
+  --output .\\config\\generated-models.json --json
+```
+
+The repository identifiers above are **examples**, not verified upstream
+publishers. Use actual Hugging Face `owner/repository` IDs.
+The repeated `--repo` option establishes an operator-provided **source
+shortlist**; it is intentionally not a speculative filename search across
+every uploader's models.
+
+The command reads the current Artifex ComfyUI workflow audit, checks an
+*exact* missing loader filename in the selected repositories, freezes each
+model repository to the full immutable 40-character commit from Hugging
+Face, queries `paths-info` at that commit, and only accepts a single
+unambiguous file with LFS **SHA-256 and matching byte size**. It reads the
+model-card license identifier and links to the pinned README. A mismatched
+repo identity, missing license/card, gated repository, ambiguous filename,
+missing/conflicting LFS metadata or unsupported model role is reported
+as unresolved. No model weights are downloaded, no existing JSON is
+overwritten, and no files are written unless at least one verified model
+candidate is found.
+
+For safety, ComfyUI loader choices that cannot be enumerated by the
+server are reported as *unverifiable* and never automatically treated as
+a missing file requiring download. Runtime paths needing special
+subdirectories or unsupported detector loader conventions are also
+left unresolved, not silently guessed.
+
+The result uses the **same schema_version=1 JSON manifest** as custom
+nodes. First preview the generated manifest:
+
+```powershell
+uv run artifex onboard deps-install `
+  --manifest .\\config\\generated-models.json `
+  --comfy-root "D:/AI/Artifex/tools/ComfyUI/comfyui-0123456789ab/ComfyUI"
+```
+
+To actually download and checksum-verify the pinned weights into the
+Artifex-created *isolated* ComfyUI, explicitly add
+`--apply --accept-licenses`; there is no
+`--allow-custom-code` requirement for model-only manifests.
+The installer re-verifies the complete downloaded payload against LFS
+SHA-256 and size and refuses to overwrite any existing weight file.
+
+**Security/rights limitation:** matching filenames and Hub LFS hashes prove
+identity of Hub-hosted bytes, not that the shortlisted publisher is the
+original rights holder, that training data is licensed, or that the
+weights are safe. Git LFS metadata and model-card license declarations
+must still be assessed as part of selecting trusted repositories. Also,
+ComfyUI user-customized external model directories are not automatically
+rewritten; use `workflow-audit` again after installation and server
+reload to verify loader visibility.
+
 ## Automatically prepare a verified custom-node manifest draft
 
 Artifex can now turn **unambiguous missing custom-node provider candidates**
