@@ -205,7 +205,7 @@ async def coordinate_pair_maintenance(
     try:
         try:
             remote_before = await remote.status()
-        except (httpx.HTTPError, ValidationError, ValueError, OSError) :
+        except (httpx.HTTPError, ValidationError, ValueError, OSError):
             return await report(
                 mode, "gateway_unreachable",
                 actions=("verify_pc_b_gateway_url_token_and_service_before_mutation",),
