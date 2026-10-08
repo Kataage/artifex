@@ -101,7 +101,7 @@ class RendererGatewayAPI:
             raise ValueError(f"gateway API rejected {path} with HTTP {response.status_code}")
         body = response.json()
         if not isinstance(body, dict):
-            raise ValueError("gateway API returned a non-object response")
+            raise TypeError("gateway API returned a non-object response")
         return response.status_code, body
 
     async def status(self) -> RendererGatewayStatus:
@@ -205,7 +205,7 @@ async def coordinate_pair_maintenance(
     try:
         try:
             remote_before = await remote.status()
-        except (httpx.HTTPError, ValidationError, ValueError, OSError):
+        except (httpx.HTTPError, ValidationError, ValueError, TypeError, OSError):
             return await report(
                 mode, "gateway_unreachable",
                 actions=("verify_pc_b_gateway_url_token_and_service_before_mutation",),
@@ -248,7 +248,7 @@ async def coordinate_pair_maintenance(
             try:
                 await remote.release()
                 remote_after = await remote.status()
-            except (httpx.HTTPError, ValidationError, ValueError, OSError):
+            except (httpx.HTTPError, ValidationError, ValueError, TypeError, OSError):
                 return await report(
                     "release", "partial", renderer=None,
                     actions=("inspect_pc_b_gateway_state; keep_controller_fenced",),
@@ -300,7 +300,7 @@ async def coordinate_pair_maintenance(
                     actions=("pc_a_is_sealed; wait_for_pc_b_queue_then_retry_seal",),
                 )
             remote_after = await remote.status()
-        except (httpx.HTTPError, ValidationError, ValueError, OSError):
+        except (httpx.HTTPError, ValidationError, ValueError, TypeError, OSError):
             return await report(
                 "seal", "partial", renderer=None,
                 actions=("pc_a_is_sealed; inspect_pc_b_state_then_retry_seal",),
