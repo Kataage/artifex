@@ -176,11 +176,10 @@ def test_forged_repo_identity_is_rejected() -> None:
 
 
 def test_tiny_download_limit_excludes_oversized_archive() -> None:
-    with _http() as client:
-        with pytest.raises(ValueError, match="max_archive_mib"):
-            dependency_drafter.draft_missing_node_manifest(
-                _resolution(), client=client, max_archive_mib=0,
-            )
+    with _http() as client, pytest.raises(ValueError, match="max_archive_mib"):
+        dependency_drafter.draft_missing_node_manifest(
+            _resolution(), client=client, max_archive_mib=0,
+        )
     with _http(zip_bytes=b"z" * (1024 * 1024 + 1)) as client:
         draft = dependency_drafter.draft_missing_node_manifest(
             _resolution(), client=client, max_archive_mib=1,
