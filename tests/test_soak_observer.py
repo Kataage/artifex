@@ -13,7 +13,6 @@ from typer.testing import CliRunner
 from artifex.cli import app
 from artifex.config.models import ArtifexSettings, RenderNodeConfig, RenderNodesConfig
 from artifex.qualification.soak_observer import (
-    SoakHeader,
     SoakSample,
     _gpu_usage_mib,
     _read_db_counts,
