@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import platform
 from contextlib import contextmanager
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -237,9 +237,11 @@ def test_renderer_replacement_guard_rejects_unsafe_socket(
             status=socket_status, upstream_port=8188, listener_pids=(111,),
         ),
     )
-    with pytest.raises(RuntimeError, match="not proven unoccupied"):
-        with tasks._renderer_replacement_guard(tmp_path / "renderer.yaml"):
-            pytest.fail("Unsafe renderer unexpectedly allowed to replace task")
+    with (
+        pytest.raises(RuntimeError, match="not proven unoccupied"),
+        tasks._renderer_replacement_guard(tmp_path / "renderer.yaml"),
+    ):
+        pytest.fail("Unsafe renderer unexpectedly allowed to replace task")
 
 
 def test_renderer_replacement_guard_rejects_live_orphan_from_receipt(
@@ -266,9 +268,11 @@ def test_renderer_replacement_guard_rejects_live_orphan_from_receipt(
     def no_socket_probe(settings: Any) -> Any:
         pytest.fail("Live child should be blocked before checking the TCP listener")
     monkeypatch.setattr(socket_module, "audit_renderer_sockets", no_socket_probe)
-    with pytest.raises(RuntimeError, match="still alive"):
-        with tasks._renderer_replacement_guard(tmp_path / "renderer.yaml"):
-            pytest.fail("Live child unexpectedly allowed task replacement")
+    with (
+        pytest.raises(RuntimeError, match="still alive"),
+        tasks._renderer_replacement_guard(tmp_path / "renderer.yaml"),
+    ):
+        pytest.fail("Live child unexpectedly allowed task replacement")
 
 
 def test_renderer_replace_never_writes_scheduler_when_preflight_denies(
