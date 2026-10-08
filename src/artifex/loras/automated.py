@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.characters import CharacterRegistry
-from artifex.config.models import LoRARegistryConfig
+from artifex.config.models import LoRARegistryConfig, RenderNodesConfig
 from artifex.domain import LoRAProfile, LoRAState
 from artifex.evaluation import EvaluationContext, EvaluationEngine
 from artifex.loras.registry import LoRARegistry
@@ -337,6 +337,7 @@ class LoRAValidationMatrixRunner:
         config: LoRARegistryConfig,
         *,
         cases: tuple[LoRAValidationCase, ...] = DEFAULT_VALIDATION_CASES,
+        render_nodes: RenderNodesConfig | None = None,
     ) -> None:
         self._registry = registry
         self._service = service
@@ -344,9 +345,20 @@ class LoRAValidationMatrixRunner:
         self._probe = probe
         self._config = config
         self._cases = cases
+        self._render_nodes = render_nodes
+
+    def _available_on_primary(self, profile: LoRAProfile) -> bool:
+        if self._render_nodes is None:
+            return True
+        primary = self._render_nodes.primary_node()
+        return primary is None or profile.source == f"render-node:{primary[0]}"
 
     async def run(self, lora_id: str) -> LoRAValidationRun:
         profile = self._registry.require(lora_id)
+        if not self._available_on_primary(profile):
+            raise ValueError(
+                f"LoRA {lora_id} cannot be validated on the primary render node"
+            )
         if not _profile_asset_available(profile):
             invalidated = self._registry.invalidate(
                 lora_id,
@@ -468,7 +480,7 @@ class LoRAValidationMatrixRunner:
             for profile in self._registry.list(
                 states=(LoRAState.DISCOVERED, LoRAState.PENDING)
             )
-            if _profile_asset_available(profile)
+            if _profile_asset_available(profile) and self._available_on_primary(profile)
         ]
         candidates.sort(
             key=lambda profile: (

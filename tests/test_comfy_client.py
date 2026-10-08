@@ -392,3 +392,27 @@ async def test_download_output_fetches_remote_image_through_view_api(
         "ARTIFEX/pack-1/scene.png"
     )
     await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_download_output_rejects_truncated_image_without_publishing(
+    tmp_path: Path,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=b"short", headers={"Content-Length": "50"}
+        )
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(), client=http_client)
+    output = ComfyOutput(
+        node_id="1", filename="scene.png", subfolder="ARTIFEX", output_type="output"
+    )
+    with pytest.raises(ComfyUIError, match="truncated"):
+        await client.download_output(output, tmp_path / "cache")
+    assert not (tmp_path / "cache" / "ARTIFEX" / "scene.png").exists()
+    assert not (tmp_path / "cache" / "ARTIFEX" / "scene.png.part").exists()
+    await http_client.aclose()

@@ -48,6 +48,13 @@ uv run artifex render-node serve --config .\config\render-node.yaml
 
 The agent exposes only health and authenticated asset/LoRA attestation data. Image generation remains on ComfyUI.
 
+Normal attestation queries are cached for 60 seconds to avoid repeatedly hashing large
+model libraries. Strict qualification uses `?fresh=1` and bypasses that cache. If
+the LoRA scan is incomplete or a root becomes temporarily inaccessible, Artifex
+records the error but does **not** interpret missing inventory entries as deletions.
+Keep ports 8188/8190 restricted to the trusted LAN; the bearer token is not
+encrypted over plain HTTP. Use a TLS tunnel or reverse proxy outside that scope.
+
 ## PC-A: controller
 
 The recommended first-run path is the setup command. It probes the renderer's
@@ -71,7 +78,9 @@ are never overwritten unless `--force` is supplied. Use
 The generated config is intentionally a small override, not a copy of every
 Artifex default. A production checkpoint still needs to be selected explicitly
 because automatically choosing one from a machine with multiple ILXL
-checkpoints would be unsafe.
+checkpoints would be unsafe. Setup is safe to re-run with identical options if
+the LLM download was interrupted: an identical generated YAML is reused;
+an operator-modified configuration is not overwritten without `--force`.
 
 Configure the primary renderer manually when needed:
 
@@ -116,7 +125,18 @@ Check or download it explicitly with:
 uv run artifex llm bootstrap --config .\config\local.yaml --json
 ```
 
-Downloads use a `.part` file and HTTP Range resume. An existing verified model is reused. `artifex daemon` also runs the bootstrap automatically before production when the local llama.cpp backend has `auto_download: true`.
+Downloads use a `.part` file and HTTP Range resume. For the default pinned
+Hugging Face model, bootstrap obtains the expected SHA-256 from Hugging Face's
+resolve headers, checks the complete model against it, and stores a local
+source-bound integrity receipt for offline reuse. A custom direct URL profile
+must specify `sha256`. A corrupt existing GGUF is rejected rather than reused;
+`artifex llm bootstrap --force` can replace it while preserving the last
+working copy until the new download passes verification.
+
+`artifex daemon` also runs the bootstrap automatically before production when
+the local llama.cpp backend has `auto_download: true`. Bootstrap installs the
+GGUF but does not start llama-server: configure the compatible local
+llama.cpp server on PC-A separately, listening on `127.0.0.1:8899`.
 
 A different model can be selected by adding another bootstrap profile or by using a local profile; Artifex is not tied permanently to Spark.
 
@@ -126,7 +146,7 @@ PC-B's attestation scans the configured LoRA roots and returns filename, relativ
 
 New or changed remote LoRAs return to discovery/validation. Missing LoRAs are disabled after a successful inventory refresh. A network outage alone does not mark remote LoRAs as deleted.
 
-Generation submits the renderer-relative LoRA name to ComfyUI, so the LoRA file itself does not need to exist on PC-A.
+Generation submits the renderer-relative LoRA name to ComfyUI, so the LoRA file itself does not need to exist on PC-A. While scheduling remains primary-only, the resolver excludes LoRAs that are present only on a secondary renderer or on the controller.
 
 ## More render nodes
 

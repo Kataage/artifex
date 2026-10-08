@@ -321,6 +321,7 @@ class RenderAgentConfig(StrictModel):
     node_id: str = "main"
     bind_host: str = "127.0.0.1"
     port: int = Field(default=8190, ge=1, le=65535)
+    attestation_cache_seconds: float = Field(default=60.0, ge=0, le=3600)
     token_env: str | None = "ARTIFEX_RENDER_NODE_TOKEN"
     require_token: bool = True
     asset_paths: dict[str, Path] = Field(default_factory=dict)

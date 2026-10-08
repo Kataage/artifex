@@ -388,6 +388,18 @@ class QualificationService:
     def verify(self, session_id: str) -> dict[str, object]:
         session = self.load(session_id)
         issues: list[str] = []
+        # Freeze the production configuration used for the qualification run.
+        # The production LoRA count can increase as validation completes, but
+        # changing the backend, assets, identity policies or safety gates cannot.
+        original_configuration = json.loads(json.dumps(session.configuration))
+        current_configuration = self._configuration_snapshot()
+        for snapshot in (original_configuration, current_configuration):
+            lora_section = snapshot.get("loras")
+            if isinstance(lora_section, dict):
+                lora_section.pop("production_count", None)
+        if original_configuration != current_configuration:
+            issues.append("production configuration changed during qualification")
+
         requirements = session.environment.get("requirements")
         if not isinstance(requirements, dict) or not all(
             value is True for value in requirements.values()
@@ -429,8 +441,8 @@ class QualificationService:
             if label not in asset_labels:
                 issues.append(f"required asset hash is missing: {label}")
 
+        remote_cache: dict[str, RenderNodeAttestation] = {}
         if self._settings.qualification.require_stable_asset_hashes:
-            remote_cache: dict[str, RenderNodeAttestation] = {}
             for asset in session.assets:
                 if asset.source == "render_node":
                     if asset.node_id is None:
@@ -446,7 +458,7 @@ class QualificationService:
                                 raise ValueError(
                                     f"render node is no longer configured: {asset.node_id}"
                                 )
-                            attestation = fetch_render_attestation(asset.node_id, node)
+                            attestation = fetch_render_attestation(asset.node_id, node, fresh=True)
                             remote_cache[asset.node_id] = attestation
                         candidates = {
                             item.label: item for item in attestation.assets
@@ -493,6 +505,8 @@ class QualificationService:
                     issues.append(
                         f"asset {asset.label} file count changed during qualification"
                     )
+
+        issues.extend(self._verify_production_loras(session, remote_cache))
 
         if self._settings.qualification.require_stable_workflow_snapshot:
             try:
@@ -909,6 +923,70 @@ class QualificationService:
                             f"LoRA {profile.id} is missing validation run evidence"
                         )
 
+    def _verify_production_loras(
+        self,
+        session: QualificationSession,
+        remote_cache: dict[str, RenderNodeAttestation],
+    ) -> list[str]:
+        issues: list[str] = []
+        baseline = {
+            str(item["id"]): item
+            for item in session.loras
+            if item.get("state") == LoRAState.PRODUCTION.value
+        }
+        current = {
+            profile.id: profile
+            for profile in self._loras.list(states=(LoRAState.PRODUCTION,))
+        }
+        for lora_id, evidence in baseline.items():
+            profile = current.get(lora_id)
+            if profile is None:
+                issues.append(f"production LoRA {lora_id} is missing or no longer validated")
+            elif profile.checksum != evidence.get("checksum"):
+                issues.append(f"production LoRA {lora_id} checksum changed during qualification")
+
+        primary = self._settings.render_nodes.primary_node()
+        for lora_id, profile in current.items():
+            if lora_id not in baseline:
+                issues.append(f"production LoRA {lora_id} was added during qualification")
+                continue
+            if not self._settings.qualification.require_stable_asset_hashes:
+                continue
+            if profile.source is not None and profile.source.startswith("render-node:"):
+                node_id = profile.source.removeprefix("render-node:")
+                if primary is None or node_id != primary[0]:
+                    issues.append(
+                        f"production LoRA {lora_id} is not on the primary render node"
+                    )
+                    continue
+                try:
+                    attestation = remote_cache.get(node_id)
+                    if attestation is None:
+                        attestation = fetch_render_attestation(
+                            node_id, primary[1], fresh=True
+                        )
+                        remote_cache[node_id] = attestation
+                    if attestation.inventory_errors:
+                        raise ValueError("render node inventory is incomplete")
+                    matches = [
+                        item for item in attestation.loras
+                        if item.relative_path.replace("\\", "/")
+                        == str(profile.metadata.get("asset_name", "")).replace("\\\\", "/")
+                    ]
+                    if len(matches) != 1 or matches[0].sha256 != profile.checksum:
+                        raise ValueError("render node LoRA is absent or hash mismatched")
+                except Exception as exc:  # noqa: BLE001
+                    issues.append(f"production LoRA {lora_id} cannot be attested: {exc}")
+            else:
+                try:
+                    checksum = _digest_path(lora_id, profile.path).sha256
+                except (OSError, ValueError) as exc:
+                    issues.append(f"production LoRA {lora_id} cannot be hashed: {exc}")
+                    continue
+                if checksum != profile.checksum:
+                    issues.append(f"production LoRA {lora_id} on-disk hash changed")
+        return issues
+
     def _llm_model_path(self) -> Path | None:
         bootstrap = self._settings.llm.bootstrap
         if not bootstrap.enabled:
@@ -934,7 +1012,7 @@ class QualificationService:
             )
             return {}, errors
         try:
-            attestation = fetch_render_attestation(primary_id, primary_config)
+            attestation = fetch_render_attestation(primary_id, primary_config, fresh=True)
         except Exception as exc:  # noqa: BLE001
             errors[f"render_node:{primary_id}"] = str(exc)
             return {}, errors
@@ -1088,6 +1166,26 @@ class QualificationService:
                 "profile_dirs": [
                     str(path) for path in settings.rights.profile_dirs
                 ],
+            },
+            "qualification": {
+                "required_asset_labels": list(settings.qualification.required_asset_labels),
+                "require_native_windows": settings.qualification.require_native_windows,
+                "require_uv": settings.qualification.require_uv,
+                "require_nvidia_gpu": settings.qualification.require_nvidia_gpu,
+                "require_lora_validation_evidence": (
+                    settings.qualification.require_lora_validation_evidence
+                ),
+                "require_stable_asset_hashes": (
+                    settings.qualification.require_stable_asset_hashes
+                ),
+                "require_stable_workflow_snapshot": (
+                    settings.qualification.require_stable_workflow_snapshot
+                ),
+                "minimum_soak_hours": settings.qualification.minimum_soak_hours,
+                "asset_paths": {
+                    key: str(value)
+                    for key, value in sorted(settings.qualification.asset_paths.items())
+                },
             },
         }
 

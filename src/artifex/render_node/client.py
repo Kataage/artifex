@@ -13,6 +13,7 @@ def fetch_render_attestation(
     config: RenderNodeConfig,
     *,
     timeout_seconds: float = 120.0,
+    fresh: bool = False,
 ) -> RenderNodeAttestation:
     if not config.attestation_url:
         raise ValueError(f"render node {node_id} has no attestation_url configured")
@@ -23,7 +24,9 @@ def fetch_render_attestation(
             headers["Authorization"] = f"Bearer {token}"
     url = config.attestation_url.rstrip("/") + "/v1/attestation"
     with httpx.Client(timeout=httpx.Timeout(timeout_seconds)) as http:
-        response = http.get(url, headers=headers)
+        response = http.get(
+            url, headers=headers, params={"fresh": "1"} if fresh else None
+        )
         response.raise_for_status()
         payload = response.json()
     attestation = RenderNodeAttestation.model_validate(payload)

@@ -202,7 +202,7 @@ class ComfyUIClient:
         output: ComfyOutput,
         destination_dir: Path,
     ) -> Path:
-        """Download one ComfyUI output through /view into controller-local storage."""
+        """Stream an output through /view, publishing it only after full delivery."""
         root = destination_dir.expanduser().resolve(strict=False)
         relative = Path(output.subfolder.replace("\\", "/")) / output.filename
         target = (root / relative).resolve(strict=False)
@@ -212,18 +212,57 @@ class ComfyUIClient:
             raise ComfyUIProtocolError(
                 f"ComfyUI output escapes download directory: {relative}"
             ) from exc
-        response = await self._request(
-            "GET",
-            "/view",
-            params={
-                "filename": output.filename,
-                "subfolder": output.subfolder,
-                "type": output.output_type,
-            },
-        )
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(response.content)
-        return target
+        temporary = target.with_name(target.name + ".part")
+        params = {
+            "filename": output.filename,
+            "subfolder": output.subfolder,
+            "type": output.output_type,
+        }
+        for attempt in range(self._config.request_attempts):
+            try:
+                total = 0
+                async with self._client.stream("GET", "/view", params=params) as response:
+                    response.raise_for_status()
+                    raw_size = response.headers.get("Content-Length")
+                    expected_size = int(raw_size) if raw_size is not None else None
+                    if expected_size is not None and expected_size < 0:
+                        raise ComfyUIProtocolError("negative ComfyUI output length")
+                    with temporary.open("wb") as stream:
+                        async for chunk in response.aiter_bytes():
+                            stream.write(chunk)
+                            total += len(chunk)
+                if total == 0:
+                    raise ComfyUIProtocolError("ComfyUI returned an empty image")
+                if expected_size is not None and total != expected_size:
+                    raise ComfyUIProtocolError(
+                        f"ComfyUI output truncated: {total} != {expected_size}"
+                    )
+                temporary.replace(target)
+                return target
+            except (
+                httpx.HTTPError,
+                ValueError,
+                ComfyUIProtocolError,
+            ) as exc:
+                temporary.unlink(missing_ok=True)
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response.status_code < 500
+                ):
+                    raise ComfyUIProtocolError(
+                        f"ComfyUI /view rejected image: {exc}"
+                    ) from exc
+                if attempt + 1 >= self._config.request_attempts:
+                    raise ComfyUIError(
+                        ComfyErrorKind.CONNECTION,
+                        f"ComfyUI /view download failed after retries: {exc}",
+                        retryable=True,
+                    ) from exc
+                await asyncio.sleep(
+                    self._config.reconnect_backoff_seconds * (attempt + 1)
+                )
+        raise AssertionError("unreachable ComfyUI download retry state")
 
     async def validate_requirements(
         self,

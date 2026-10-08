@@ -130,6 +130,16 @@ class RemoteLoRADiscovery:
             )
             discovered.append(self._registry.upsert(profile))
 
+        # A partially failed inventory is not proof that absent LoRAs were deleted.
+        # Preserve last-known-good entries until a complete inventory succeeds.
+        if attestation.inventory_errors:
+            return DiscoveryResult(
+                discovered=tuple(discovered),
+                unchanged=tuple(unchanged),
+                failed=tuple(failed),
+                removed=(),
+            )
+
         for profile in self._registry.list():
             if profile.source != source or profile.id in seen_ids:
                 continue

@@ -521,6 +521,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.loras,
         settings.characters,
         settings.loras,
+        settings.render_nodes,
     )
     prompts = PromptCompiler(
         core.characters,
@@ -562,6 +563,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
                 model_family=settings.production.model_family,
             ),
             settings.loras,
+            render_nodes=settings.render_nodes,
         )
 
     attempts = GenerationAttemptRepository(core.database)

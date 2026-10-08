@@ -6,11 +6,14 @@ import os
 import platform
 import socket
 import subprocess
+import time
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from artifex.config.models import ArtifexSettings
 from artifex.loras.safetensors import (
@@ -110,6 +113,7 @@ def _lora_inventory(
     extensions = {extension.casefold() for extension in config.extensions}
     items: list[RenderLoRAInventoryItem] = []
     errors: list[dict[str, str]] = []
+    seen_names: set[str] = set()
     for root in config.lora_roots:
         base = root.expanduser().resolve(strict=False)
         if not base.exists():
@@ -125,6 +129,16 @@ def _lora_inventory(
         )
         for path in paths:
             try:
+                # Resolved symlinks may leave the configured directory.
+                relative = path.relative_to(base).as_posix()
+                if relative.casefold() in seen_names:
+                    errors.append(
+                        {
+                            "path": str(path),
+                            "error": "duplicate renderer-relative LoRA asset name",
+                        }
+                    )
+                    continue
                 metadata = read_safetensors_metadata(
                     path,
                     max_header_bytes=config.metadata_header_max_mib * 1024 * 1024,
@@ -133,11 +147,12 @@ def _lora_inventory(
             except (OSError, SafeTensorMetadataError, ValueError) as exc:
                 errors.append({"path": str(path), "error": str(exc)})
                 continue
+            seen_names.add(relative.casefold())
             items.append(
                 RenderLoRAInventoryItem(
                     name=path.name,
                     path=str(path),
-                    relative_path=path.relative_to(base).as_posix(),
+                    relative_path=relative,
                     sha256=checksum,
                     bytes=path.stat().st_size,
                     metadata=metadata,
@@ -189,6 +204,23 @@ def serve_attestation(settings: ArtifexSettings) -> None:
             "render-node token is required but the configured environment variable is empty"
         )
 
+    cache_lock = Lock()
+    cached: tuple[float, RenderNodeAttestation] | None = None
+
+    def snapshot(*, fresh: bool) -> RenderNodeAttestation:
+        nonlocal cached
+        with cache_lock:
+            now = time.monotonic()
+            if (
+                not fresh
+                and cached is not None
+                and now - cached[0] < settings.render_agent.attestation_cache_seconds
+            ):
+                return cached[1]
+            evidence = build_attestation(settings)
+            cached = (time.monotonic(), evidence)
+            return evidence
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "ArtifexRenderNode/1"
 
@@ -211,7 +243,8 @@ def serve_attestation(settings: ArtifexSettings) -> None:
             self.wfile.write(body)
 
         def do_GET(self) -> None:
-            if self.path == "/health":
+            url = urlsplit(self.path)
+            if url.path == "/health":
                 self._json(
                     HTTPStatus.OK,
                     {
@@ -220,14 +253,15 @@ def serve_attestation(settings: ArtifexSettings) -> None:
                     },
                 )
                 return
-            if self.path != "/v1/attestation":
+            if url.path != "/v1/attestation":
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
             if not self._authorized():
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
                 return
             try:
-                payload: Any = build_attestation(settings).model_dump(mode="json")
+                fresh = parse_qs(url.query).get("fresh") == ["1"]
+                payload: Any = snapshot(fresh=fresh).model_dump(mode="json")
             except Exception as exc:  # noqa: BLE001
                 self._json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
