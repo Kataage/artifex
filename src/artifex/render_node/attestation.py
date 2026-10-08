@@ -7,13 +7,13 @@ import platform
 import socket
 import subprocess
 import time
-from threading import Lock
-from urllib.parse import parse_qs, urlsplit
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from artifex.config.models import ArtifexSettings
 from artifex.loras.safetensors import (
