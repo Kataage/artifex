@@ -587,7 +587,7 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
 
     verified = service.verify(session.session_id)
 
-    assert verified["ready"] is True
+    assert verified["ready"] is True, verified["issues"]
     assert verified["issues"] == []
     assert verified["stages"]["discord_controls"] == "skipped"
     database.dispose()
