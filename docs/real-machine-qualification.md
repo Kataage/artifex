@@ -2,6 +2,18 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## Controller maintenance pause and non-destructive in-flight drain
+
+On PC-A, `uv run artifex maintenance drain --config .\\config\\local.yaml
+--apply --wait-seconds 600` pauses new controller daemon work and observes
+the primary PC-B ComfyUI queue alongside persisted generation attempts and
+unfinished Packs. Zero in-flight counts must be observed twice; malformed,
+unreachable and external busy queues fail closed. This is not permission to
+terminate an external ComfyUI instance: `restart_authorized` remains
+**false** until all submitters can be fenced atomically. After verified
+maintenance, resume explicitly via `artifex resume` and re-run live renderer
+reconciliation. This is separate from the required 14-stage qualification.
+
 ## Automatic safe runtime revalidation after renderer changes
 
 After a model or node change on PC-B, run
