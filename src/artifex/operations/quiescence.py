@@ -162,6 +162,7 @@ async def quiesce_controller(
         await sleep_fn(min(poll_seconds, remaining))
 
     assert last is not None
+    actions: tuple[str, ...]
     if last.state is not AgentState.PAUSED:
         status: QuiescenceState = "not_paused"
         actions = ("pause_artifex_controller_then_repeat_drain",)
