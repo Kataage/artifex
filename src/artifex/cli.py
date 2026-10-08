@@ -37,6 +37,11 @@ from artifex.llm import (
     bootstrap_llm,
 )
 from artifex.llm.server import ManagedLlmServer
+from artifex.onboarding import (
+    configure_discovered_renderer,
+    discover_controller,
+    discover_renderer,
+)
 from artifex.performance import (
     PatreonV2PublicationProvider,
     ingest_manual_performance,
@@ -139,6 +144,12 @@ deployment_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(deployment_app, name="deployment")
+onboard_app = typer.Typer(
+    name="onboard",
+    help="Discover native two-PC dependencies and prepare safe first-run configuration.",
+    no_args_is_help=True,
+)
+app.add_typer(onboard_app, name="onboard")
 
 ConfigOption = Annotated[
     Path | None,
@@ -295,6 +306,91 @@ def deployment_verify(
         raise typer.Exit(code=1) from exc
     if not report.ready:
         raise typer.Exit(code=1)
+
+
+@onboard_app.command("inspect")
+def onboard_inspect(
+    role: Annotated[
+        str, typer.Option("--role", help="Select controller (PC-A) or renderer (PC-B)."),
+    ] = "controller",
+    root: Annotated[
+        Path | None,
+        typer.Option("--comfy-root", help="ComfyUI project or portable distribution root on PC-B."),
+    ] = None,
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read-only bounded discovery of native binaries, models and setup gaps."""
+    if role not in {"controller", "renderer"}:
+        typer.echo("onboard error: --role must be controller or renderer", err=True)
+        raise typer.Exit(code=1)
+    try:
+        if role == "renderer":
+            if root is None:
+                raise ValueError("--comfy-root is required for renderer inspection")
+            result = discover_renderer(root)
+        else:
+            if root is not None:
+                raise ValueError("--comfy-root applies only to renderer inspection")
+            result = discover_controller(_settings(config))
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, TypeError) as exc:
+        typer.echo(f"onboard inspect error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("renderer")
+def onboard_renderer(
+    comfy_root: Annotated[Path, typer.Option("--comfy-root", help="ComfyUI or portable root.")],
+    checkpoint_path: Annotated[
+        Path, typer.Option("--checkpoint-path", help="Explicit selected checkpoint; never guessed."),
+    ],
+    output: Annotated[Path, typer.Option("--output")] = Path("config/render-node.yaml"),
+    node_id: Annotated[str | None, typer.Option("--node-id")] = None,
+    bind_host: Annotated[str | None, typer.Option("--bind-host")] = None,
+    port: Annotated[int | None, typer.Option("--port", min=1, max=65535)] = None,
+    comfy_port: Annotated[int, typer.Option("--comfy-port", min=1, max=65535)] = 8188,
+    comfy_exe: Annotated[
+        Path | None, typer.Option("--comfy-exe", help="Choose Python explicitly if ambiguous."),
+    ] = None,
+    external_comfy: Annotated[
+        bool, typer.Option("--external-comfy", help="Leave ComfyUI process outside Artifex."),
+    ] = False,
+    refiner_path: Annotated[Path | None, typer.Option("--refiner-path")] = None,
+    vae_path: Annotated[Path | None, typer.Option("--vae-path")] = None,
+    upscaler_path: Annotated[Path | None, typer.Option("--upscaler-path")] = None,
+    lora_dir: Annotated[
+        list[Path] | None, typer.Option("--lora-dir", help="Extra LoRA root; repeat if needed."),
+    ] = None,
+    update: Annotated[bool, typer.Option("--update")] = False,
+    force: Annotated[bool, typer.Option("--force")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Create PC-B YAML using detected ComfyUI Python and explicitly selected models."""
+    try:
+        settings = _settings(output) if update and output.is_file() else _settings(None)
+        result = configure_discovered_renderer(
+            settings,
+            root=comfy_root,
+            output_path=output,
+            checkpoint_path=checkpoint_path,
+            node_id=node_id,
+            bind_host=bind_host,
+            port=port,
+            comfy_port=comfy_port,
+            python_executable=comfy_exe,
+            external_comfy=external_comfy,
+            refiner_path=refiner_path,
+            vae_path=vae_path,
+            upscaler_path=upscaler_path,
+            extra_lora_roots=tuple(lora_dir or ()),
+            update=update,
+            force=force,
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (FileExistsError, OSError, ValueError, TypeError) as exc:
+        typer.echo(f"onboard renderer error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("setup")
