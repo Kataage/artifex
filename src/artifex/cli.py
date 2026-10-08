@@ -13,6 +13,7 @@ from artifex.application import CoreServices, build_application, build_core, bui
 from artifex.characters import HololiveCatalog
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
+from artifex.configuration_edit import write_override
 from artifex.controller_preflight import check_controller
 from artifex.db import Database
 from artifex.db.models import PackInventoryRow
@@ -36,7 +37,9 @@ from artifex.llm import (
     StructuredGenerator,
     bootstrap_llm,
 )
+from artifex.llm.release_install import install_official_llama, official_release_assets
 from artifex.llm.server import ManagedLlmServer
+from artifex.native_dependencies import DependencyRole, check_native_dependencies
 from artifex.onboarding import (
     configure_discovered_renderer,
     discover_controller,
@@ -390,6 +393,111 @@ def onboard_renderer(
         _print_payload(result.model_dump(mode="json"), as_json=json_output)
     except (FileExistsError, OSError, ValueError, TypeError) as exc:
         typer.echo(f"onboard renderer error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("dependencies")
+def onboard_dependencies(
+    role: Annotated[str, typer.Option("--role")] = "controller",
+    config: ConfigOption = None,
+    comfy_root: Annotated[
+        Path | None,
+        typer.Option("--comfy-root", help="Required PC-B ComfyUI or portable directory."),
+    ] = None,
+    probe_torch: Annotated[
+        bool,
+        typer.Option("--probe-torch", help="Execute selected PC-B Python to inspect PyTorch CUDA."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Inspect native dependencies without installing or modifying anything."""
+    if role not in {"controller", "renderer"}:
+        typer.echo("onboard dependencies error: invalid role", err=True)
+        raise typer.Exit(code=1)
+    if role == "controller" and (comfy_root is not None or probe_torch):
+        typer.echo("onboard dependencies error: PC-B options require --role renderer", err=True)
+        raise typer.Exit(code=1)
+    try:
+        selected = cast(DependencyRole, role)
+        settings = _settings(config)
+        report = check_native_dependencies(
+            settings, role=selected, comfy_root=comfy_root, probe_torch=probe_torch
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard dependencies error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not report.ready:
+        raise typer.Exit(code=1)
+
+
+@onboard_app.command("llama-assets")
+def onboard_llama_assets(
+    tag: Annotated[str, typer.Option("--tag", help="Exact upstream llama.cpp release tag.")],
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """List official Windows x64 ZIP assets that publish GitHub SHA-256 digests."""
+    try:
+        assets = official_release_assets(tag)
+        _print_payload(
+            {"tag": tag, "assets": [asset.model_dump(mode="json") for asset in assets]},
+            as_json=json_output,
+        )
+        if not assets:
+            raise typer.Exit(code=1)
+    except (ValueError, OSError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard llama-assets error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("llama-install")
+def onboard_llama_install(
+    tag: Annotated[str, typer.Option("--tag", help="Exact pinned official release tag.")],
+    asset: Annotated[
+        str, typer.Option("--asset", help="Exact Windows x64 ZIP name from llama-assets."),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Install root (never overwrites existing folders)."),
+    ] = Path("tools/llama.cpp"),
+    configure: Annotated[
+        bool,
+        typer.Option("--configure", help="Enable managed local llama-server in existing PC-A YAML."),
+    ] = False,
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Explicit official SHA-256 verified install; never execute downloaded code."""
+    if configure and config is None:
+        typer.echo("onboard llama-install error: --configure requires --config", err=True)
+        raise typer.Exit(code=1)
+    try:
+        if configure:
+            assert config is not None
+            if not config.is_file():
+                raise FileNotFoundError(f"Existing controller config required: {config}")
+            settings = _settings(config)
+            if settings.llm.backend != "llama_cpp":
+                raise ValueError("Managed llama-server requires llm.backend=llama_cpp")
+        result = install_official_llama(tag, asset, output_dir)
+        payload = result.model_dump(mode="json")
+        if configure:
+            assert config is not None
+            updated = write_override(
+                config,
+                {
+                    "llm": {
+                        "server": {
+                            "enabled": True,
+                            "executable": str(result.executable),
+                        }
+                    }
+                },
+                update=True,
+            )
+            payload["configured_path"] = str(updated)
+        _print_payload(payload, as_json=json_output)
+    except (FileExistsError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard llama-install error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
