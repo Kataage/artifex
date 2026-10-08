@@ -138,7 +138,7 @@ def _safe_member(name: str, info: zipfile.ZipInfo) -> PurePosixPath:
     return path
 
 
-def _extract_verified_zip(archive: Path, destination: Path) -> Path:
+def extract_verified_zip(archive: Path, destination: Path) -> Path:
     total = 0
     binaries: list[Path] = []
     members_seen: set[str] = set()
@@ -242,7 +242,7 @@ def install_official_llama(
                         output.write(chunk)
             if count != asset.bytes or digest.hexdigest() != asset.sha256:
                 raise ValueError("Downloaded llama.cpp ZIP failed official SHA-256/size check")
-            executable = _extract_verified_zip(archive, extracted)
+            executable = extract_verified_zip(archive, extracted)
             relative_binary = executable.relative_to(extracted)
             binary_sha = _digest_file(executable)
             (extracted / ".artifex-install.json").write_text(
