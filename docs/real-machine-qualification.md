@@ -24,6 +24,44 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## Isolated Windows Task Scheduler process-tree probe
+
+This deliberately uses **only a temporary, random-name Task Scheduler task**,
+a no-GPU Python mock supervisor and a short-lived heartbeat child. It never
+stops or replaces Artifex-Renderer, Artifex-Controller, production ComfyUI,
+or any active GPU render.
+
+Preview (no task registration or process launch):
+
+```powershell
+uv run artifex startup lifecycle-probe --json
+```
+
+Explicit isolated experiment on PC-B or disposable Windows CI:
+
+```powershell
+uv run artifex startup lifecycle-probe --apply --mode protected --json
+uv run artifex startup lifecycle-probe --apply --mode baseline --json
+```
+
+The protected variant registers the mock task with DisallowHardTerminate;
+baseline intentionally omits it, **only for the randomly named mock task**.
+It records the actual Task Scheduler setting, original supervisor/child CIM
+identity, child heartbeat progress after Stop-ScheduledTask, and whether the
+supervisor itself stopped. A surviving child is *not* reported as a successful
+supervisor-loss test if the supervisor is still running. Every report includes
+production_qualified=false and restart_authorized=false. Reports are saved to
+the configurable --report-dir (default data/qualification/scheduler-probe).
+CI archives the report JSON for inspection. Cleanup verifies the task marker
+and action before unregistering; the mock processes are bounded and receive
+a voluntary release signal. A blocked/inconclusive result must **not** be
+treated as evidence of child survival.
+
+The test does not prove Task Scheduler logoff/shutdown, power-loss or
+Job Object behavior on the operator's actual PC-B, nor does it authorize an
+actual ComfyUI stop. Issue #40 still requires verification with a real
+GPU render and two-PC configuration.
+
 ## PC-B Task Scheduler supervisor exclusivity qualification
 
 In managed protected gateway mode, Artifex uses a cross-process OS lease
