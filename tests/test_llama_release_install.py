@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 from artifex.cli import app
 from artifex.config import load_settings
 from artifex.llm.release_install import (
-    _extract_verified_zip,
+    extract_verified_zip,
     install_official_llama,
     official_release_assets,
 )
@@ -143,13 +143,13 @@ def test_symlink_and_duplicate_archive_entries_are_rejected(tmp_path: Path) -> N
         link.external_attr = 0o120777 << 16
         archive.writestr(link, "../escape.exe")
     with pytest.raises(ValueError, match="symlink"):
-        _extract_verified_zip(symlink_archive, tmp_path / "extract")
+        extract_verified_zip(symlink_archive, tmp_path / "extract")
     double = tmp_path / "duplicate.zip"
     with zipfile.ZipFile(double, "w") as archive:
         archive.writestr("bin/llama-server.exe", b"MZ")
         archive.writestr("BIN/LLAMA-SERVER.EXE", b"fake")
     with pytest.raises(ValueError, match="case-colliding"):
-        _extract_verified_zip(double, tmp_path / "out")
+        extract_verified_zip(double, tmp_path / "out")
 
 
 def test_missing_executable_rejected(tmp_path: Path) -> None:
@@ -157,7 +157,7 @@ def test_missing_executable_rejected(tmp_path: Path) -> None:
     with zipfile.ZipFile(archive, "w") as zipout:
         zipout.writestr("README.md", "hello")
     with pytest.raises(ValueError, match="one llama-server.exe"):
-        _extract_verified_zip(archive, tmp_path / "output")
+        extract_verified_zip(archive, tmp_path / "output")
 
 
 def test_missing_upstream_checksum_fails_closed() -> None:
