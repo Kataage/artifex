@@ -368,6 +368,15 @@ class ManagedComfyConfig(StrictModel):
         return self
 
 
+class RendererGatewayConfig(StrictModel):
+    """Optional authenticated API-only LAN gateway for owned local ComfyUI."""
+
+    enabled: bool = False
+    bind_host: str = "127.0.0.1"
+    port: int = Field(default=8191, ge=1, le=65535)
+    admission_path: Path = Path("data/render-gateway-fence.sqlite3")
+
+
 class RenderAgentConfig(StrictModel):
     node_id: str = "main"
     bind_host: str = "127.0.0.1"
@@ -376,6 +385,7 @@ class RenderAgentConfig(StrictModel):
     token_env: str | None = "ARTIFEX_RENDER_NODE_TOKEN"
     require_token: bool = True
     comfyui_process: ManagedComfyConfig = Field(default_factory=ManagedComfyConfig)
+    gateway: RendererGatewayConfig = Field(default_factory=RendererGatewayConfig)
     asset_paths: dict[str, Path] = Field(default_factory=dict)
     lora_roots: tuple[Path, ...] = ()
     extensions: tuple[str, ...] = (".safetensors",)
@@ -386,6 +396,8 @@ class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
     # Shared by ALL Artifex processes on PC-A; use the same path in CLI and daemon.
     submission_fence_path: Path = Path("data/comfy-submission-fence.sqlite3")
+    # PC-A: optional authenticated renderer gateway, token is read from env.
+    gateway_token_env: str | None = None
     output_mode: Literal["filesystem", "api"] = "filesystem"
     output_dir: Path | None = None
     download_dir: Path = Path("data/render-cache")
