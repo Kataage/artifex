@@ -119,7 +119,7 @@ def audit_renderer_sockets(
         )
     try:
         connections = probe()
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, TypeError, RuntimeError, subprocess.SubprocessError) as exc:
         return RendererSocketAudit(
             status="probe_failed", upstream_port=port, expected_owned_pid=owned_pid,
             probe_error=f"{type(exc).__name__}: {exc}",
