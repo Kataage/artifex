@@ -8,7 +8,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 
 from artifex.config.models import ArtifexSettings
 from artifex.db import Database
@@ -93,7 +92,7 @@ async def reproduce_archived_attempt(
             raise ValueError("archive replay needs an existing finalized Pack")
         archive = pack.payload_json.get("archive")
         if not isinstance(archive, dict):
-            raise ValueError("Pack has no archived manifest")
+            raise TypeError("Pack has no archived manifest")
         manifest_path = Path(str(archive.get("manifest_path", ""))).expanduser()
         if manifest_path.is_symlink() or not manifest_path.is_file():
             raise ValueError("archive manifest missing or symlinked")
@@ -106,7 +105,7 @@ async def reproduce_archived_attempt(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         output_rows = manifest.get("archived_outputs")
         if not isinstance(output_rows, list):
-            raise ValueError("archive manifest has no archived outputs")
+            raise TypeError("archive manifest has no archived outputs")
         selected = [
             row for row in output_rows
             if isinstance(row, dict) and row.get("selected") is True
@@ -118,7 +117,7 @@ async def reproduce_archived_attempt(
         scene_id = selected_row.get("scene_id")
         attempt_id = selected_row.get("attempt_id")
         if not isinstance(scene_id, str) or not isinstance(attempt_id, str):
-            raise ValueError("archive selected image has no scene and attempt IDs")
+            raise TypeError("archive selected image has no scene and attempt IDs")
         scene = db_session.get(SceneRow, scene_id)
         attempt = db_session.get(GenerationAttemptRow, attempt_id)
         if (
