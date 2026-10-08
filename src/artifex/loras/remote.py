@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -18,7 +19,9 @@ from artifex.loras.discovery import (
     _metadata_text,
 )
 from artifex.loras.registry import LoRARegistry
-from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
+if TYPE_CHECKING:
+    from artifex.render_node.models import RenderNodeAttestation
+
 
 
 def _remote_id(node_id: str, relative_path: str) -> str:
@@ -188,6 +191,10 @@ class RenderAwareLoRADiscovery(LoRADiscovery):
         self._remote = RemoteLoRADiscovery(registry, characters)
 
     def scan(self, roots: Iterable[Path]) -> DiscoveryResult:
+        # Deferred to avoid render_node -> attestation -> loras -> render_node
+        # circular imports during isolated renderer startup on Windows.
+        from artifex.render_node.client import fetch_render_attestation
+
         results = [super().scan(roots)]
         for node_id, config in sorted(self._render_nodes.nodes.items()):
             if not config.enabled or not config.attestation_url:
