@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.characters import HololiveCatalog
+from artifex.comfy import ComfyUIClient
 from artifex.comfy.dependency_drafter import draft_missing_node_manifest
 from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
