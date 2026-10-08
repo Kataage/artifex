@@ -154,6 +154,20 @@ def test_venv_receipt_config_drift_fails_after_supervisor_crash(tmp_path: Path) 
     assert not matches_owned_process(settings, receipt, child)
 
 
+def test_legacy_schema_one_receipt_without_parent_id_still_reattaches(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    launcher, _ = _identities(settings)
+    receipt = expected_receipt(
+        settings, launcher.model_copy(update={"parent_pid": None}),
+    )
+    assert receipt.schema_version == 1
+    assert matches_owned_process(settings, receipt, launcher)
+    reused = launcher.model_copy(update={"started_utc": "2026-10-09T03:00:00Z"})
+    assert not matches_owned_process(settings, receipt, reused)
+
+
 def test_non_python_launcher_cannot_claim_descendant(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     launcher, child = _identities(settings)
