@@ -50,8 +50,11 @@ class PinnedDependency(BaseModel):
         if license_url.scheme != "https" or not license_url.netloc:
             raise ValueError("Dependency license_url must be HTTPS")
         parsed = urlsplit(self.url)
-        if parsed.scheme != "https" or parsed.username or parsed.password:
-            raise ValueError("Dependencies must come from an HTTPS source")
+        if (
+            parsed.scheme != "https" or parsed.username or parsed.password
+            or parsed.port is not None or parsed.query or parsed.fragment
+        ):
+            raise ValueError("Dependencies must come from an unmodified HTTPS source")
         if self.kind == "custom_node":
             if (
                 self.model_folder is not None or self.repository is None
@@ -72,7 +75,11 @@ class PinnedDependency(BaseModel):
             if not (
                 parsed.hostname == "huggingface.co"
                 and re.fullmatch(
-                    r"/[^/]+/[^/]+/resolve/[0-9a-fA-F]{40}/[^/]+", parsed.path
+                    r"/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*/"
+                    r"resolve/[0-9a-fA-F]{40}/"
+                    r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*/){0,7}"
+                    r"[A-Za-z0-9][A-Za-z0-9_.-]*",
+                    parsed.path,
                 )
                 or parsed.hostname == "github.com"
                 and re.fullmatch(
@@ -82,7 +89,10 @@ class PinnedDependency(BaseModel):
                 raise ValueError(
                     "Model source must be a pinned Hugging Face revision or GitHub release"
                 )
-            if parsed.path.rsplit("/", 1)[-1] != self.name:
+            if (
+                any(part in {".", ".."} for part in parsed.path.split("/"))
+                or parsed.path.rsplit("/", 1)[-1] != self.name
+            ):
                 raise ValueError("Source model filename must exactly match target filename")
         return self
 
