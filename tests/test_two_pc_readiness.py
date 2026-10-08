@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ from typer.testing import CliRunner
 
 from artifex.cli import app
 from artifex.config.models import ArtifexSettings, RenderNodeConfig, RenderNodesConfig
+from artifex.controller_preflight import ControllerPreflight, PreflightCheck
 from artifex.deployment import DeploymentCheck, DeploymentReport
 from artifex.native_dependencies import DependencyCheck, NativeDependencyReport
 from artifex.render_node.models import (
@@ -390,3 +392,42 @@ def test_pair_check_cli_emits_structured_failure_with_nonzero_exit(
     assert result.exit_code == 1
     assert '"preflight_ready": false' in result.output
     assert '"actual_render_verified": false' in result.output
+
+
+@pytest.mark.asyncio
+async def test_deployment_workflow_uses_primary_renderer_url_not_legacy_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two-PC setup saves PC-B under render_nodes; don't validate PC-A loopback."""
+    import artifex.deployment as deployment_module
+
+    actual_urls: list[str] = []
+
+    class FakeComfy:
+        def __init__(self, cfg: Any) -> None:
+            actual_urls.append(cfg.base_url)
+
+        async def validate_requirements(self, requirements: Any) -> Any:
+            return SimpleNamespace(ready=True, detail="validated against PC-B")
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(deployment_module, "ComfyUIClient", FakeComfy)
+    settings = _settings()
+    assert settings.comfyui.base_url == "http://127.0.0.1:8188"
+    report = await deployment_module.verify_deployment(
+        settings,
+        role="controller",
+        controller_check=lambda settings: ControllerPreflight(
+            ready=True,
+            renderer_id="gpu-b",
+            checks=(
+                PreflightCheck(
+                    name="remote_comfyui", ready=True, detail="reachable",
+                ),
+            ),
+        ),
+    )
+    assert report.ready
+    assert actual_urls == ["http://192.0.2.10:8188"]
