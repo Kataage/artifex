@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import base64
 import json
-import os
 import platform
 import subprocess
 import sys
@@ -60,7 +60,7 @@ def _command(role: StartupRole, config: Path) -> tuple[str, str, str]:
 
 def _run_powershell(script: str) -> str:
     _require_windows()
-    encoded = __import__("base64").b64encode(script.encode("utf-16le")).decode("ascii")
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     result = subprocess.run(
         [
             "powershell.exe", "-NoProfile", "-NonInteractive",
@@ -84,7 +84,7 @@ def _status_script(role: StartupRole) -> str:
     marker = _literal(f"{_MARKER}/{role}")
     return f"""
 $ErrorActionPreference = 'Stop'
-$task = Get-ScheduledTask -TaskName {name} -ErrorAction SilentlyContinue
+$task = Get-ScheduledTask -TaskName {name} -TaskPath '\\' -ErrorAction SilentlyContinue
 if ($null -eq $task) {{
   [pscustomobject]@{{ installed=$false; managed=$false; state=$null; execute=$null; arguments=$null; working_directory=$null }} | ConvertTo-Json -Compress
   exit 0
@@ -132,7 +132,7 @@ def _install_script(
 $ErrorActionPreference = 'Stop'
 $taskName = {name}
 $ownerMarker = {marker}
-$old = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+$old = Get-ScheduledTask -TaskName $taskName -TaskPath '\\' -ErrorAction SilentlyContinue
 if ($null -ne $old) {{
   if ($old.Description -ne $ownerMarker) {{
     throw 'Refusing to overwrite a task not owned by Artifex'
@@ -145,8 +145,19 @@ $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute {_literal(execute)} -Argument {_literal(arguments)} -WorkingDirectory {_literal(working_directory)}
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -RestartCount {restart_count} -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description $ownerMarker -Force | Out-Null
+$settingsArgs = @{{
+  ExecutionTimeLimit = (New-TimeSpan -Seconds 0)
+  MultipleInstances = 'IgnoreNew'
+  StartWhenAvailable = $true
+  AllowStartIfOnBatteries = $true
+  DontStopIfGoingOnBatteries = $true
+}}
+if ({restart_count} -gt 0) {{
+  $settingsArgs.RestartCount = {restart_count}
+  $settingsArgs.RestartInterval = (New-TimeSpan -Minutes 1)
+}}
+$settings = New-ScheduledTaskSettingsSet @settingsArgs
+Register-ScheduledTask -TaskName $taskName -TaskPath '\\' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description $ownerMarker -Force | Out-Null
 """
 
 
@@ -183,12 +194,12 @@ def uninstall_task(role: StartupRole) -> bool:
     marker = _literal(f"{_MARKER}/{role}")
     script = f"""
 $ErrorActionPreference = 'Stop'
-$old = Get-ScheduledTask -TaskName {name} -ErrorAction SilentlyContinue
+$old = Get-ScheduledTask -TaskName {name} -TaskPath '\\' -ErrorAction SilentlyContinue
 if ($null -eq $old) {{ exit 0 }}
 if ($old.Description -ne {marker}) {{
   throw 'Refusing to remove a task not owned by Artifex'
 }}
-Unregister-ScheduledTask -TaskName {name} -Confirm:$false
+Unregister-ScheduledTask -TaskName {name} -TaskPath '\\' -Confirm:$false
 """
     installed = task_status(role).installed
     if installed:
