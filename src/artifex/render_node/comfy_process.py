@@ -285,6 +285,34 @@ class ManagedComfyUI:
             self.close()
             raise
 
+    def _restart_after_natural_exit(self, stop: threading.Event) -> None:
+        config = self.settings.render_agent.comfyui_process
+        if self.process is not None and self.process.poll() is None:
+            raise RuntimeError("Refusing to restart an existing live ComfyUI child")
+        if self._restarts >= config.restart_limit:
+            raise RuntimeError(
+                "Managed ComfyUI exhausted the configured restart budget; "
+                f"inspect {config.log_path}"
+            )
+        self._retire_exited_receipt()
+        self._restarts += 1
+        self._stop_owned()
+        self._adopted = None
+        if stop.wait(config.restart_backoff_seconds):
+            return
+        if self._healthy():
+            if self.settings.render_agent.gateway.enabled:
+                raise RuntimeError(
+                    "Protected gateway lost exclusive ComfyUI ownership; "
+                    "another process claimed the upstream port"
+                )
+            self._external = True
+            return
+        if self.settings.render_agent.gateway.enabled:
+            self._require_free_upstream()
+        self._start_owned()
+        self._wait_ready(stop)
+
     def watch(self, stop: threading.Event) -> None:
         config = self.settings.render_agent.comfyui_process
         if not config.enabled:
@@ -299,11 +327,46 @@ class ManagedComfyUI:
                         "process it does not own"
                     )
                 continue
+            if self._adopted is not None:
+                receipt = self._adopted
+                observed = windows_process_identity(receipt.identity.pid)
+                if observed is None:
+                    if healthy:
+                        raise RuntimeError(
+                            "Adopted ComfyUI exited but an unowned server now responds"
+                        )
+                    self._restart_after_natural_exit(stop)
+                    failures = 0
+                    continue
+                if not matches_owned_process(self.settings, receipt, observed):
+                    raise RuntimeError(
+                        "Adopted ComfyUI identity changed; refusing foreign takeover"
+                    )
+                if self._receipts.load() != receipt:
+                    raise RuntimeError(
+                        "ComfyUI ownership receipt changed during monitoring"
+                    )
+                self._verify_listener_for(receipt.identity.pid)
+                if healthy:
+                    failures = 0
+                    continue
+                failures += 1
+                if failures >= 3:
+                    raise RuntimeError(
+                        "Adopted ComfyUI still alive but unhealthy; refusing "
+                        "unsafe GPU interruption"
+                    )
+                continue
             process = self.process
             if process is None:
                 return
             if healthy and process.poll() is None:
                 self._verify_owned_listener()
+                if (
+                    self.settings.render_agent.gateway.enabled
+                    and self._receipts.load() != self._current_receipt
+                ):
+                    raise RuntimeError("ComfyUI ownership receipt changed")
                 failures = 0
                 continue
             failures += 1
@@ -311,35 +374,13 @@ class ManagedComfyUI:
                 if failures < 3:
                     continue
                 # HTTP health checks can fail while a live renderer is still
-                # generating. No one has fenced PC-B loopback submissions,
-                # so never terminate/kill a living renderer to restart it.
+                # generating. Never terminate/kill it in a background restart.
                 raise RuntimeError(
                     "Managed ComfyUI stopped answering health checks but its "
                     "child process is still alive; refusing an unsafe restart"
                 )
             failures = 0
-            if self._restarts >= config.restart_limit:
-                raise RuntimeError(
-                    "Managed ComfyUI exhausted the configured restart budget; "
-                    f"inspect {config.log_path}"
-                )
-            self._restarts += 1
-            self._stop_owned()
-            if stop.wait(config.restart_backoff_seconds):
-                return
-            if self._healthy():
-                # A different process may have claimed the local port after
-                # our child exited; never silently attach a protected gateway
-                # to an unowned renderer.
-                if self.settings.render_agent.gateway.enabled:
-                    raise RuntimeError(
-                        "Protected gateway lost exclusive ComfyUI ownership; "
-                        "another process claimed the upstream port"
-                    )
-                self._external = True
-                return
-            self._start_owned()
-            self._wait_ready(stop)
+            self._restart_after_natural_exit(stop)
 
     def _stop_owned(self) -> None:
         process, self.process = self.process, None
