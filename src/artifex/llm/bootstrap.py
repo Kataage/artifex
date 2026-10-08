@@ -133,7 +133,8 @@ def _expected_sha256(
     metadata_url = source_url
     for _ in range(5):
         response = http.head(metadata_url, follow_redirects=False)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            response.raise_for_status()
         for header_name in ("x-linked-etag", "etag"):
             raw = response.headers.get(header_name, "").strip('"')
             if re.fullmatch(r"[0-9a-fA-F]{64}", raw):
