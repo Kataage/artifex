@@ -99,12 +99,22 @@ uv run artifex startup audit --role renderer --config .\\config\\render-node.yam
 
 The existing `startup status` output now includes the scheduler's actual
 `action_count`, `allow_hard_terminate`, `multiple_instances` and
-`execution_time_limit_seconds`. Unknown or older unsafe registrations
-fail closed. With the renderer fully stopped during an explicit maintenance
-window, upgrade an older Artifex-owned task using `startup install
---role renderer --replace`. Replacing a **running** managed task is now
-refused even with `--replace` and even when invoked directly, rather
-than only via deployment activation.
+`execution_time_limit_seconds`. Missing policy properties remain unknown
+(`null`) rather than silently converting to safe `false` or `0`. Unknown
+or older unsafe registrations fail closed.
+
+During an explicit stopped-renderer maintenance window, an older Artifex-owned
+task may be upgraded with `startup install --role renderer --replace`.
+**Task Scheduler's `Ready` state does not prove ComfyUI has exited.**
+Replacement first acquires the same exclusive supervisor lease, checks the
+persisted ComfyUI ownership receipt for a surviving process, and requires
+the configured upstream TCP port to have no listener. The native Windows
+registration script rechecks the listener and running-task state immediately
+before registration. Missing/invalid receipt data, failed socket inventory,
+a live orphan, or an occupied lease block replacement. No running ComfyUI
+child is terminated. All launch paths for the same renderer must share the
+same ownership receipt/lease location. Non-Artifex clients cannot be
+atomically fenced by this check, so use a controlled maintenance window.
 
 **Limit:** `DisallowHardTerminate` does not guarantee that Windows
 logout/shutdown, Task Scheduler job-object behavior, or other processes
