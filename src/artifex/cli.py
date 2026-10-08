@@ -249,7 +249,7 @@ def render_node_owner_audit(
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
     """PC-B: inspect current ComfyUI ownership, TCP and Scheduler without changes."""
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from artifex.render_node.owner_audit import (
         observe_renderer_owner,
@@ -262,7 +262,7 @@ def render_node_owner_audit(
             raise ValueError(f"Existing non-symlinked PC-B config required: {target}")
         report = observe_renderer_owner(_settings(target), config=target)
         if save or output is not None:
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             destination = output or (
                 Path("data/qualification/owner-audit")
                 / f"{stamp}-{uuid4().hex[:12]}.json"
