@@ -10,8 +10,12 @@ Artifex-owned registration has exactly one action matching the current
 executable/config/working directory, `AllowHardTerminate=false`,
 `MultipleInstances=IgnoreNew`, and unlimited execution time. An older
 task may require an explicitly authorized `startup install --replace`
-during a safe **stopped-task** maintenance window; a live task will not
-be replaced. Windows CI verifies the native PowerShell
+during a safe **stopped-renderer** maintenance window. A scheduler task
+marked `Ready` is not enough: replacement also requires exclusive
+supervisor lease access, no living PID identified by a persisted ownership
+receipt, and a clear upstream TCP listener inventory (checked again in
+PowerShell before registration). Any unknown observation fails closed.
+Windows CI verifies the native PowerShell
 `New-ScheduledTaskSettingsSet -DisallowHardTerminate` behavior without
 registering or stopping any task.
 
