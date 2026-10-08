@@ -81,6 +81,73 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## One-time operator-approved model source bindings (no repeated --repo)
+
+Previously, `models-draft` required a manual list of Hugging Face
+repositories every run. Artifex now persists an explicit *model role +
+loader filename* to publisher mapping in a local JSON file, so the
+renderer can make the same decision consistently without manual input.
+Nothing is pre-trusted by default.
+
+After checking the intended publisher and model card, **register each
+known source once**:
+
+```powershell
+uv run artifex onboard model-sources-add `
+  --role checkpoint `
+  --name "your-ILXL.safetensors" `
+  --repo "reviewed-publisher/reviewed-model" `
+  --source-file "weights/your-ILXL.safetensors" `
+  --rationale "Publisher and license checked by operator" `
+  --approve
+```
+
+Those values are illustrative; they are **not** asserted to represent
+a real model. To guard against a re-upload or changed filename mapping,
+optionally register an independently known LFS digest with
+`--sha256 64_HEX_DIGITS`. The `--source-file` option locks the
+precise path within that publisher's repository, avoiding collisions
+between multiple same-named files.
+
+Saved bindings default to `config/model-sources.json`. Inspect or
+revoke only the exact recorded role, name and repository:
+
+```powershell
+uv run artifex onboard model-sources-list --json
+uv run artifex onboard model-sources-remove `
+  --role checkpoint --name "your-ILXL.safetensors" `
+  --repo "reviewed-publisher/reviewed-model" --confirm
+```
+
+**Next runs no longer need `--repo`**:
+
+```powershell
+uv run artifex onboard models-draft `
+  --config .\\config\\local.yaml `
+  --output .\\config\\generated-models.json
+```
+
+With no `--repo`, Artifex reads the saved source registry by default.
+An alternative file can be supplied with `--sources PATH`, but
+`--repo` and `--sources` cannot be combined. The previous
+`--repo` workflow remains supported when manually reviewing a new
+unregistered model.
+
+Only an exact registered *role/filename* may use that publisher, even
+when other registered publishers carry files with the same name.
+Optional exact file path and expected SHA-256 are checked against the
+fixed-commit Hugging Face LFS metadata, and mismatches are reported
+instead of falling back to another file. Missing registration is
+reported as unresolved, never silently substituted. Unknown loader
+availability does not trigger a download. The registry is written
+atomically, rejects duplicate mappings and avoids symlinked files.
+
+This registry records an operator's **source-selection policy**, not
+proof of upstream rights, licensing, safety, or model quality. Final
+weight downloads still require explicit reviewed installation into
+an Artifex-created isolated ComfyUI environment; the existing
+`deps-install` safeguards and offline model hashing are unchanged.
+
 ## Draft missing checkpoint/VAE/upscaler/LoRA models from trusted Hub publishers
 
 Artifex can prepare **checksum-pinned model manifests** for missing model
