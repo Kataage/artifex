@@ -34,7 +34,7 @@ class RendererSupervisorLease:
 
                 handle.seek(0)
                 # Windows LockFile locks the byte range even for an empty file.
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined] - Windows-only API
             else:
                 import fcntl
 
@@ -56,7 +56,7 @@ class RendererSupervisorLease:
                 import msvcrt
 
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined] - Windows-only API
             else:
                 import fcntl
 
