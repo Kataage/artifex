@@ -25,6 +25,39 @@ Save the returned session_id. Start records Windows/Python/uv versions, NVIDIA G
 
 ## Required ladder
 
+### Automatically collect already-verified real Pack evidence
+
+Instead of copying Pack IDs into many `qualify record` commands, Artifex
+can inspect **only finalized Packs created after the current qualification
+session started** and automatically select qualifying evidence:
+
+```powershell
+# Preview only: never records PASS, restarts services or generates an image.
+uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml
+
+# Register only the stages whose actual persisted evidence passes verification.
+uv run artifex qualify collect <SESSION> --apply --config .\\config\\local.yaml
+```
+
+The collector uses the exact same strict validators as manual registration,
+including validated LoRAs, Scene publication tiers, continued Series IDs,
+recorded retries, restart/recovery telemetry and unique finalized Packs.
+It also recognizes **real delivered and authorized Discord interactions**
+recorded after the session started. It never fabricates missing evidence,
+changes an existing stage status, queues GPUs, or changes running services.
+A stale/different-host session or changed production config is rejected.
+The default bounded scan covers up to 250 post-session finalized Packs;
+use `--max-packs` (1–1000) to adjust. A truncated scan is reported
+explicitly. Invalid or altered archived manifests are skipped and shown
+as issues, never treated as valid Packs. Repeated `--apply` runs are safe:
+already recorded stages stay untouched.
+
+The 8-hour overnight soak and archive reproduction **still require their
+dedicated real observation and replay** (`qualify soak-run` and
+`qualify archive-reproduce --confirm-render`) and cannot be satisfied
+by `qualify collect`. An overall production-ready decision is **only**
+available through `qualify verify` after all stages actually pass.
+
 Use `uv run artifex qualify stages` to list the canonical names. All of these are required: doctor, single_character, lora_required, duo, group, public_member, series_continuation, forced_retry, restart_generation, backend_recovery, unattended_multi_pack, overnight_soak, discord_controls, archive_reproduction.
 
 Normal Pack stages are recorded with finalized Pack IDs, for example:
