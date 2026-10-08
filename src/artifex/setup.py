@@ -19,6 +19,7 @@ class SetupResult(BaseModel):
     comfyui_base_url: str
     comfyui_version: str | None
     devices: tuple[str, ...]
+    comfyui_probed: bool
     attestation_url: str
     llm_profile: str
     llm_model_path: Path
@@ -84,6 +85,7 @@ def configure_two_pc(
     update: bool = False,
     force: bool = False,
     client: httpx.Client | None = None,
+    probe_comfyui: bool = True,
 ) -> SetupResult:
     node_id = render_node_id.strip()
     if not node_id:
@@ -94,16 +96,19 @@ def configure_two_pc(
         attestation_url or _default_attestation_url(base_url)
     )
 
-    owns_client = client is None
-    http = client or httpx.Client(
-        follow_redirects=True,
-        timeout=httpx.Timeout(10.0, connect=5.0),
-    )
-    try:
-        version, devices = _probe_comfyui(base_url, client=http)
-    finally:
-        if owns_client:
-            http.close()
+    version: str | None = None
+    devices: tuple[str, ...] = ()
+    if probe_comfyui:
+        owns_client = client is None
+        http = client or httpx.Client(
+            follow_redirects=True,
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        )
+        try:
+            version, devices = _probe_comfyui(base_url, client=http)
+        finally:
+            if owns_client:
+                http.close()
 
     target = output_path.expanduser().resolve(strict=False)
     llm_path = settings.llm.bootstrap.model_path().expanduser().resolve(strict=False)
@@ -182,6 +187,7 @@ def configure_two_pc(
         comfyui_base_url=base_url,
         comfyui_version=version,
         devices=devices,
+        comfyui_probed=probe_comfyui,
         attestation_url=attestation,
         llm_profile=settings.llm.bootstrap.profile,
         llm_model_path=llm_path,
