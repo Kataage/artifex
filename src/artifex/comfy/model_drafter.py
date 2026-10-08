@@ -246,10 +246,10 @@ def draft_hf_models(
     if bindings is not None:
         assigned = {}
         for source in bindings:
-            key = (source.role, source.model_name)
-            if key in assigned:
+            source_key = (source.role, source.model_name)
+            if source_key in assigned:
                 raise ValueError("Duplicate registered publisher for a model role/name")
-            assigned[key] = source
+            assigned[source_key] = source
         for role, name in sorted(pending.difference(assigned)):
             unresolved.append(
                 UnresolvedModel(
