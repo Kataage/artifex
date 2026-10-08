@@ -56,7 +56,7 @@ def _assert_tag(tag: str) -> None:
 
 
 def _assert_asset(name: str) -> None:
-    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,240}\\.zip", name) is None:
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,240}\.zip", name) is None:
         raise ValueError("Release asset must be an exact .zip filename without paths")
 
 
