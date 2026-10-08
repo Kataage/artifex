@@ -16,6 +16,13 @@ from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
 from artifex.comfy.isolated_install import install_isolated_comfy
 from artifex.comfy.model_drafter import draft_hf_models
+from artifex.comfy.model_sources import (
+    ApprovedModelSource,
+    read_model_source_registry,
+    register_model_source,
+    save_model_source_registry,
+    unregister_model_source,
+)
 from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
@@ -539,6 +546,112 @@ def onboard_deps_draft(
         raise typer.Exit(code=1) from exc
 
 
+@onboard_app.command("model-sources-list")
+def onboard_model_sources_list(
+    registry: Annotated[
+        Path, typer.Option("--registry", help="Local trusted model source bindings JSON."),
+    ] = Path("config/model-sources.json"),
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """List explicit model role/name-to-Hugging Face repository bindings."""
+    try:
+        saved = read_model_source_registry(registry, if_missing_empty=True)
+        _print_payload(
+            {"registry": str(registry), **saved.model_dump(mode="json")},
+            as_json=json_output,
+        )
+    except (OSError, ValueError) as exc:
+        typer.echo(f"onboard model-sources-list error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("model-sources-add")
+def onboard_model_sources_add(
+    role: Annotated[
+        str, typer.Option("--role", help="ComfyUI model role (e.g. checkpoint, vae, lora)."),
+    ],
+    name: Annotated[str, typer.Option("--name", help="Exact required loader filename.")],
+    repository: Annotated[
+        str, typer.Option("--repo", help="Reviewed Hugging Face owner/repository."),
+    ],
+    rationale: Annotated[
+        str, typer.Option("--rationale", help="Why you selected/trust this publisher."),
+    ],
+    source_file_path: Annotated[
+        str | None,
+        typer.Option("--source-file", help="Optional exact Hub file path within repository."),
+    ] = None,
+    sha256: Annotated[
+        str | None,
+        typer.Option("--sha256", help="Optional previously reviewed expected LFS SHA-256."),
+    ] = None,
+    registry: Annotated[
+        Path, typer.Option("--registry", help="Model source registry file."),
+    ] = Path("config/model-sources.json"),
+    approve: Annotated[
+        bool, typer.Option("--approve", help="Explicitly register this chosen publisher."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Persist one operator-selected exact model role/name-to-repository mapping."""
+    if not approve:
+        typer.echo("onboard model-sources-add error: --approve is required", err=True)
+        raise typer.Exit(code=1)
+    try:
+        selected = ApprovedModelSource(
+            role=cast(Any, role),
+            model_name=name,
+            repository=repository,
+            file_path=source_file_path,
+            expected_sha256=sha256,
+            rationale=rationale,
+        )
+        current = read_model_source_registry(registry, if_missing_empty=True)
+        updated = register_model_source(current, selected)
+        save_model_source_registry(registry, updated)
+        _print_payload(
+            {"registry": str(registry), "added": selected.model_dump(mode="json"),
+             "total_sources": len(updated.sources)},
+            as_json=json_output,
+        )
+    except (FileExistsError, OSError, ValueError) as exc:
+        typer.echo(f"onboard model-sources-add error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("model-sources-remove")
+def onboard_model_sources_remove(
+    role: Annotated[str, typer.Option("--role")],
+    name: Annotated[str, typer.Option("--name")],
+    repository: Annotated[str, typer.Option("--repo")],
+    registry: Annotated[
+        Path, typer.Option("--registry", help="Model source registry file."),
+    ] = Path("config/model-sources.json"),
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help="Confirm removal of this exact binding."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Remove only an exact operator-approved model source binding."""
+    if not confirm:
+        typer.echo("onboard model-sources-remove error: --confirm is required", err=True)
+        raise typer.Exit(code=1)
+    try:
+        current = read_model_source_registry(registry)
+        updated = unregister_model_source(
+            current, role=role, model_name=name, repository=repository
+        )
+        save_model_source_registry(registry, updated)
+        _print_payload(
+            {"registry": str(registry), "removed": f"{role}:{name}", "total_sources":
+             len(updated.sources)},
+            as_json=json_output,
+        )
+    except (OSError, ValueError) as exc:
+        typer.echo(f"onboard model-sources-remove error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @onboard_app.command("models-draft")
 def onboard_models_draft(
     config: ConfigOption = None,
@@ -551,15 +664,34 @@ def onboard_models_draft(
     output: Annotated[
         Path, typer.Option("--output", help="Create new SHA-256-pinned model manifest JSON."),
     ] = Path("config/generated-models.json"),
+    sources: Annotated[
+        Path | None,
+        typer.Option(
+            "--sources",
+            help="Approved model source registry; default config/model-sources.json without --repo.",
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
-    """Check exact missing model names against shortlisted HF source repositories."""
+    """Draft with saved operator-approved sources; manual --repo mode still works."""
     if output.exists() or output.is_symlink():
         typer.echo(f"onboard models-draft error: refusing to overwrite {output}", err=True)
         raise typer.Exit(code=1)
     try:
+        if repository and sources is not None:
+            raise ValueError("Use either --repo shortlist or --sources registry, not both")
         audit = asyncio.run(audit_workflows(_settings(config)))
-        draft = draft_hf_models(audit, repositories=tuple(repository or ()))
+        if repository:
+            draft = draft_hf_models(audit, repositories=tuple(repository))
+        else:
+            registered = read_model_source_registry(
+                sources or Path("config/model-sources.json")
+            )
+            if not registered.sources:
+                raise ValueError("No operator-approved model source registrations exist")
+            draft = draft_hf_models(
+                audit, repositories=(), bindings=registered.sources
+            )
         payload = draft.model_dump(mode="json")
         payload["output"] = None
         if draft.manifest.artifacts:
