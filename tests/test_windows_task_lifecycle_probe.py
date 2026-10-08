@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -167,3 +170,36 @@ def test_status_requires_supervisor_exit_and_new_child_heartbeat(
     assert len([s for s in launched if "Register-ScheduledTask" in s]) == 1
     assert len([s for s in launched if "Stop-ScheduledTask" in s]) == 1
     assert len([s for s in launched if "Unregister-ScheduledTask" in s]) == 1
+
+
+def test_mock_supervisor_and_child_emit_same_nonce_off_scheduler(tmp_path: Path) -> None:
+    """Prove the mock helper itself works before interpreting Scheduler behavior."""
+    nonce = "e" * 32
+    supervisor = subprocess.Popen(
+        [
+            sys.executable, "-m", "artifex.windows_task_lifecycle_probe",
+            "--supervisor", str(tmp_path), nonce, "6",
+        ],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = time.monotonic() + 4
+        observed = None
+        while time.monotonic() < deadline:
+            parent = _read_json(tmp_path / "supervisor.json")
+            beat = _read_json(tmp_path / "heartbeat.json")
+            if parent and beat and beat["nonce"] == nonce and parent["child_pid"] == beat["pid"]:
+                observed = beat
+                break
+            time.sleep(0.1)
+        assert observed is not None, (
+            supervisor.stderr.read().decode("utf-8", errors="replace")
+            if supervisor.poll() is not None and supervisor.stderr is not None
+            else "mock supervisor or child did not report readiness"
+        )
+        assert observed["ticks"] >= 1
+    finally:
+        (tmp_path / "release").write_text(nonce, encoding="utf-8")
+        supervisor.wait(timeout=7)
+        if supervisor.stderr is not None:
+            supervisor.stderr.close()
