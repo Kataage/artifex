@@ -66,6 +66,10 @@ from artifex.performance import (
     load_manual_performance,
 )
 from artifex.policy import PolicyDecisionRepository
+from artifex.qualification.soak_observer import (
+    observe_soak,
+    verify_soak_evidence,
+)
 from artifex.qualification import (
     REQUIRED_STAGES,
     QualificationService,
@@ -1823,6 +1827,71 @@ def _qualification_details(values: list[str] | None) -> dict[str, object]:
             value = raw_value
         result[key] = value
     return result
+
+
+@qualify_app.command("soak-observe")
+def qualify_soak_observe(
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="New JSONL evidence file (never overwritten)."),
+    ],
+    config: ConfigOption = None,
+    hours: Annotated[
+        float | None, typer.Option("--hours", min=0.0001, max=72),
+    ] = None,
+    sample_seconds: Annotated[
+        float, typer.Option("--sample-seconds", min=10, max=3600),
+    ] = 300,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: observe live autonomous production and PC-B for hours, read-only."""
+    config = config or Path("config/local.yaml")
+    if not config.is_file():
+        typer.echo(f"qualify soak-observe error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+    if output.exists() or output.is_symlink():
+        typer.echo(f"qualify soak-observe error: refusing to overwrite {output}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = observe_soak(
+            _settings(config), output=output,
+            duration_hours=hours, interval_seconds=sample_seconds,
+        )
+        _print_payload(
+            {"evidence_path": str(output), **result.model_dump(mode="json")},
+            as_json=json_output,
+        )
+    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"qualify soak-observe error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not result.ready_for_soak_review:
+        raise typer.Exit(code=1)
+
+
+@qualify_app.command("soak-check")
+def qualify_soak_check(
+    evidence: Annotated[
+        Path, typer.Option("--evidence", help="Read-only JSONL soak evidence."),
+    ],
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Review monitor coverage and DB progress; do not set a stage PASS."""
+    config = config or Path("config/local.yaml")
+    if not config.is_file():
+        typer.echo(f"qualify soak-check error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        settings = _settings(config)
+        result = verify_soak_evidence(
+            evidence, minimum_hours=settings.qualification.minimum_soak_hours
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError) as exc:
+        typer.echo(f"qualify soak-check error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not result.ready_for_soak_review:
+        raise typer.Exit(code=1)
 
 
 @qualify_app.command("start")
