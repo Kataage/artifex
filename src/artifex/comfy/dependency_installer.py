@@ -56,7 +56,7 @@ class PinnedDependency(BaseModel):
             if (
                 self.model_folder is not None or self.repository is None
                 or self.commit is None or not _COMMIT.fullmatch(self.commit)
-                or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", self.repository)
                 or self.url != (
                     f"https://codeload.github.com/{self.repository}/zip/{self.commit}"
                 )
