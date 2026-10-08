@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.characters import HololiveCatalog
+from artifex.comfy import ComfyUIClient
 from artifex.comfy.dependency_drafter import draft_missing_node_manifest
 from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
@@ -64,6 +65,7 @@ from artifex.onboarding import (
     discover_controller,
     discover_renderer,
 )
+from artifex.operations.quiescence import quiesce_controller
 from artifex.pair_render_proof import run_pair_render_proof
 from artifex.performance import (
     PatreonV2PublicationProvider,
@@ -182,6 +184,12 @@ deployment_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(deployment_app, name="deployment")
+maintenance_app = typer.Typer(
+    name="maintenance",
+    help="Observe and control non-destructive controller drain before renderer maintenance.",
+    no_args_is_help=True,
+)
+app.add_typer(maintenance_app, name="maintenance")
 onboard_app = typer.Typer(
     name="onboard",
     help="Discover native two-PC dependencies and prepare safe first-run configuration.",
@@ -279,6 +287,53 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@maintenance_app.command("drain")
+def maintenance_drain(
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Pause new Artifex daemon work; never interrupt GPU."),
+    ] = False,
+    wait_seconds: Annotated[
+        float, typer.Option("--wait-seconds", min=0, max=600),
+    ] = 0,
+    poll_seconds: Annotated[
+        float, typer.Option("--poll-seconds", min=0.1, max=60),
+    ] = 5,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: pause scheduling and observe all in-flight Packs + ComfyUI queue.
+
+    This NEVER authorizes an automated restart of ComfyUI: external submitters
+    do not honor Artifex controller pause.
+    """
+    settings = _settings(config)
+    core = build_core(settings)
+    # PC-A may still carry a legacy loopback URL in comfyui.base_url.
+    # Always observe the *configured primary* PC-B endpoint, like deployment
+    # verify, not an unrelated ComfyUI process on PC-A.
+    primary = settings.render_nodes.primary_node()
+    endpoint = primary[1].base_url if primary is not None else settings.comfyui.base_url
+    comfy = ComfyUIClient(settings.comfyui.model_copy(update={"base_url": endpoint}))
+    try:
+        report = asyncio.run(
+            quiesce_controller(
+                core.database, core.runtime, comfy,
+                apply=apply, wait_seconds=wait_seconds,
+                poll_seconds=poll_seconds,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"maintenance drain error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(comfy.aclose())
+        asyncio.run(core.close())
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @deployment_app.command("activate")
