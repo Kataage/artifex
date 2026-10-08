@@ -1015,6 +1015,10 @@ class QualificationService:
         report = verify_soak_evidence(
             path,
             minimum_hours=max(8.0, self._settings.qualification.minimum_soak_hours),
+            require_owner_observation=(
+                self._settings.qualification.require_renderer_owner_observation
+                and self._settings.render_nodes.primary_node() is not None
+            ),
         )
         if report.evidence_sha256 != supplied_hash:
             raise ValueError("overnight_soak evidence SHA-256 mismatch")
