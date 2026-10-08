@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from artifex.comfy.workflow_audit import WorkflowAudit
 
