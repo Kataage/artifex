@@ -11,6 +11,7 @@ import httpx
 
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.attestation import serve_attestation
+from artifex.render_node.gateway import make_gateway_server, serve_gateway
 
 
 def _local_comfy_url(value: str) -> None:
@@ -138,7 +139,38 @@ class ManagedComfyUI:
         if not self.settings.render_agent.comfyui_process.enabled:
             return
         _local_comfy_url(self.settings.comfyui.base_url)
+        if self.settings.render_agent.gateway.enabled:
+            # A LAN-facing authenticated gateway can claim a single writer
+            # only when Artifex owns the *locally loopback-bound* ComfyUI.
+            args = self.settings.render_agent.comfyui_process.arguments
+            listen_values: list[str] = []
+            port_values: list[str] = []
+            for index, arg in enumerate(args):
+                if arg == "--listen":
+                    listen_values.append(args[index + 1] if index + 1 < len(args) else "")
+                elif arg.startswith("--listen="):
+                    listen_values.append(arg.partition("=")[2])
+                elif arg == "--port":
+                    port_values.append(args[index + 1] if index + 1 < len(args) else "")
+                elif arg.startswith("--port="):
+                    port_values.append(arg.partition("=")[2])
+            if listen_values != ["127.0.0.1"]:
+                raise ValueError(
+                    "Gateway-managed ComfyUI requires exactly one explicit "
+                    "'--listen 127.0.0.1' option; do not expose its upstream LAN port"
+                )
+            expected_port = urlsplit(self.settings.comfyui.base_url).port
+            if port_values != [str(expected_port)]:
+                raise ValueError(
+                    "Gateway-managed ComfyUI requires exactly one '--port PORT' "
+                    "matching the local upstream URL"
+                )
         if self._healthy():
+            if self.settings.render_agent.gateway.enabled:
+                raise RuntimeError(
+                    "Gateway refuses already-running external ComfyUI; "
+                    "Artifex cannot verify exclusive process ownership"
+                )
             self._external = True
             return
         try:
@@ -182,7 +214,14 @@ class ManagedComfyUI:
             if stop.wait(config.restart_backoff_seconds):
                 return
             if self._healthy():
-                # A separately managed instance claimed the port.
+                # A different process may have claimed the local port after
+                # our child exited; never silently attach a protected gateway
+                # to an unowned renderer.
+                if self.settings.render_agent.gateway.enabled:
+                    raise RuntimeError(
+                        "Protected gateway lost exclusive ComfyUI ownership; "
+                        "another process claimed the upstream port"
+                    )
                 self._external = True
                 return
             self._start_owned()
@@ -226,8 +265,26 @@ def serve_managed_renderer(settings: ArtifexSettings) -> None:
             stop.set()
 
     monitor: threading.Thread | None = None
+    gateway_thread: threading.Thread | None = None
     try:
         manager.start(stop)
+        if settings.render_agent.gateway.enabled:
+            # Binding on the main thread makes startup fail immediately when
+            # the protected gateway port is already claimed.
+            server = make_gateway_server(settings)
+            def serve_protected_gateway() -> None:
+                try:
+                    serve_gateway(server, stop)
+                except Exception as exc:  # noqa: BLE001 - propagate fatal listener errors
+                    errors.append(exc)
+                    stop.set()
+
+            gateway_thread = threading.Thread(
+                target=serve_protected_gateway,
+                name="artifex-render-gateway",
+                daemon=True,
+            )
+            gateway_thread.start()
         if settings.render_agent.comfyui_process.enabled:
             monitor = threading.Thread(
                 target=supervise, name="artifex-comfy-watch", daemon=True
@@ -235,9 +292,11 @@ def serve_managed_renderer(settings: ArtifexSettings) -> None:
             monitor.start()
         serve_attestation(settings, stop_event=stop)
         if errors:
-            raise RuntimeError(f"ComfyUI supervision failed: {errors[0]}") from errors[0]
+            raise RuntimeError(f"Renderer supervision failed: {errors[0]}") from errors[0]
     finally:
         stop.set()
         if monitor is not None:
             monitor.join(timeout=5.0)
+        if gateway_thread is not None:
+            gateway_thread.join(timeout=5.0)
         manager.close()

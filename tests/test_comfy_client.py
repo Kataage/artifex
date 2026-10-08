@@ -32,6 +32,42 @@ def _config(**updates: Any) -> ComfyUiConfig:
     return ComfyUiConfig(**values)
 
 
+
+@pytest.mark.asyncio
+async def test_comfyui_gateway_bearer_token_sent_only_when_explicitly_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "approved-private-lan-gateway-secret"
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", token)
+    headers: list[str | None] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        headers.append(request.headers.get("Authorization"))
+        if request.url.path == "/prompt":
+            return httpx.Response(200, json={"prompt_id": "auth-123"})
+        return httpx.Response(
+            200, json={"queue_running": [], "queue_pending": []}
+        )
+
+    config = _config(
+        submission_fence_path=tmp_path / "auth-fence.sqlite",
+        gateway_token_env="ARTIFEX_RENDER_NODE_TOKEN",
+    )
+    async_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    gateway_client = ComfyUIClient(config, client=async_client)
+    assert (await gateway_client.submit({"1": {"class_type": "Test", "inputs": {}}})).prompt_id == "auth-123"
+    await gateway_client.queue_snapshot()
+    assert headers == ["Bearer " + token] * 2
+    await async_client.aclose()
+
+    monkeypatch.delenv("ARTIFEX_RENDER_NODE_TOKEN")
+    with pytest.raises(ValueError, match="missing"):
+        ComfyUIClient(config)
+    assert config.gateway_token_env == "ARTIFEX_RENDER_NODE_TOKEN"
+
 @pytest.mark.asyncio
 async def test_health_parses_current_comfy_system_stats() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:

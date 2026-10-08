@@ -81,6 +81,91 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Opt-in PC-B authenticated ComfyUI gateway (managed renderer only)
+
+For a more controlled two-PC setup, Artifex can expose only an authenticated,
+allowlisted ComfyUI **API** on PC-B. Unlike connecting directly to ComfyUI's
+unprotected LAN port, this gateway forwards only the APIs Artifex needs:
+`GET /system_stats`, `/object_info`, `/queue`, `/history`,
+`/history/<prompt-id>`, `/view`; and authenticated
+`POST /prompt`, `/free`, `/queue`, `/interrupt`.
+It deliberately does not proxy arbitrary custom-node routes, a web UI,
+WebSocket or other unaudited APIs.
+
+Use the **same randomly generated strong token** in the environment of both
+PCs, named `ARTIFEX_RENDER_NODE_TOKEN` (minimum 24 characters). Never
+place it directly in YAML, logs or source control. The default HTTP protocol
+does **not encrypt credentials**; restrict this to a trusted private LAN
+with firewall rules, preferably an encrypted private tunnel if your network
+is not trusted. Never expose the gateway port to the public internet.
+
+PC-B sample override (paths and Python invocation are examples and must
+match the actual installed Artifex-owned isolated ComfyUI):
+
+```yaml
+render_agent:
+  bind_host: 0.0.0.0
+  require_token: true
+  token_env: ARTIFEX_RENDER_NODE_TOKEN
+  comfyui_process:
+    enabled: true
+    executable: D:/AI/Artifex/isolated/.venv/Scripts/python.exe
+    working_directory: D:/AI/Artifex/isolated/ComfyUI
+    arguments: ["main.py", "--listen", "127.0.0.1", "--port", "8188"]
+  gateway:
+    enabled: true
+    bind_host: 0.0.0.0
+    port: 8191
+    admission_path: data/render-gateway-fence.sqlite3
+comfyui:
+  base_url: http://127.0.0.1:8188
+```
+
+The backend must be an **Artifex-owned ComfyUI subprocess** and must have
+exactly one explicit `--listen 127.0.0.1` argument. When an existing
+ComfyUI is already healthy on that port, the protected configuration fails
+closed rather than attaching to it. The gateway is part of
+`uv run artifex render-node serve --config .\\config\\render-node.yaml`;
+there is no separate Docker service. Do **not** open port 8188 to the LAN:
+only allow the trusted PC-A to reach ports 8191 (gateway) and 8190
+(attestation). Update Windows firewall rules accordingly. The gateway does
+not configure Windows firewall rules itself.
+
+PC-A must use the **gateway URL** for every ComfyUI API call, including the
+configured primary render node. Example:
+
+```yaml
+comfyui:
+  base_url: http://PC-B-LAN-IP:8191
+  gateway_token_env: ARTIFEX_RENDER_NODE_TOKEN
+render_nodes:
+  primary: main
+  nodes:
+    main:
+      base_url: http://PC-B-LAN-IP:8191
+      attestation_url: http://PC-B-LAN-IP:8190
+      attestation_token_env: ARTIFEX_RENDER_NODE_TOKEN
+```
+
+Authenticate to `GET http://PC-B-LAN-IP:8191/v1/gateway/status` with
+`Authorization: Bearer <token>` to inspect the durable PC-B acceptance
+state. PC-B also supports authenticated
+`POST /v1/gateway/seal` (only when the real ComfyUI running/pending queues
+are explicitly empty) and `POST /v1/gateway/release`.
+The seal is stored on PC-B under its own SQLite transaction lock and survives
+gateway restarts; a previously admitted mutation finishes before the seal
+can commit. During sealing, other API mutations return HTTP 423.
+
+**Limit:** Local applications running on PC-B can still send requests
+directly to loopback `127.0.0.1:8188`, and Windows firewall/network
+isolation has not been verified by the software. The gateway reports
+`external_loopback_clients_fenced=false` and
+`restart_authorized=false` **even when sealed**. Do not automatically
+stop/restart ComfyUI on this evidence alone. The PC-A
+`maintenance fence` is a separate, mandatory barrier for Artifex
+submissions; an end-to-end restart sequence must coordinate both and
+verify external isolation on the actual PCs.
+
 ## Atomic Artifex ComfyUI submission fence on PC-A
 
 Artifex's controller now shares a durable **admission lock** across all
