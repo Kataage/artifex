@@ -713,6 +713,12 @@ class QualificationService:
                 "overnight_soak evidence must be inside qualification.evidence_dir"
             )
 
+        # Reject any changed bytes before parsing even if corruption makes
+        # the JSONL invalid. Bound reads to the observer's 12 MiB limit.
+        if not path.is_file() or path.stat().st_size > 12 * 1024 * 1024:
+            raise ValueError("overnight_soak evidence is missing or too large")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != supplied_hash:
+            raise ValueError("overnight_soak evidence SHA-256 mismatch")
         report = verify_soak_evidence(
             path, minimum_hours=self._settings.qualification.minimum_soak_hours,
         )
