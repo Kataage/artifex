@@ -119,11 +119,16 @@ def _task_runtime_status(name: str, marker: str, execute: str, arguments: str) -
     """Read Scheduler state and LastTaskResult without changing anything."""
     script = _script_task_check(name, marker, execute, arguments) + f"""
 $info = Get-ScheduledTaskInfo -TaskName {_literal(name)} -TaskPath '\\' -ErrorAction Stop
+$needle = '*' + {_literal(marker.split("/")[-1])} + '*'
+$matched = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {{
+  $_.CommandLine -like $needle
+}} | Select-Object ProcessId,ExecutablePath,CommandLine)
 [pscustomobject]@{{
   state=[string]$task.State
   last_task_result=[int64]$info.LastTaskResult
   last_run_time=[string]$info.LastRunTime
-}} | ConvertTo-Json -Compress
+  matching_processes=$matched
+}} | ConvertTo-Json -Compress -Depth 3
 """
     return cast(dict[str, Any], json.loads(_run_powershell(script)))
 
@@ -275,6 +280,9 @@ def run_lifecycle_probe(
         report["status"] = "blocked"
         report["error"] = f"{type(exc).__name__}: {exc}"
         if registered:
+            worker_error = _read_json(folder / "worker-error.json")
+            if worker_error is not None:
+                report["worker_error"] = worker_error
             try:
                 report["task_runtime"] = _task_runtime_status(
                     name, marker, executable, args,
@@ -314,10 +322,18 @@ def main() -> None:
         raise ValueError("Invalid isolated probe nonce")
     if not 1 <= lifetime <= 60:
         raise ValueError("Invalid mock process lifetime")
-    if args.child:
-        _mock_child(folder, nonce, lifetime)
-    else:
-        _mock_supervisor(folder, nonce, lifetime)
+    try:
+        if args.child:
+            _mock_child(folder, nonce, lifetime)
+        else:
+            _mock_supervisor(folder, nonce, lifetime)
+    except Exception as exc:
+        _atomic_json(
+            folder / "worker-error.json",
+            {"nonce": nonce, "role": "child" if args.child else "supervisor",
+             "error": f"{type(exc).__name__}: {exc}"},
+        )
+        raise
 
 
 if __name__ == "__main__":
