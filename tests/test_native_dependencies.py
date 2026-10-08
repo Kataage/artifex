@@ -230,4 +230,4 @@ def test_cli_dependency_requires_explicit_renderer_root() -> None:
         app, ["onboard", "dependencies", "--role", "renderer"]
     )
     assert result.exit_code == 1
-    assert "requires --comfy-root" in result.output
+    assert "require --comfy-root" in result.output
