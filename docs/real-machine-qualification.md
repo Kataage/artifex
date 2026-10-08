@@ -26,8 +26,8 @@ ComfyUI PID and an active GPU job before and after supervisor loss.
 
 ## Windows virtualenv Python launcher and actual renderer PID
 
-Native Windows may run a venv \`Scripts\python.exe\` as a **launcher** and execute
-the Python interpreter as a separate child process. \`Popen.pid\` can then be
+Native Windows may run a venv `Scripts\python.exe` as a **launcher** and execute
+the Python interpreter as a separate child process. `Popen.pid` can then be
 different from the ComfyUI TCP listener PID. In protected gateway mode Artifex
 must **not** infer ownership from the listener port alone. It now first
 verifies the launcher's full executable/arguments and Windows CIM identity;
