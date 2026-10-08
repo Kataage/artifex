@@ -2057,7 +2057,9 @@ def render_node_serve(
         f"{settings.render_agent.bind_host}:{settings.render_agent.port}"
     )
     try:
-        serve_managed_renderer(settings)
+        serve_managed_renderer(
+            settings, config_path=config or Path("config/render-node.yaml"),
+        )
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         typer.echo(f"render-node server error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -2670,7 +2672,21 @@ def qualify_start(
         doctor = asyncio.run(build_doctor(core).run())
         service = _qualification_service(core)
         session = service.start(doctor)
+        owner_result: dict[str, object] | None = None
+        if (
+            core.settings.render_nodes.primary_node() is not None
+            and core.settings.qualification.require_renderer_owner_observation
+        ):
+            try:
+                owner_result = service.collect_renderer_owner_observation(session.session_id)
+            except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+                owner_result = {
+                    "observation_status": "blocked",
+                    "reason": f"PC-B owner audit unavailable: {type(exc).__name__}",
+                    "production_qualified": False,
+                }
         payload = {
+            "renderer_owner_observation": owner_result,
             "session_id": session.session_id,
             "doctor_ready": session.doctor_ready,
             "evidence_path": str(
@@ -2688,6 +2704,32 @@ def qualify_start(
             ),
         }
         _print_payload(payload, as_json=json_output)
+    finally:
+        asyncio.run(core.close())
+
+
+@qualify_app.command("owner-observe")
+def qualify_owner_observe(
+    session_id: Annotated[str, typer.Argument(help="Existing qualification session ID.")],
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Collect a read-only authenticated PC-B owner snapshot; never mark a stage PASS."""
+    core = build_core(_settings(config))
+    try:
+        try:
+            result = _qualification_service(core).collect_renderer_owner_observation(
+                session_id,
+            )
+        except (KeyError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+            typer.echo(
+                f"qualification owner-observe error: {type(exc).__name__}",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+        _print_payload(result, as_json=json_output)
+        if result["observation_status"] != "observed_stable":
+            raise typer.Exit(code=1)
     finally:
         asyncio.run(core.close())
 
@@ -2864,11 +2906,28 @@ def qualify_verify(
     core = build_core(_settings(config))
     try:
         service = _qualification_service(core)
+        owner_error: str | None = None
+        if (
+            core.settings.render_nodes.primary_node() is not None
+            and core.settings.qualification.require_renderer_owner_observation
+        ):
+            try:
+                service.collect_renderer_owner_observation(session_id)
+            except (KeyError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+                # An earlier successful snapshot cannot conceal a current
+                # transport or owner-probe failure.
+                owner_error = (
+                    f"fresh PC-B owner observation failed: {type(exc).__name__}"
+                )
         try:
             result = service.verify(session_id)
         except (KeyError, OSError, ValueError) as exc:
             typer.echo(f"qualification verify error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
+        if owner_error is not None:
+            result["ready"] = False
+            issues = cast(list[str], result["issues"])
+            result["issues"] = [*issues, owner_error]
         _print_payload(result, as_json=json_output)
         if result["ready"] is not True:
             raise typer.Exit(code=1)

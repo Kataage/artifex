@@ -24,6 +24,48 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## Automatically bind PC-B owner evidence to PC-A qualification
+
+With PC-A's `render_nodes.primary` configured and authenticated
+`attestation_url`, the current PC-B attestation server offers a **new
+read-only** `GET /v1/owner-audit` endpoint. It uses the existing Bearer
+token, requires the PC-B renderer's selected YAML config, and always takes a
+fresh Task Scheduler/CIM/TCP snapshot. Unauthorized requests are rejected.
+No ComfyUI start, GPU render, restart, stop or local task change is performed.
+
+On PC-A, `qualify start --config .\config\local.yaml` now tries to
+fetch and store the initial PC-B owner snapshot automatically. Subsequent
+`qualify verify SESSION_ID --config .\config\local.yaml` **refreshes** the
+snapshot automatically, and fails closed if that retrieval is unavailable
+even when an earlier snapshot was stable. During an extended soak, operators
+can inspect/save an additional snapshot without any GPU intervention:
+
+```powershell
+uv run artifex qualify owner-observe SESSION_ID --config .\config\local.yaml --json
+```
+
+Every snapshot is a separate JSON file under
+`qualification.evidence_dir/SESSION_ID/owner-observation-*.json`, with
+an integrity SHA-256 reference bound into the qualification session. The
+last snapshot must belong to the configured primary node and same session,
+have all nine ownership checks passing, and have been collected recently
+(default freshness window five minutes). The client rejects malformed
+response shapes, redirects, mismatched node IDs, and any claim that
+`restart_authorized`, `child_survival_qualified`, `production_qualified`
+or `mutated_services` is true.
+
+For two-PC sessions,
+`qualification.require_renderer_owner_observation` defaults to `true`.
+If PC-B is absent, insecure, ambiguous or unreachable, the qualification
+cannot report `ready=true`. This **does not** write PASS for any of the
+14 existing real-machine stages; those still need measured Pack, recovery,
+Discord (when enabled), archive reproduction and the full eight-hour soak
+evidence. Observations alone prove only a point-in-time state, not survival
+under Windows logout/shutdown/Job Object behavior. HTTP on a trusted LAN is
+not cryptographically confidential by itself; secure the LAN or use an
+appropriately protected tunnel, and do not expose the attestation port to
+the public Internet.
+
 ## Single-command read-only PC-B ownership evidence
 
 Run this on **the actual renderer PC-B** from the Artifex checkout. No GPU

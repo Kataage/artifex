@@ -599,6 +599,10 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
     tmp_path: Path,
 ) -> None:
     service, database, _, _, settings, _ = _service(tmp_path)
+    # This older deterministic test validates the original 14 stage
+    # validators with simulated evidence, not the new live PC-B owner check.
+    # Production two-PC qualification keeps the owner check enabled.
+    settings.qualification.require_renderer_owner_observation = False
     session = service.start(_doctor())
     assert session.doctor_ready is True
     digest, evidence_path = _bound_soak_trace(
