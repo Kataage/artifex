@@ -15,6 +15,7 @@ from sqlalchemy import select
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.characters import HololiveCatalog
 from artifex.comfy import ComfyUIClient
+from artifex.comfy.admission import ComfySubmissionFence
 from artifex.comfy.dependency_drafter import draft_missing_node_manifest
 from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
@@ -65,6 +66,7 @@ from artifex.onboarding import (
     discover_controller,
     discover_renderer,
 )
+from artifex.operations.fence import manage_submission_fence
 from artifex.operations.quiescence import quiesce_controller
 from artifex.pair_render_proof import run_pair_render_proof
 from artifex.performance import (
@@ -287,6 +289,64 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@maintenance_app.command("fence")
+def maintenance_fence(
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply",
+            help="Pause controller, drain and atomically seal all Artifex /prompt requests.",
+        ),
+    ] = False,
+    release: Annotated[
+        bool,
+        typer.Option(
+            "--release",
+            help="With --apply, reopen admissions; does NOT resume the controller.",
+        ),
+    ] = False,
+    wait_seconds: Annotated[
+        float, typer.Option("--wait-seconds", min=0, max=600),
+    ] = 90,
+    poll_seconds: Annotated[
+        float, typer.Option("--poll-seconds", min=0.1, max=60),
+    ] = 5,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: atomically seal Artifex submissions; never restart external ComfyUI."""
+    target = config or Path("config/local.yaml")
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"maintenance fence error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    settings = _settings(target)
+    core = build_core(settings)
+    primary = settings.render_nodes.primary_node()
+    endpoint = primary[1].base_url if primary is not None else settings.comfyui.base_url
+    comfy = ComfyUIClient(settings.comfyui.model_copy(update={"base_url": endpoint}))
+    fence = ComfySubmissionFence(settings.comfyui.submission_fence_path)
+    try:
+        report = asyncio.run(
+            manage_submission_fence(
+                core.database, core.runtime, comfy, fence,
+                apply=apply, release=release,
+                wait_seconds=wait_seconds, poll_seconds=poll_seconds,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"maintenance fence error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(comfy.aclose())
+        asyncio.run(core.close())
+    if apply and not release and not report.submission_blocked:
+        raise typer.Exit(code=1)
 
 
 @maintenance_app.command("drain")
