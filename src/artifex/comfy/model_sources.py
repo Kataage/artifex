@@ -8,7 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-_ROLE = frozenset({"checkpoint", "refiner", "vae", "upscale_model", "lora", "static_lora"})
 _REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 _COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 _SHA256 = re.compile(r"[a-fA-F0-9]{64}")
