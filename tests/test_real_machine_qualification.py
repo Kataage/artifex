@@ -20,7 +20,6 @@ from artifex.db import Database
 from artifex.db.models import AgentEventRow, GenerationAttemptRow, PackRow, SceneRow
 from artifex.discord.audit import DiscordQualificationAudit
 from artifex.discord.models import CommandResponse, OperatorContext
-from artifex.telemetry import TelemetryRepository
 from artifex.domain import (
     CharacterProfile,
     LoRAPolicy,
@@ -40,6 +39,7 @@ from artifex.qualification import (
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
+from artifex.telemetry import TelemetryRepository
 
 
 def _settings(tmp_path: Path, asset: Path) -> ArtifexSettings:
