@@ -29,6 +29,11 @@ class StartupTaskStatus(BaseModel):
     execute: str | None = None
     arguments: str | None = None
     working_directory: str | None = None
+    # These nullable values mean "not verified" on absent/legacy registrations.
+    action_count: int | None = None
+    allow_hard_terminate: bool | None = None
+    multiple_instances: str | None = None
+    execution_time_limit_seconds: int | None = None
 
 
 def _require_windows() -> None:
@@ -86,10 +91,16 @@ def _status_script(role: StartupRole) -> str:
 $ErrorActionPreference = 'Stop'
 $task = Get-ScheduledTask -TaskName {name} -TaskPath '\\' -ErrorAction SilentlyContinue
 if ($null -eq $task) {{
-  [pscustomobject]@{{ installed=$false; managed=$false; state=$null; execute=$null; arguments=$null; working_directory=$null }} | ConvertTo-Json -Compress
+  [pscustomobject]@{{
+    installed=$false; managed=$false; state=$null; execute=$null
+    arguments=$null; working_directory=$null; action_count=$null
+    allow_hard_terminate=$null; multiple_instances=$null
+    execution_time_limit_seconds=$null
+  }} | ConvertTo-Json -Compress
   exit 0
 }}
-$action = @($task.Actions)[0]
+$actions = @($task.Actions)
+$action = if ($actions.Count -eq 1) {{ $actions[0] }} else {{ $null }}
 [pscustomobject]@{{
   installed=$true
   managed=($task.Description -eq {marker})
@@ -97,6 +108,10 @@ $action = @($task.Actions)[0]
   execute=[string]$action.Execute
   arguments=[string]$action.Arguments
   working_directory=[string]$action.WorkingDirectory
+  action_count=[int]$actions.Count
+  allow_hard_terminate=[bool]$task.Settings.AllowHardTerminate
+  multiple_instances=[string]$task.Settings.MultipleInstances
+  execution_time_limit_seconds=[int]$task.Settings.ExecutionTimeLimit.TotalSeconds
 }} | ConvertTo-Json -Compress
 """
 
@@ -113,6 +128,10 @@ def task_status(role: StartupRole) -> StartupTaskStatus:
         execute=data.get("execute"),
         arguments=data.get("arguments"),
         working_directory=data.get("working_directory"),
+        action_count=data.get("action_count"),
+        allow_hard_terminate=data.get("allow_hard_terminate"),
+        multiple_instances=data.get("multiple_instances"),
+        execution_time_limit_seconds=data.get("execution_time_limit_seconds"),
     )
 
 
@@ -140,6 +159,9 @@ if ($null -ne $old) {{
   if (-not {force}) {{
     throw 'Artifex startup task already exists; use --replace to update it'
   }}
+  if ([string]$old.State -eq 'Running') {{
+    throw 'Refusing to replace a running Artifex scheduled task; avoid stopping live GPU work'
+  }}
 }}
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute {_literal(execute)} -Argument {_literal(arguments)} -WorkingDirectory {_literal(working_directory)}
@@ -151,6 +173,11 @@ $settingsArgs = @{{
   StartWhenAvailable = $true
   AllowStartIfOnBatteries = $true
   DontStopIfGoingOnBatteries = $true
+}}
+if ({'$true' if role == 'renderer' else '$false'}) {{
+  # A stopped Task Scheduler task must not be forcibly terminated while
+  # its supervised ComfyUI may still be busy with a CUDA generation.
+  $settingsArgs.DisallowHardTerminate = $true
 }}
 if ({restart_count} -gt 0) {{
   $settingsArgs.RestartCount = {restart_count}
@@ -185,6 +212,15 @@ def install_task(
     result = task_status(role)
     if not result.installed or not result.managed:
         raise RuntimeError("Artifex scheduled task was not registered as expected")
+    if role == "renderer":
+        matching, detail = task_configuration_matches(
+            role, config=config, status=result
+        )
+        if not matching:
+            raise RuntimeError(
+                "Renderer startup registration failed post-install safety audit: "
+                + detail
+            )
     return result
 
 
@@ -228,7 +264,19 @@ def task_configuration_matches(
             "Artifex task launch configuration differs from current Python, "
             "working directory or selected --config; explicit --replace is required"
         )
-    return True, "Artifex-owned task matches current executable and config"
+    if role == "renderer" and (
+        status.action_count != 1
+        or status.allow_hard_terminate is not False
+        or status.multiple_instances != "IgnoreNew"
+        or status.execution_time_limit_seconds != 0
+    ):
+        return False, (
+            "Renderer task safety settings are missing or unsafe: require "
+            "exactly one action, AllowHardTerminate=false, "
+            "MultipleInstances=IgnoreNew, and an unlimited execution time; "
+            "an explicit stopped-task --replace is needed"
+        )
+    return True, "Artifex-owned task matches current executable and safe settings"
 
 
 def _start_script(
