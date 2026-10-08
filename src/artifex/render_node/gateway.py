@@ -88,15 +88,15 @@ class RendererGatewayAdmission:
 
     def release(self) -> None:
         conn = self._fence._begin()
+        commit = False
         try:
             conn.execute(
                 "INSERT INTO submission_fence(id, blocked) VALUES (1, 0) "
                 "ON CONFLICT(id) DO UPDATE SET blocked = 0"
             )
-            self._fence._finish(conn, commit=True)
-        except BaseException:
-            conn.close()
-            raise
+            commit = True
+        finally:
+            self._fence._finish(conn, commit=commit)
 
 
 def make_gateway_server(
@@ -277,7 +277,7 @@ def make_gateway_server(
 
     try:
         return Server((host, bind_port), Handler)
-    except BaseException:
+    except (OSError, ValueError):
         if own_client:
             proxy_client.close()
         raise
