@@ -59,6 +59,7 @@ from artifex.onboarding import (
     discover_controller,
     discover_renderer,
 )
+from artifex.pair_render_proof import run_pair_render_proof
 from artifex.performance import (
     PatreonV2PublicationProvider,
     ingest_manual_performance,
@@ -342,6 +343,90 @@ def deployment_pair_check(
         typer.echo(f"deployment pair-check error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     if not report.preflight_ready:
+        raise typer.Exit(code=1)
+
+
+@deployment_app.command("pair-smoke")
+def deployment_pair_smoke(
+    renderer_report: Annotated[
+        Path, typer.Option("--renderer-report", help="Fresh PC-B pair-export evidence JSON."),
+    ],
+    output: Annotated[
+        Path, typer.Option("--output", help="New JSON file with full gated image proof."),
+    ],
+    config: ConfigOption = None,
+    confirm_render: Annotated[
+        bool,
+        typer.Option(
+            "--confirm-render",
+            help="Explicit consent to queue one real ComfyUI GPU image if pair preflight passes.",
+        ),
+    ] = False,
+    image_dir: Annotated[
+        Path | None, typer.Option("--image-dir", help="Optional root for downloaded image proof."),
+    ] = None,
+    width: Annotated[int | None, typer.Option("--width", min=64, max=8192)] = None,
+    height: Annotated[int | None, typer.Option("--height", min=64, max=8192)] = None,
+    max_age_minutes: Annotated[
+        int, typer.Option("--max-age-minutes", min=1, max=1440),
+    ] = 60,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: check both hosts; queue ONE image only with explicit opt-in.
+
+    The output is an evidence report, not a production qualification pass.
+    """
+    if not confirm_render:
+        typer.echo(
+            "deployment pair-smoke error: --confirm-render is required "
+            "to authorize one real GPU generation",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    config = config or Path("config/local.yaml")
+    if not config.is_file():
+        typer.echo(f"deployment pair-smoke error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+    if output.exists() or output.is_symlink():
+        typer.echo(
+            f"deployment pair-smoke error: refusing to overwrite {output}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        evidence = read_renderer_evidence(renderer_report)
+        proof = asyncio.run(
+            run_pair_render_proof(
+                _settings(config), evidence,
+                controller_host=socket.gethostname(),
+                max_age_minutes=max_age_minutes,
+                output_dir=image_dir,
+                width=width,
+                height=height,
+            )
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("x", encoding="utf-8") as file:
+            file.write(proof.model_dump_json(indent=2) + "\n")
+        _print_payload(
+            {
+                "evidence_path": str(output),
+                "preflight_ready": proof.preflight_ready,
+                "render_attempted": proof.render_attempted,
+                "actual_render_verified": proof.actual_render_verified,
+                "asset_stability_verified": proof.asset_stability_verified,
+                "ready_for_qualification": proof.ready_for_qualification,
+                "production_qualified": proof.production_qualified,
+                "failures": proof.failures,
+                "image": proof.output.model_dump(mode="json")
+                if proof.output is not None else None,
+            },
+            as_json=json_output,
+        )
+    except (FileExistsError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"deployment pair-smoke error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not proof.ready_for_qualification:
         raise typer.Exit(code=1)
 
 
