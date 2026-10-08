@@ -85,3 +85,48 @@ def test_remote_lora_inventory_is_synced_without_copying_model_file(
     assert [value.id for value in removed.removed] == [profile.id]
     assert registry.require(profile.id).state is LoRAState.DISABLED
     database.dispose()
+
+
+def test_partial_remote_inventory_failure_never_disables_missing_loras(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'partial.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    discovery = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    first = RenderLoRAInventoryItem(
+        name="first.safetensors",
+        path="D:/loras/first.safetensors",
+        relative_path="first.safetensors",
+        sha256="a" * 64,
+        bytes=1234,
+    )
+    second = RenderLoRAInventoryItem(
+        name="second.safetensors",
+        path="D:/loras/second.safetensors",
+        relative_path="second.safetensors",
+        sha256="b" * 64,
+        bytes=1234,
+    )
+    registered = discovery.sync(_attestation(loras=(first, second)))
+    assert len(registered.discovered) == 2
+
+    partial = _attestation(loras=(first,)).model_copy(
+        update={
+            "inventory_errors": (
+                {"path": "D:/loras/second.safetensors", "error": "access denied"},
+            )
+        }
+    )
+    result = discovery.sync(partial)
+    assert result.failed
+    assert not result.removed
+    assert all(
+        registry.require(profile.id).state is LoRAState.DISCOVERED
+        for profile in registered.discovered
+    )
+
+    complete = discovery.sync(_attestation(loras=(first,)))
+    assert len(complete.removed) == 1
+    assert registry.require(complete.removed[0].id).state is LoRAState.DISABLED
+    database.dispose()
