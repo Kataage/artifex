@@ -11,7 +11,6 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.comfy.dependency_installer import DependencyManifest, PinnedDependency
-from artifex.comfy.dependency_resolver import DependencyResolution
 from artifex.comfy.workflow_audit import WorkflowAudit
 
 _HF_API = "https://huggingface.co/api/models/"
@@ -69,12 +68,18 @@ class ModelManifestDraft(BaseModel):
     unresolved: tuple[UnresolvedModel, ...]
     repositories_checked: tuple[str, ...]
     warnings: tuple[str, ...] = (
-        "A repository appearing in an operator-supplied shortlist is not proof "
-        "of original authorship or redistribution permission.",
-        "Hub license metadata does not constitute a legal review; confirm "
-        "the repository card and author terms before --accept-licenses.",
-        "Weights are not downloaded while drafting. The separate installer "
-        "verifies every byte against the recorded LFS SHA-256 on --apply.",
+        (
+            "A repository appearing in an operator-supplied shortlist is not proof "
+            "of original authorship or redistribution permission."
+        ),
+        (
+            "Hub license metadata does not constitute a legal review; confirm "
+            "the repository card and author terms before --accept-licenses."
+        ),
+        (
+            "Weights are not downloaded while drafting. The separate installer "
+            "verifies every byte against the recorded LFS SHA-256 on --apply."
+        ),
     )
 
 
@@ -165,7 +170,7 @@ def _file_info(
     if data.get("path") != file_path or data.get("type") != "file":
         raise ValueError("Hub path info disagrees with chosen exact filename")
     if not isinstance(lfs, dict):
-        raise ValueError("No LFS SHA-256 metadata; refusing unverifiable model file")
+        raise TypeError("No LFS SHA-256 metadata; refusing unverifiable model file")
     sha256, lfs_size = lfs.get("sha256"), lfs.get("size")
     actual_size = data.get("size")
     if (
