@@ -2057,7 +2057,9 @@ def render_node_serve(
         f"{settings.render_agent.bind_host}:{settings.render_agent.port}"
     )
     try:
-        serve_managed_renderer(settings)
+        serve_managed_renderer(
+            settings, config_path=config or Path("config/render-node.yaml"),
+        )
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         typer.echo(f"render-node server error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
