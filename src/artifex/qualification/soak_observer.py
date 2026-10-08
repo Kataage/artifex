@@ -275,6 +275,7 @@ def observe_soak(
     duration_hours: float | None = None,
     interval_seconds: float = 300,
     qualification_session_id: str | None = None,
+    on_sample: Callable[[SoakSample], None] | None = None,
     sample: Callable[[ArtifexSettings, float], SoakSample] = sample_soak,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -321,6 +322,8 @@ def observe_soak(
                     errors=(f"Probe exception: {type(exc).__name__}",),
                 )
             _write_record(handle, observed)
+            if on_sample is not None:
+                on_sample(observed)
             if index == 0 and (
                 not observed.llm_ok or not observed.comfyui_ok
                 or not observed.renderer_ok or observed.errors
