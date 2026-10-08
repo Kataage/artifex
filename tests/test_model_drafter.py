@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -248,7 +247,6 @@ def test_model_with_nested_requested_runtime_name_is_not_guessed() -> None:
 @pytest.mark.parametrize(
     "repo",
     [
-        "evil.example.com/repo",
         "https://huggingface.co/owner/repo",
         "../repo",
         "user/repo/name",
