@@ -148,6 +148,20 @@ weight downloads still require explicit reviewed installation into
 an Artifex-created isolated ComfyUI environment; the existing
 `deps-install` safeguards and offline model hashing are unchanged.
 
+## Automatic collection of completed Pack qualification
+
+When the two Windows PCs are already operating and you have a qualification
+session ID, `uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml`
+shows which genuine completed Packs qualify the required production tests,
+without manually gathering IDs. Run the same command with `--apply` to
+register only validated post-session evidence, without generating or restarting
+anything. Repeat after a real retry, reboot recovery, backend outage recovery,
+or verified Discord actions: pending stages can pass automatically when their
+actual telemetry exists. Dedicated overnight and real archive replay evidence
+remain separate, strict gates; this collector does **not** start services,
+run GPU jobs or declare production-ready. See
+[real-machine-qualification.md](real-machine-qualification.md).
+
 ## Unattended 8-hour evidence observer (first qualification gate)
 
 Artifex can **observe an already-running production controller** for
