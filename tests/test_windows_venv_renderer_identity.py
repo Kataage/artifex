@@ -258,7 +258,6 @@ def test_native_venv_python_launcher_matches_actual_mock_tcp_listener(
     tmp_path: Path,
 ) -> None:
     """No GPU: check actual CIM parent, TCP owner and durable ownership receipt."""
-    import artifex.render_node.comfy_process as process_module
     from artifex.render_node.process_identity import windows_process_identity
     from artifex.render_node.socket_audit import audit_renderer_sockets
 
