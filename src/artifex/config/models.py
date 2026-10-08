@@ -180,11 +180,34 @@ class LlmBootstrapConfig(StrictModel):
         return self.models_dir / profile.filename
 
 
+class LlmServerConfig(StrictModel):
+    # Never launch binaries implicitly from third-party installs. Enable only
+    # when the operator selects their local llama.cpp executable.
+    enabled: bool = False
+    executable: str = "llama-server"
+    gpu_layers: int | Literal["auto", "all"] = "auto"
+    device: str | None = None
+    startup_timeout_seconds: float = Field(default=120.0, gt=0, le=900)
+    poll_seconds: float = Field(default=15.0, gt=0, le=3600)
+    restart_limit: int = Field(default=3, ge=0, le=20)
+    restart_backoff_seconds: float = Field(default=5.0, ge=0, le=300)
+    log_path: Path = Path("data/logs/llama-server.log")
+
+    @model_validator(mode="after")
+    def validate_executable(self) -> LlmServerConfig:
+        if not self.executable.strip():
+            raise ValueError("llm.server.executable must not be empty")
+        if self.device is not None and not self.device.strip():
+            raise ValueError("llm.server.device must not be empty")
+        return self
+
+
 class LlmConfig(StrictModel):
     backend: Literal["llama_cpp", "openai_compatible"] = "llama_cpp"
     base_url: str = "http://127.0.0.1:8899"
     model: str = "spark-x2.5-4b-heretic-jp"
     bootstrap: LlmBootstrapConfig = Field(default_factory=LlmBootstrapConfig)
+    server: LlmServerConfig = Field(default_factory=LlmServerConfig)
     structured_output: Literal["json_schema", "json_object"] = "json_schema"
     temperature: float = Field(default=0.9, ge=0, le=2)
     timeout_seconds: float = Field(default=180.0, gt=0)
