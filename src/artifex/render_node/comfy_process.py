@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+from pathlib import Path
 from collections.abc import Callable
 from typing import IO
 from urllib.parse import urlsplit
@@ -494,7 +495,9 @@ class ManagedComfyUI:
                 self._supervisor_lease.release()
 
 
-def serve_managed_renderer(settings: ArtifexSettings) -> None:
+def serve_managed_renderer(
+    settings: ArtifexSettings, *, config_path: Path | None = None,
+) -> None:
     """Run authenticated attestation and optional ComfyUI child as one task.
 
     A fatal ComfyUI supervision error shuts down the agent too so Windows
@@ -537,7 +540,7 @@ def serve_managed_renderer(settings: ArtifexSettings) -> None:
                 target=supervise, name="artifex-comfy-watch", daemon=True
             )
             monitor.start()
-        serve_attestation(settings, stop_event=stop)
+        serve_attestation(settings, stop_event=stop, owner_config=config_path)
         if errors:
             raise RuntimeError(f"Renderer supervision failed: {errors[0]}") from errors[0]
     finally:
