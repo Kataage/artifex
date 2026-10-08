@@ -682,9 +682,13 @@ class QualificationService:
         details: dict[str, object],
     ) -> None:
         """Revalidate independent physical output bytes and a live replay event."""
-        allowed = {"evidence_path", "evidence_sha256", "verified_proof"}
+        allowed = {
+            "evidence_path", "evidence_sha256", "verified_proof", "verified_packs",
+        }
         if set(details) - allowed:
             raise ValueError("archive_reproduction rejects manually supplied claims")
+        if "verified_packs" in details and details["verified_packs"] != packs:
+            raise ValueError("archive_reproduction saved Pack evidence changed")
         raw = details.get("evidence_path")
         digest = details.get("evidence_sha256")
         if not isinstance(raw, str) or not raw:
@@ -778,7 +782,7 @@ class QualificationService:
                 for row in manifest.get("archived_outputs", [])
             ):
                 raise ValueError("archive_reproduction original is not a selected archived output")
-            event = db_session.scalar(
+            events = db_session.scalars(
                 select(AgentEventRow)
                 .where(
                     AgentEventRow.event_type == "qualification.archive_replayed",
@@ -786,15 +790,15 @@ class QualificationService:
                     AgentEventRow.created_at <= now,
                 )
                 .order_by(AgentEventRow.id.desc())
-                .limit(1)
-            )
-            if (
-                event is None
-                or event.payload_json.get("session_id") != session.session_id
-                or event.payload_json.get("pack_id") != proof.pack_id
-                or event.payload_json.get("proof_path") != str(path)
-                or event.payload_json.get("proof_sha256") != digest
-                or event.payload_json.get("replay_prompt_id") != proof.replay_prompt_id
+                .limit(5000)
+            ).all()
+            if not any(
+                event.payload_json.get("session_id") == session.session_id
+                and event.payload_json.get("pack_id") == proof.pack_id
+                and event.payload_json.get("proof_path") == str(path)
+                and event.payload_json.get("proof_sha256") == digest
+                and event.payload_json.get("replay_prompt_id") == proof.replay_prompt_id
+                for event in events
             ):
                 raise ValueError("archive_reproduction lacks matching persisted replay event")
         snapshot = proof.model_dump(mode="json")
