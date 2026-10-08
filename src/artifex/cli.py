@@ -276,6 +276,47 @@ def startup_status(
         raise typer.Exit(code=1) from exc
 
 
+@startup_app.command("audit")
+def startup_audit(
+    role: Annotated[str, typer.Option("--role")] = "renderer",
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read-only Task Scheduler launch and safety-policy verification."""
+    from artifex.windows_tasks import task_configuration_matches
+
+    try:
+        selected = _startup_role(role)
+        target = config or Path(
+            "config/local.yaml" if selected == "controller" else "config/render-node.yaml"
+        )
+        if target.is_symlink() or not target.is_file():
+            raise ValueError(
+                f"Existing non-symlink configuration is required: {target}"
+            )
+        _settings(target)
+        status = task_status(selected)
+        verified, reason = task_configuration_matches(
+            selected, config=target, status=status,
+        )
+        _print_payload(
+            {
+                "role": selected,
+                "verified": verified,
+                "reason": reason,
+                "restart_authorized": False,
+                "child_survival_qualified": False,
+                "task": status.model_dump(mode="json"),
+            },
+            as_json=json_output,
+        )
+        if not verified:
+            raise typer.Exit(code=1)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"startup audit error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @startup_app.command("uninstall")
 def startup_uninstall(
     role: Annotated[str, typer.Option("--role")] = "controller",
