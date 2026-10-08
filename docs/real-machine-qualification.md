@@ -2,6 +2,25 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## PC-B authenticated gateway: required real-machine checks
+
+The optional PC-B managed-renderer gateway requires an Artifex-owned
+ComfyUI child bound exclusively to `127.0.0.1:8188` and exposes the
+authenticated, allowlisted Artifex API separately on port 8191.
+The PC-A `comfyui.base_url` and `render_nodes.primary` must point to
+the gateway, with `comfyui.gateway_token_env` set to the securely shared
+`ARTIFEX_RENDER_NODE_TOKEN` variable. Validate PC-A can read `/queue`
+and submit one **explicit** qualification smoke through the proxy; verify
+unauthenticated requests return 401 and that an inbound LAN request to
+ComfyUI's upstream port **fails** from a separate machine. After
+`POST /v1/gateway/seal`, confirm future authenticated mutation attempts
+return 423; after an authorized release verify they work again.
+
+The gateway does not secure other local PC-B clients accessing loopback
+or configure firewall rules, so a successful test is not blanket permission
+to restart. `restart_authorized` stays false. The 14-stage two-PC
+qualification and GPU soak tests are separate requirements.
+
 ## Durable, atomic controller-only submission fencing
 
 On PC-A, `uv run artifex maintenance fence --config
