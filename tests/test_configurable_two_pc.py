@@ -265,9 +265,11 @@ def test_controller_rejects_bad_llama_server_gpu_setting(
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"system": {}, "devices": []})
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(ValueError, match="gpu-layers"):
-            configure_two_pc(
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(ValueError, match="gpu-layers"),
+    ):
+        configure_two_pc(
                 ArtifexSettings(),
                 comfyui_base_url="http://renderer.test:8188",
                 output_path=tmp_path / "invalid.yaml",
