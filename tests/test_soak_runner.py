@@ -122,7 +122,7 @@ def test_soak_run_uses_one_command_and_persists_stage_on_success(
     assert payload["overnight_soak"] == "pass"
     assert payload["production_qualified"] is False
     assert "unattended_multi_pack" in payload["remaining_stages"]
-    assert len(payload["remaining_stages"]) == len(REQUIRED_STAGES) - 2
+    assert len(payload["remaining_stages"]) == len(REQUIRED_STAGES) - 3
     assert Path(payload["evidence_path"]).is_file()
     assert Path(payload["evidence_path"]).is_relative_to(
         settings.qualification.evidence_dir
