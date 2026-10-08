@@ -11,6 +11,8 @@ from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.characters import HololiveCatalog
+from artifex.comfy.dependency_installer import install_manifest, read_manifest
+from artifex.comfy.dependency_resolver import resolve_missing_dependencies
 from artifex.comfy.isolated_install import install_isolated_comfy
 from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
@@ -454,6 +456,91 @@ def onboard_workflow_audit(
         raise typer.Exit(code=1) from exc
     if not report.ready:
         raise typer.Exit(code=1)
+
+
+@onboard_app.command("deps-resolve")
+def onboard_deps_resolve(
+    config: ConfigOption = None,
+    manager_commit: Annotated[
+        str | None,
+        typer.Option(
+            "--manager-commit",
+            help="Optional 40-character ComfyUI-Manager commit; default fetches HEAD and pins it.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read-only live workflow audit plus pinned Manager source-candidate lookup."""
+    try:
+        audit = asyncio.run(audit_workflows(_settings(config)))
+        resolution = resolve_missing_dependencies(
+            audit, manager_commit=manager_commit
+        )
+        _print_payload(
+            {
+                "audit_ready": audit.ready,
+                "resolution": resolution.model_dump(mode="json"),
+            },
+            as_json=json_output,
+        )
+    except (OSError, ValueError, RuntimeError, KeyError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard deps-resolve error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not audit.ready:
+        raise typer.Exit(code=1)
+
+
+@onboard_app.command("deps-install")
+def onboard_deps_install(
+    manifest: Annotated[
+        Path, typer.Option("--manifest", help="SHA-256-pinned reviewed JSON manifest."),
+    ],
+    comfy_root: Annotated[
+        Path, typer.Option("--comfy-root", help="Artifex-owned isolated ComfyUI source directory."),
+    ],
+    apply: Annotated[
+        bool, typer.Option("--apply", help="Explicitly download and place verified artifacts."),
+    ] = False,
+    accept_licenses: Annotated[
+        bool, typer.Option("--accept-licenses", help="Acknowledge reviewed dependency licenses."),
+    ] = False,
+    allow_custom_code: Annotated[
+        bool,
+        typer.Option(
+            "--allow-custom-code",
+            help="Allow third-party custom-node Python to be installed for next restart.",
+        ),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Default read-only artifact plan; --apply is explicit and never overwrites."""
+    try:
+        selected = read_manifest(manifest)
+        if not apply:
+            _print_payload(
+                {
+                    "dry_run": True,
+                    "manifest": str(manifest),
+                    "comfy_root": str(comfy_root),
+                    "artifacts": [item.model_dump(mode="json") for item in selected.artifacts],
+                    "notice": (
+                        "No download or disk changes performed. Review SHA-256 sources "
+                        "and licenses, then use --apply --accept-licenses. "
+                        "Custom nodes also require --allow-custom-code."
+                    ),
+                },
+                as_json=json_output,
+            )
+            return
+        result = install_manifest(
+            selected, comfy_root,
+            accept_licenses=accept_licenses,
+            allow_custom_code=allow_custom_code,
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard deps-install error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @onboard_app.command("dependencies")
