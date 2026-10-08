@@ -19,7 +19,6 @@ from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
 from artifex.comfy.isolated_install import install_isolated_comfy
 from artifex.comfy.model_drafter import draft_hf_models
-from artifex.comfy.preparation import prepare_renderer
 from artifex.comfy.model_sources import (
     ApprovedModelSource,
     read_model_source_registry,
@@ -27,6 +26,7 @@ from artifex.comfy.model_sources import (
     save_model_source_registry,
     unregister_model_source,
 )
+from artifex.comfy.preparation import prepare_renderer
 from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
