@@ -6,7 +6,7 @@ import platform
 import socket
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -33,6 +33,12 @@ from artifex.qualification.models import (
     QualificationStage,
     QualificationStageEvidence,
     QualificationStatus,
+)
+from artifex.qualification.soak_observer import (
+    SoakEnd,
+    SoakHeader,
+    SoakSample,
+    verify_soak_evidence,
 )
 from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
 
@@ -354,6 +360,7 @@ class QualificationService:
                 pack_ids,
                 payload,
                 since=session.created_at,
+                session=session,
             )
             if verified:
                 payload["verified_packs"] = verified
@@ -432,6 +439,7 @@ class QualificationService:
                         evidence.pack_ids,
                         dict(evidence.details),
                         since=session.created_at,
+                        session=session,
                     )
                 except (KeyError, OSError, ValueError) as exc:
                     issues.append(f"stage {stage.value}: {exc}")
@@ -537,6 +545,7 @@ class QualificationService:
         details: dict[str, object],
         *,
         since: datetime,
+        session: QualificationSession | None = None,
     ) -> list[dict[str, object]]:
         packs = [self._pack_evidence(pack_id) for pack_id in pack_ids]
         if stage is QualificationStage.SINGLE_CHARACTER:
@@ -629,25 +638,9 @@ class QualificationService:
                     "unattended_multi_pack requires at least three finalized Packs"
                 )
         elif stage is QualificationStage.OVERNIGHT_SOAK:
-            duration = details.get("duration_hours")
-            if not isinstance(duration, int | float):
-                raise ValueError("overnight_soak requires numeric duration_hours")
-            if duration < self._settings.qualification.minimum_soak_hours:
-                raise ValueError(
-                    "overnight_soak duration is below configured minimum"
-                )
-            if details.get("fatal_errors", 0) != 0:
-                raise ValueError("overnight_soak requires fatal_errors=0")
-            for key in (
-                "peak_vram_mib",
-                "peak_ram_mib",
-                "minimum_free_disk_gib",
-                "telemetry_rows",
-            ):
-                if key not in details:
-                    raise ValueError(
-                        f"overnight_soak requires resource evidence: {key}"
-                    )
+            if session is None:
+                raise ValueError("overnight_soak requires its qualification session")
+            self._verify_soak_stage(session, details)
         elif stage is QualificationStage.DISCORD_CONTROLS:
             if self._settings.discord.enabled:
                 commands = details.get("verified_commands")
@@ -681,6 +674,91 @@ class QualificationService:
                     "archive_reproduction requires intact archived manifest provenance"
                 )
         return packs
+
+    def _verify_soak_stage(
+        self,
+        session: QualificationSession,
+        details: dict[str, object],
+    ) -> None:
+        """Bind a fully revalidated observer trace to this qualification session.
+
+        Supplied resource/duration claims are never accepted. The recorded
+        metrics are derived exclusively from the evidence on each verification.
+        """
+        unexpected = set(details) - {
+            "evidence_path", "evidence_sha256", "observed_metrics",
+        }
+        if unexpected:
+            raise ValueError(
+                "overnight_soak forbids manually supplied claims: "
+                + ", ".join(sorted(unexpected))
+            )
+        supplied_path = details.get("evidence_path")
+        supplied_hash = details.get("evidence_sha256")
+        if not isinstance(supplied_path, str) or not supplied_path.strip():
+            raise ValueError("overnight_soak requires evidence_path")
+        if not (
+            isinstance(supplied_hash, str)
+            and len(supplied_hash) == 64
+            and all(ch in "0123456789abcdef" for ch in supplied_hash)
+        ):
+            raise ValueError("overnight_soak requires lowercase SHA-256 evidence_sha256")
+
+        path = Path(supplied_path).expanduser()
+        if path.is_symlink():
+            raise ValueError("overnight_soak rejects symlink evidence")
+        path = path.resolve(strict=True)
+        if not path.is_relative_to(self._root):
+            raise ValueError(
+                "overnight_soak evidence must be inside qualification.evidence_dir"
+            )
+
+        report = verify_soak_evidence(
+            path, minimum_hours=self._settings.qualification.minimum_soak_hours,
+        )
+        if report.evidence_sha256 != supplied_hash:
+            raise ValueError("overnight_soak evidence SHA-256 mismatch")
+        if not report.ready_for_soak_review:
+            raise ValueError("overnight_soak evidence failed: " + "; ".join(report.issues))
+
+        # Re-read with a matching digest to detect changes between verification
+        # and extracting the session and environment metadata.
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != supplied_hash:
+            raise ValueError("overnight_soak evidence changed during verification")
+        records = raw.splitlines()
+        header = SoakHeader.model_validate_json(records[0])
+        first = SoakSample.model_validate_json(records[1])
+        ending = SoakEnd.model_validate_json(records[-1])
+
+        if header.qualification_session_id != session.session_id:
+            raise ValueError("overnight_soak belongs to another qualification session")
+        if header.controller_host != session.hostname:
+            raise ValueError("overnight_soak controller hostname does not match session")
+        primary = self._settings.render_nodes.primary_node()
+        if primary is None or header.renderer_id != primary[0]:
+            raise ValueError("overnight_soak renderer does not match qualification")
+        if header.started_at < session.created_at:
+            raise ValueError("overnight_soak started before qualification session")
+        if ending.finished_at > _utcnow() + timedelta(minutes=2):
+            raise ValueError("overnight_soak evidence claims a future completion")
+        expected_config = hashlib.sha256(
+            self._settings.model_dump_json().encode()
+        ).hexdigest()
+        if header.config_sha256 != expected_config:
+            raise ValueError("overnight_soak observed a different configuration")
+        for asset in session.assets:
+            if asset.source == "render_node" and asset.node_id == header.renderer_id:
+                if first.asset_sha256.get(asset.label) != asset.sha256:
+                    raise ValueError(
+                        f"overnight_soak {asset.label} hash differs from session baseline"
+                    )
+
+        snapshot = report.model_dump(mode="json")
+        if "observed_metrics" in details and details["observed_metrics"] != snapshot:
+            raise ValueError("overnight_soak recorded metrics were modified")
+        details["evidence_path"] = str(path)
+        details["observed_metrics"] = snapshot
 
     def _pack_evidence(self, pack_id: str) -> dict[str, object]:
         with self._database.session() as session:
