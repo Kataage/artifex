@@ -134,7 +134,8 @@ operator-owned; Artifex does not install Python or ComfyUI binaries for you.
 
 Set the same strong token on PC-A and PC-B through the `ARTIFEX_RENDER_NODE_TOKEN` environment variable. Do not put the token in YAML.
 
-Before starting the agent, run the **read-only native-Windows preflight** on PC-B.
+After ComfyUI is running, run the **read-only native-Windows preflight** on PC-B
+(or start `render-node serve` first when ComfyUI is Artifex-managed).
 It checks NVIDIA GPU detection, required checkpoint/refiner/VAE/upscaler hashes,
 LoRA inventory completeness, the bearer-token environment variable,
 LAN binding and the locally running ComfyUI endpoint. Failures produce
