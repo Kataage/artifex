@@ -191,6 +191,7 @@ def check_native_dependencies(
             )
         )
         chosen = settings.render_agent.comfyui_process.executable
+        executable: Path | None
         if chosen is not None:
             executable = chosen.expanduser().resolve(strict=False)
         else:
