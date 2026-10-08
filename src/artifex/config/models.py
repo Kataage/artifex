@@ -199,6 +199,8 @@ class LlmServerConfig(StrictModel):
             raise ValueError("llm.server.executable must not be empty")
         if self.device is not None and not self.device.strip():
             raise ValueError("llm.server.device must not be empty")
+        if isinstance(self.gpu_layers, int) and self.gpu_layers < 0:
+            raise ValueError("llm.server.gpu_layers must be nonnegative, auto or all")
         return self
 
 
