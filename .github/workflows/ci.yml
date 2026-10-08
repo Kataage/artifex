@@ -36,5 +36,8 @@ jobs:
       - run: uv run artifex --help
       - run: uv run artifex startup --help
       - run: uv run artifex deployment verify --help
+      - run: uv run artifex onboard inspect --help
+      - run: uv run artifex onboard renderer --help
+      - run: uv run artifex onboard inspect --role controller --json
       - run: uv run artifex startup status --role controller --json
       - run: uv run artifex research status --json
