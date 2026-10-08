@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import defaultdict
 from pathlib import PurePosixPath
@@ -141,7 +142,7 @@ def _read_repo(http: httpx.Client, repo: str) -> tuple[str, str, dict[str, tuple
             continue
         basename = file_path.rsplit("/", 1)[-1]
         names[basename].append(file_path)
-    if "README.md" not in names:
+    if "README.md" not in names or "README.md" not in names["README.md"]:
         raise ValueError("Source repository has no model card README.md")
     return revision.lower(), license_id, {key: tuple(value) for key, value in names.items()}
 
@@ -201,7 +202,7 @@ def _needed(
             filename = PurePosixPath(requested).name
             if (
                 label not in _FOLDER_BY_LABEL or not _SEGMENT.fullmatch(requested)
-                or filename != requested or filename in {".", ".."}
+                or filename != requested or filename in {".", ".."} or len(filename) > 100
                 or PurePosixPath(filename).suffix.casefold() not in _EXTENSIONS
             ):
                 warnings.append(
@@ -293,7 +294,10 @@ def draft_hf_models(
         file = candidates[0]
         model_folder = _FOLDER_BY_LABEL[label]
         item = PinnedDependency(
-            id=f"model-{model_folder}-{file.sha256[:16]}",
+            id=(
+                f"model-{model_folder}-{file.sha256[:12]}-"
+                + hashlib.sha256(requested.encode("utf-8")).hexdigest()[:8]
+            ),
             kind="model",
             name=requested,
             model_folder=model_folder,
