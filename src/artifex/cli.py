@@ -1878,7 +1878,7 @@ def qualify_soak_observe(
             {"evidence_path": str(output), **result.model_dump(mode="json")},
             as_json=json_output,
         )
-    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+    except (KeyError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
         typer.echo(f"qualify soak-observe error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     if not result.ready_for_soak_review:
