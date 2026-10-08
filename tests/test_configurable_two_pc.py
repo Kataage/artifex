@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 import httpx
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from artifex.cli import app
 from artifex.config import load_settings
