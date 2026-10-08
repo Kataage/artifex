@@ -81,6 +81,43 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Controller-side maintenance drain — no interrupted GPU jobs
+
+A future coordinated restart must first stop new Artifex production, let the
+already-started Pack finish, and observe both persistent in-flight work and
+ComfyUI's **real** pending/running queue. On **PC-A**, after configuring
+the primary renderer endpoint and before maintenance:
+
+```powershell
+# Read-only inspection; leaves scheduler state untouched.
+uv run artifex maintenance drain --config .\\config\\local.yaml
+
+# Explicitly PAUSE new daemon work. Observe for up to 10 minutes and require
+# two consecutive idle samples; this NEVER cancels a ComfyUI prompt.
+uv run artifex maintenance drain --config .\\config\\local.yaml `
+  --apply --wait-seconds 600 --poll-seconds 5
+```
+
+The command preserves an already-paused operator state and refuses to silently
+override degraded/blocked/stopped state. It uses the configured
+`render_nodes.primary` endpoint on PC-B, rather than any stale PC-A
+`comfyui.base_url`. It counts persisted non-terminal generation attempts
+and Packs in policy/generation/evaluation, plus ComfyUI
+`queue_running`/`queue_pending`. If any source is unknown, busy or
+persistently unfinished, the report stays blocked; it never starts or stops
+Windows processes. If no work is observed in two consecutive samples, it
+reports `observed_quiescent` but **still**
+`restart_authorized=false`: external clients may submit directly to PC-B
+after the check. A proper restart requires exclusive admission fencing of
+*all* ComfyUI clients, not a queue snapshot or controller pause alone.
+
+The `--apply` pause is intentionally durable: when maintenance is
+finished, use `uv run artifex resume --config .\\config\\local.yaml`
+only after the real PC-B service has recovered and deployment checks pass.
+This command does not reset model settings, delete work, terminate or restart
+ComfyUI, initiate a GPU generation or certify production. It is the first
+step toward a safe unattended maintenance window.
+
 ## Safe runtime reconciliation after installing models or custom nodes
 
 **PC-B can automatically wait for a fresh ComfyUI workflow inspection** rather
