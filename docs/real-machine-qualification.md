@@ -24,6 +24,42 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## Single-command read-only PC-B ownership evidence
+
+Run this on **the actual renderer PC-B** from the Artifex checkout. No GPU
+generation is submitted, no ComfyUI process is started/stopped, no task is
+registered or changed, and no current job is interrupted.
+
+```powershell
+uv run artifex render-node owner-audit --config .\config\render-node.yaml --json
+
+# Explicitly retain a new, time-stamped evidence report.
+uv run artifex render-node owner-audit --config .\config\render-node.yaml --save --json
+```
+
+The command checks the **current** Windows Task Scheduler task against the
+selected config and safety policy; ComfyUI's saved ownership receipt; CIM
+process PID, executable, argument identity, start timestamp and Windows venv
+launcher ancestry (if applicable); two consecutive real upstream TCP listener
+inventories; and unchanged process/receipt during the observation. It refuses
+unknown or foreign owners, changed/recycled PIDs, unexpected direct clients,
+publicly exposed listeners, missing/unsafe scheduled tasks and unverifiable
+launcher state. A scheduler state of \`Ready\` is reported **inconclusive**:
+a live orphan can still exist, but scheduled reattachment is not demonstrated.
+Missing receipt and conflicting evidence produce **blocked**.
+
+\`observed_stable\` is **only a point-in-time snapshot**: it is *not*
+evidence that any real GPU job survived Task Scheduler stop, logoff or Windows
+shutdown. Every result explicitly sets \`restart_authorized=false\`,
+\`child_survival_qualified=false\`, \`production_qualified=false\` and
+\`mutated_services=false\`. Failed/inconclusive observations exit nonzero,
+but may still be saved using \`--save\` for diagnosis. \`--output PATH\` can
+select a new destination; existing files, symlinks and overwrites are refused.
+The JSON report deliberately omits raw command lines, config file contents,
+tokens and environment variables. **Do not** record an Issue #40 PASS merely
+because this check succeeds; actual two-PC GPU, 14-stage and 8-hour soak
+evidence is still required.
+
 ## Windows virtualenv Python launcher and actual renderer PID
 
 Native Windows may run a venv `Scripts\python.exe` as a **launcher** and execute
