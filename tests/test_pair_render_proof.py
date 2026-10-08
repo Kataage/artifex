@@ -10,7 +10,6 @@ from typer.testing import CliRunner
 from artifex.cli import app
 from artifex.config.models import ArtifexSettings, RenderNodeConfig, RenderNodesConfig
 from artifex.deployment import DeploymentCheck, DeploymentReport, RenderSmokeEvidence
-from artifex.native_dependencies import NativeDependencyReport
 from artifex.pair_render_proof import (
     PairRenderProof,
     run_pair_render_proof,
@@ -18,7 +17,7 @@ from artifex.pair_render_proof import (
 from artifex.render_node.models import RenderAssetDigest, RenderNodeAttestation
 from artifex.two_pc_readiness import PairReadiness, RendererEvidence
 
-from test_two_pc_readiness import _native, _preflight, _snapshot
+from test_two_pc_readiness import _native, _snapshot
 
 
 def _settings() -> ArtifexSettings:
