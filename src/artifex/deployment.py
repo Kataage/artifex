@@ -327,7 +327,13 @@ async def verify_deployment(
     owns_client = comfy_client is None
     client: ComfyUIClient | None = comfy_client
     if role == "controller":
-        client = client or ComfyUIClient(settings.comfyui)
+        primary = settings.render_nodes.primary_node()
+        target_url = primary[1].base_url if primary is not None else settings.comfyui.base_url
+        # Two-PC setup stores the actual PC-B URL under render_nodes. Never
+        # validate a stale legacy loopback endpoint by accident.
+        client = client or ComfyUIClient(
+            settings.comfyui.model_copy(update={"base_url": target_url})
+        )
         try:
             checks.extend(await _workflow_checks(settings, client))
             if render_smoke:
