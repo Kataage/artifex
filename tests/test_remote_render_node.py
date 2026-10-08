@@ -186,3 +186,35 @@ def test_resolver_never_dispatches_secondary_or_controller_lora_to_primary(
     plan = resolver.resolve(("char-1",), model_family="ilxl")
     assert [entry.lora_id for entry in plan.entries] == ["primary-char"]
     database.dispose()
+
+
+def test_renderer_attestation_reports_duplicate_relative_lora_names(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from artifex.config.models import ArtifexSettings, RenderAgentConfig
+    from artifex.render_node import build_attestation
+
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    header = json.dumps({"__metadata__": {"key": "value"}}).encode()
+    data = len(header).to_bytes(8, "little") + header
+    (first_root / "same.safetensors").write_bytes(data)
+    (second_root / "same.safetensors").write_bytes(data)
+
+    attestation = build_attestation(
+        ArtifexSettings(
+            render_agent=RenderAgentConfig(
+                node_id="primary",
+                lora_roots=(first_root, second_root),
+            )
+        )
+    )
+    assert len(attestation.loras) == 1
+    assert any(
+        "duplicate renderer-relative LoRA asset name" in error["error"]
+        for error in attestation.inventory_errors
+    )
