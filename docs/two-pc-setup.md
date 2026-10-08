@@ -81,6 +81,61 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## One-command safe renderer model preparation
+
+After the initial PC-B configuration and a running ComfyUI endpoint, use the
+new workflow-aware preparation command **on PC-B**. It audits the real
+production/repair templates against ComfyUI `/object_info`, reads the
+existing explicit model source bindings, resolves only exact missing model
+filenames, and reports missing custom-node classes:
+
+```powershell
+# Read-only audit and preparation plan. Nothing is installed or rewritten.
+uv run artifex onboard prepare-renderer `
+  --config .\\config\\render-node.yaml `
+  --sources .\\config\\model-sources.json
+```
+
+Model bindings in `--sources` are explicit role/filename/publisher choices
+approved once through `onboard model-sources-add --approve` (see below).
+No publisher is inferred from the filename. Missing model choices without
+an approved binding remain **unresolved** and are shown in the report.
+For approved choices, the tool verifies the Hub repository card/license,
+locks the source revision and file path and creates a SHA-256/size-pinned
+download plan without downloading in preview mode.
+
+To install the approved, pinned **model files only** to a separate
+Artifex-owned isolated ComfyUI directory, after reviewing the recorded terms:
+
+```powershell
+uv run artifex onboard prepare-renderer `
+  --config .\\config\\render-node.yaml `
+  --sources .\\config\\model-sources.json `
+  --comfy-root "D:/AI/Artifex/isolated/ComfyUI" `
+  --apply --accept-licenses
+```
+
+The path is illustrative; use the actual source directory inside a
+verified `onboard comfy-install` installation. The existing installer
+enforces that ownership receipt, exact fixed-commit source, expected file
+size and SHA-256 and **never overwrites** an existing model or modifies an
+unowned ComfyUI tree. Installing models is not proof that the running
+ComfyUI has loaded them: restart or rescan the renderer as appropriate,
+then rerun the preview to verify actual loader availability. The tool's
+`ready` is based only on the *live pre-install audit*, and output
+`production_qualified` stays false.
+
+Missing custom-node classes trigger **read-only** mapping suggestions from
+the ComfyUI-Manager index by default; no suggested Python code is ever
+downloaded, installed, pip-installed or executed by this command.
+Suggestions are not endorsements or evidence of compatible, licensed code.
+The index lookup may be disabled with `--no-discover-nodes` when offline.
+Independently review and explicitly approve required third-party nodes
+using the existing `onboard deps-draft` / `onboard deps-install`
+controls; do not implicitly grant `--allow-custom-code`. This separation
+avoids silently replacing working custom nodes and preserves the user's
+existing ComfyUI installation.
+
 ## One-time operator-approved model source bindings (no repeated --repo)
 
 Previously, `models-draft` required a manual list of Hugging Face

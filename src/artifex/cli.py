@@ -26,6 +26,7 @@ from artifex.comfy.model_sources import (
     save_model_source_registry,
     unregister_model_source,
 )
+from artifex.comfy.preparation import prepare_renderer
 from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
@@ -797,6 +798,66 @@ def onboard_deps_draft(
             raise typer.Exit(code=1)
     except (FileExistsError, OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
         typer.echo(f"onboard deps-draft error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("prepare-renderer")
+def onboard_prepare_renderer(
+    config: ConfigOption = None,
+    sources: Annotated[
+        Path,
+        typer.Option(
+            "--sources",
+            help="Saved exact, operator-approved model role/name-to-publisher bindings.",
+        ),
+    ] = Path("config/model-sources.json"),
+    comfy_root: Annotated[
+        Path | None,
+        typer.Option("--comfy-root", help="Artifex-owned isolated ComfyUI source directory."),
+    ] = None,
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply", help="Explicitly download and install only registered verified models.",
+        ),
+    ] = False,
+    accept_licenses: Annotated[
+        bool,
+        typer.Option(
+            "--accept-licenses", help="Acknowledge each reviewed model's terms for installation.",
+        ),
+    ] = False,
+    discover_nodes: Annotated[
+        bool,
+        typer.Option(
+            "--discover-nodes/--no-discover-nodes",
+            help="Look up missing custom-node candidates without installing third-party code.",
+        ),
+    ] = True,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """One workflow audit, safe model selection, and opt-in verified model install."""
+    target = config or Path("config/render-node.yaml")
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"onboard prepare-renderer error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        result = asyncio.run(
+            prepare_renderer(
+                _settings(target),
+                sources=sources,
+                comfy_root=comfy_root,
+                apply=apply,
+                accept_licenses=accept_licenses,
+                discover_nodes=discover_nodes,
+            )
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard prepare-renderer error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
