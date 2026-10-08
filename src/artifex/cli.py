@@ -6,6 +6,7 @@ import json
 import socket
 from pathlib import Path
 from typing import Annotated, Any, cast
+from uuid import uuid4
 
 import httpx
 import typer
@@ -74,6 +75,7 @@ from artifex.qualification import (
     QualificationStatus,
 )
 from artifex.qualification.soak_observer import (
+    SoakSample,
     observe_soak,
     verify_soak_evidence,
 )
@@ -1828,6 +1830,154 @@ def _qualification_details(values: list[str] | None) -> dict[str, object]:
             value = raw_value
         result[key] = value
     return result
+
+
+@qualify_app.command("soak-run")
+def qualify_soak_run(
+    config: ConfigOption = None,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Reuse an existing qualification session."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="New JSONL trace inside qualification.evidence_dir."),
+    ] = None,
+    hours: Annotated[
+        float | None, typer.Option("--hours", min=0.0001, max=72),
+    ] = None,
+    sample_seconds: Annotated[
+        float, typer.Option("--sample-seconds", min=10, max=3600),
+    ] = 300,
+    progress: Annotated[
+        bool, typer.Option("--progress/--no-progress"),
+    ] = True,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """One command: doctor, session, real soak, verify and record overnight_soak.
+
+    Observes existing Artifex/LLM/ComfyUI; it never launches GPU workloads
+    or stops remote services. Remaining qualification stages stay independent.
+    """
+    config = config or Path("config/local.yaml")
+    if not config.is_file():
+        typer.echo(f"qualify soak-run error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+
+    active_id: str | None = session_id
+    trace: Path | None = output
+    try:
+        settings = _settings(config)
+        minimum = settings.qualification.minimum_soak_hours
+        if hours is not None and hours < minimum:
+            raise ValueError(
+                f"soak-run requires at least {minimum:g} hours; "
+                "use soak-observe for shorter diagnostics"
+            )
+        root = settings.qualification.evidence_dir.expanduser().resolve()
+        if trace is not None:
+            if trace.exists() or trace.is_symlink():
+                raise FileExistsError(f"refusing to overwrite soak evidence: {trace}")
+            trace = trace.expanduser().resolve()
+            if not trace.is_relative_to(root):
+                raise ValueError("soak evidence must be inside qualification.evidence_dir")
+
+        # Close the database/resources before the multi-hour read-only watcher.
+        core = build_core(settings)
+        try:
+            doctor = asyncio.run(build_doctor(core).run())
+            if not doctor.ready:
+                raise ValueError("current doctor checks are not ready")
+            service = _qualification_service(core)
+            session = service.load(session_id) if session_id else service.start(doctor)
+            active_id = session.session_id
+            service.require_soak_candidate(session)
+            if trace is None:
+                trace = root / active_id / f"soak-{uuid4().hex}.jsonl"
+            if trace.exists() or trace.is_symlink():
+                raise FileExistsError(f"refusing to overwrite soak evidence: {trace}")
+        finally:
+            asyncio.run(core.close())
+
+        # stderr stays human readable; stdout emits one final JSON document.
+        typer.echo(
+            f"soak-run session={active_id} evidence={trace} "
+            f"hours={hours if hours is not None else minimum:g}",
+            err=True,
+        )
+
+        def show_sample(observed: SoakSample) -> None:
+            if progress:
+                typer.echo(
+                    f"soak sample: elapsed={observed.elapsed_seconds / 3600:.2f}h "
+                    f"llm={observed.llm_ok} comfyui={observed.comfyui_ok} "
+                    f"renderer={observed.renderer_ok} "
+                    f"packs_total={observed.finalized_packs} "
+                    f"errors={len(observed.errors)}",
+                    err=True,
+                )
+
+        report = observe_soak(
+            settings,
+            output=trace,
+            duration_hours=hours,
+            interval_seconds=sample_seconds,
+            qualification_session_id=active_id,
+            on_sample=show_sample,
+        )
+        if not report.ready_for_soak_review:
+            _print_payload(
+                {
+                    "session_id": active_id,
+                    "evidence_path": str(trace),
+                    "overnight_soak": "fail",
+                    "production_qualified": False,
+                    "observation": report.model_dump(mode="json"),
+                },
+                as_json=json_output,
+            )
+            raise typer.Exit(code=1)
+
+        # Fresh DB-backed session reads; record() rechecks all trace bytes,
+        # the SHA, identity, observed health, duration and model assets.
+        core = build_core(settings)
+        try:
+            service = _qualification_service(core)
+            qualified = service.record(
+                active_id,
+                QualificationStage.OVERNIGHT_SOAK,
+                status=QualificationStatus.PASS,
+                details={
+                    "evidence_path": str(trace),
+                    "evidence_sha256": report.evidence_sha256,
+                },
+            )
+            remaining = [
+                stage.value
+                for stage in REQUIRED_STAGES
+                if qualified.stage(stage).status
+                not in (QualificationStatus.PASS, QualificationStatus.SKIPPED)
+            ]
+        finally:
+            asyncio.run(core.close())
+        _print_payload(
+            {
+                "session_id": active_id,
+                "evidence_path": str(trace),
+                "overnight_soak": "pass",
+                "production_qualified": False,
+                "remaining_stages": remaining,
+                "observation": report.model_dump(mode="json"),
+            },
+            as_json=json_output,
+        )
+    except (KeyError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(
+            f"qualify soak-run error: {exc} "
+            f"(session={active_id or '-'}, evidence={trace or '-'})",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
 
 
 @qualify_app.command("soak-observe")
