@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
-import json
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -260,10 +259,6 @@ def test_cli_draft_writes_only_verified_manifest_without_install(
 ) -> None:
     from artifex.comfy.workflow_audit import WorkflowAudit
 
-    monkeypatch.setattr(
-        "artifex.cli.audit_workflows",
-        lambda settings: _fake_audit(),
-    )
     monkeypatch.setattr(
         "artifex.cli.resolve_missing_dependencies",
         lambda audit, **kwargs: _resolution(),
