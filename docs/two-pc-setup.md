@@ -81,6 +81,63 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Coordinated two-PC admission maintenance (PC-A)
+
+After configuring the **same authenticated PC-B gateway URL** for both
+`comfyui.base_url` and `render_nodes.primary`, and setting
+`comfyui.gateway_token_env: ARTIFEX_RENDER_NODE_TOKEN` (with the actual
+secret present in PC-A's environment), you can operate both durable
+admission barriers from **one PC-A command**:
+
+```powershell
+# Read-only comparison; never pauses or changes either machine.
+uv run artifex maintenance pair --config .\\config\\local.yaml
+
+# Stop Artifex scheduling, drain existing production + ComfyUI queue,
+# seal PC-A first, then seal and verify the authenticated PC-B gateway.
+uv run artifex maintenance pair --config .\\config\\local.yaml `
+  --apply --wait-seconds 600 --poll-seconds 5
+```
+
+The new command checks the actual PC-B `/v1/gateway/status` before
+mutating anything on PC-A. An unavailable gateway, invalid authentication,
+unexpected attestation or mismatched URL fails closed. It waits for the
+existing controller's persisted in-flight Packs and generation attempts,
+uses the same cross-process SQLite lock as Artifex `POST /prompt`, then
+asks PC-B to atomically seal its gateway and reads its status again.
+
+**Partial failures remain sealed on PC-A.** If the PC-B gateway times
+out or its queue becomes busy after the PC-A fence closes, the command
+reports `partial` with explicit recovery actions. It does NOT secretly
+undo the controller's maintenance pause, discard GPU work, retry a restart,
+or resume rendering. Once PC-B is repaired and its queue is empty, rerun
+the exact `--apply` command to finish sealing.
+
+After any separately performed, safe renderer maintenance, use the guarded
+release command:
+
+```powershell
+uv run artifex maintenance pair --config .\\config\\local.yaml `
+  --apply --release
+```
+
+Release requires BOTH fences sealed, controller still PAUSED, and a
+**fresh passing real** production/repair workflow audit plus verified
+ComfyUI idle queue. It opens PC-B first and verifies the status before
+opening PC-A. If PC-B release fails, PC-A remains sealed. If PC-A release
+fails, it reports `partial` for manual reconciliation. It never resumes
+the controller automatically.
+
+**Security boundary:** `both_sealed` means the Artifex controller
+and the authenticated PC-B gateway are sealed, **not** that all local
+PC-B applications are unable to write to ComfyUI's loopback socket.
+Neither this tool nor a successful live audit can prove that unrelated
+PC-B-local apps have stopped using that socket. Therefore reports retain
+`restart_authorized=false` and
+`external_loopback_clients_fenced=false`. No service restart is
+performed. Also, the LAN gateway uses HTTP unless you intentionally
+provide an encrypted transport; protect the private LAN or tunnel.
+
 ## Opt-in PC-B authenticated ComfyUI gateway (managed renderer only)
 
 For a more controlled two-PC setup, Artifex can expose only an authenticated,

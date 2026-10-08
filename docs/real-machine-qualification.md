@@ -2,6 +2,24 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## Coordinated PC-A/PC-B acceptance and release
+
+`uv run artifex maintenance pair --config .\\config\\local.yaml`
+previews both controller and authenticated renderer gateway states. With
+`--apply`, the operation first drains and atomically seals controller
+submissions, then attempts a real PC-B authenticated gateway seal. A
+lost/competing remote service leaves the already-sealed PC-A untouched
+and the resulting `partial` status explicitly visible.
+
+`--apply --release` is permitted only after both seals have been
+verified, the controller is still PAUSED, and a fresh live workflow/queue
+audit has succeeded. The remote gate opens before the controller gate,
+with observed partial failures reported honestly; there is no implicit
+daemon resume. A successful `both_sealed` result still never authorizes
+a ComfyUI process restart, since third-party PC-B loopback clients remain
+outside the gateway. The real two-PC and eight-hour GPU qualification
+remains a separate requirement.
+
 ## PC-B authenticated gateway: required real-machine checks
 
 The optional PC-B managed-renderer gateway requires an Artifex-owned

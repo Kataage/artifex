@@ -37,6 +37,8 @@ jobs:
       - run: uv run artifex startup --help
       - run: uv run artifex render-node serve --help
       - run: uv run pytest -q tests/test_renderer_gateway.py tests/test_submission_fence.py tests/test_comfy_client.py
+      - run: uv run artifex maintenance pair --help
+      - run: uv run pytest -q tests/test_pair_maintenance.py
       - run: uv run artifex maintenance fence --help
       - run: uv run artifex maintenance drain --help
       - run: uv run artifex deployment activate --help
