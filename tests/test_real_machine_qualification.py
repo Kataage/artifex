@@ -415,6 +415,57 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
 
 
 
+def test_qualification_accepts_lora_promoted_after_session_started(
+    tmp_path: Path,
+) -> None:
+    service, database, _, loras, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    new_path = tmp_path / "promoted.safetensors"
+    new_path.write_bytes(b"promoted-during-qualification")
+    loras.upsert(
+        LoRAProfile(
+            id="new-promoted",
+            path=new_path,
+            state=LoRAState.PRODUCTION,
+            target_character_ids=("char-1",),
+            model_families=("ilxl",),
+            readiness=1.0,
+            checksum=hashlib.sha256(new_path.read_bytes()).hexdigest(),
+            last_validation_at=datetime.now(UTC),
+            last_validation_run_id="validation-after-start",
+        )
+    )
+
+    assert service._verify_production_loras(session, {}) == []
+    database.dispose()
+
+
+def test_qualification_rejects_unvalidated_new_production_lora(
+    tmp_path: Path,
+) -> None:
+    service, database, _, loras, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    new_path = tmp_path / "unvalidated.safetensors"
+    new_path.write_bytes(b"unvalidated")
+    loras.upsert(
+        LoRAProfile(
+            id="new-unvalidated",
+            path=new_path,
+            state=LoRAState.PRODUCTION,
+            target_character_ids=("char-1",),
+            model_families=("ilxl",),
+            readiness=1.0,
+            checksum=hashlib.sha256(new_path.read_bytes()).hexdigest(),
+            last_validation_at=session.created_at - timedelta(hours=1),
+            last_validation_run_id="old-validation",
+        )
+    )
+
+    issues = service._verify_production_loras(session, {})
+    assert any("new-unvalidated" in issue and "validation evidence" in issue for issue in issues)
+    database.dispose()
+
+
 def test_verify_rejects_qualification_policy_downgrade(tmp_path: Path) -> None:
     service, database, _, _, settings, _ = _service(tmp_path)
     session = service.start(_doctor())

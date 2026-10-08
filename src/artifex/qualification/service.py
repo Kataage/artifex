@@ -948,8 +948,20 @@ class QualificationService:
         primary = self._settings.render_nodes.primary_node()
         for lora_id, profile in current.items():
             if lora_id not in baseline:
-                issues.append(f"production LoRA {lora_id} was added during qualification")
-                continue
+                # Qualification may legitimately validate a DISCOVERED/PENDING
+                # LoRA after start. Require contemporaneous validation evidence
+                # instead of rejecting the entire session on promotion.
+                validated_at = profile.last_validation_at
+                if (
+                    validated_at is None
+                    or validated_at.tzinfo is None
+                    or validated_at < session.created_at
+                    or not profile.last_validation_run_id
+                ):
+                    issues.append(
+                        f"production LoRA {lora_id} was added without "
+                        "qualification-time validation evidence"
+                    )
             if not self._settings.qualification.require_stable_asset_hashes:
                 continue
             if profile.source is not None and profile.source.startswith("render-node:"):
@@ -971,7 +983,7 @@ class QualificationService:
                     matches = [
                         item for item in attestation.loras
                         if item.relative_path.replace("\\", "/")
-                        == str(profile.metadata.get("asset_name", "")).replace("\\\\", "/")
+                        == str(profile.metadata.get("asset_name", "")).replace("\\", "/")
                     ]
                     if len(matches) != 1 or matches[0].sha256 != profile.checksum:
                         raise ValueError("render node LoRA is absent or hash mismatched")

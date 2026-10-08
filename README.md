@@ -62,7 +62,7 @@ The primary development environment is Windows with `uv` for Python dependency m
 
 ## Development status
 
-Repository bootstrap is in progress. The implementation specification is tracked under `docs/` and GitHub Issues.
+The native-Windows software baseline and the two-PC controller/render-node topology are implemented. **Real PC-A/PC-B production qualification is still outstanding** under Issue #40; a successful CI run is not a production-ready declaration. The implementation specification is tracked under `docs/` and GitHub Issues.
 
 
 ## Initial Complete acceptance
