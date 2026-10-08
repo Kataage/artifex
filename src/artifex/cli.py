@@ -235,6 +235,48 @@ def _startup_role(value: str) -> StartupRole:
     return cast(StartupRole, selected)
 
 
+@render_node_app.command("owner-audit")
+def render_node_owner_audit(
+    config: ConfigOption = None,
+    save: Annotated[
+        bool,
+        typer.Option("--save", help="Persist this read-only evidence to a new JSON file."),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Explicit new evidence path; refuses overwrite."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: inspect current ComfyUI ownership, TCP and Scheduler without changes."""
+    from datetime import datetime, timezone
+
+    from artifex.render_node.owner_audit import (
+        observe_renderer_owner,
+        save_owner_observation,
+    )
+
+    target = config or Path("config/render-node.yaml")
+    try:
+        if target.is_symlink() or not target.is_file():
+            raise ValueError(f"Existing non-symlinked PC-B config required: {target}")
+        report = observe_renderer_owner(_settings(target), config=target)
+        if save or output is not None:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            destination = output or (
+                Path("data/qualification/owner-audit")
+                / f"{stamp}-{uuid4().hex[:12]}.json"
+            )
+            report["evidence_path"] = str(destination.expanduser().absolute())
+            save_owner_observation(report, destination)
+        _print_payload(report, as_json=json_output)
+        if report["status"] != "observed_stable":
+            raise typer.Exit(code=1)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"render-node owner-audit error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @startup_app.command("install")
 def startup_install(
     role: Annotated[str, typer.Option("--role")] = "controller",
