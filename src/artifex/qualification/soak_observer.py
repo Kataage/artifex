@@ -13,7 +13,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -374,7 +373,7 @@ def verify_soak_evidence(
     baseline: dict[str, str] | None = None
     for index, item in enumerate(samples):
         elapsed = item.elapsed_seconds
-        if elapsed < previous or (index > 0 and elapsed - previous > header.interval_seconds * 1.5 + 30):
+        if elapsed < previous or elapsed - previous > header.interval_seconds * 1.5 + 30:
             problems.append(f"Sample {index}: elapsed time reversed or sampling gap exceeded")
         if abs(
             (item.observed_at - header.started_at).total_seconds() - elapsed
