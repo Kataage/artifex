@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import hmac
-import os
 import json
+import os
 import re
 import sqlite3
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event
-from typing import Any, Callable, Iterator
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
