@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +88,21 @@ def test_socket_audit_rejects_exposure_foreign_owner_or_direct_client(
     )
     assert result.status == state
     assert result.restart_authorized is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Native Windows TCP ownership check")
+def test_native_windows_tcp_probe_observes_real_python_owned_listener() -> None:
+    """Exercise actual PowerShell Get-NetTCPConnection on the Windows runner."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        settings = _settings()
+        settings.comfyui.base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        report = audit_renderer_sockets(settings, owned_pid=os.getpid())
+        assert report.status == "owned_loopback_observed", report.model_dump()
+        assert report.owner_verified
+        assert report.listener_pids == (os.getpid(),)
+        assert report.restart_authorized is False
 
 
 def test_socket_audit_fails_closed_on_unsupported_os_and_probe_errors() -> None:
