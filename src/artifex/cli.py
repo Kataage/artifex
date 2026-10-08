@@ -813,7 +813,7 @@ def onboard_prepare_renderer(
     ] = Path("config/model-sources.json"),
     comfy_root: Annotated[
         Path | None,
-        typer.Option("--comfy-root", help="Artifex-owned isolated ComfyUI source directory."),
+        typer.Option("--comfy-root", help="Optional Artifex-owned ComfyUI directory for verified reuse (mandatory with --apply)."),
     ] = None,
     apply: Annotated[
         bool,
