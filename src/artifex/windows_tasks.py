@@ -205,3 +205,117 @@ Unregister-ScheduledTask -TaskName {name} -TaskPath '\\' -Confirm:$false
     if installed:
         _run_powershell(script)
     return installed
+
+def task_configuration_matches(
+    role: StartupRole,
+    *,
+    config: Path,
+    status: StartupTaskStatus,
+) -> tuple[bool, str]:
+    """Compare an installed task with the *current* Python, config and working dir."""
+    _require_windows()
+    execute, arguments, working_directory = _command(role, config)
+    if not status.installed:
+        return False, "Artifex startup task is not installed"
+    if not status.managed:
+        return False, "refusing an unowned Windows scheduled task"
+    if (
+        status.execute != execute
+        or status.arguments != arguments
+        or status.working_directory != working_directory
+    ):
+        return False, (
+            "Artifex task launch configuration differs from current Python, "
+            "working directory or selected --config; explicit --replace is required"
+        )
+    return True, "Artifex-owned task matches current executable and config"
+
+
+def _start_script(
+    role: StartupRole,
+    *,
+    execute: str,
+    arguments: str,
+    working_directory: str,
+) -> str:
+    name = _literal(_TASKS[role])
+    marker = _literal(f"{_MARKER}/{role}")
+    return f"""
+$ErrorActionPreference = 'Stop'
+$task = Get-ScheduledTask -TaskName {name} -TaskPath '\\' -ErrorAction SilentlyContinue
+if ($null -eq $task) {{ throw 'Artifex scheduled task does not exist' }}
+if ($task.Description -ne {marker}) {{
+  throw 'Refusing to start a task not owned by Artifex'
+}}
+$action = @($task.Actions)[0]
+if (
+  $action.Execute -cne {_literal(execute)} -or
+  $action.Arguments -cne {_literal(arguments)} -or
+  $action.WorkingDirectory -cne {_literal(working_directory)}
+) {{ throw 'Artifex scheduled task changed after preflight; refusing to start' }}
+if ([string]$task.State -eq 'Running') {{ exit 0 }}
+Start-ScheduledTask -TaskName {name} -TaskPath '\\'
+"""
+
+
+def activate_task(
+    role: StartupRole,
+    *,
+    config: Path,
+    install_missing: bool = False,
+    replace: bool = False,
+) -> tuple[StartupTaskStatus, str]:
+    """Explicitly start one verified task without spawning a second daemon.
+
+    Never modifies a task not owned by Artifex. Existing changed launch
+    settings require explicit opt-in replacement; running tasks are not
+    replaced under a live process. Called only after CLI --apply consent.
+    """
+    _require_windows()
+    execute, arguments, working_directory = _command(role, config)
+    current = task_status(role)
+    action = "already_running"
+    if not current.installed:
+        if not install_missing:
+            raise ValueError(
+                "Artifex startup task missing; pass --install-missing --apply"
+            )
+        current = install_task(role, config=config)
+        action = "installed_and_started"
+    compatible, detail = task_configuration_matches(
+        role, config=config, status=current
+    )
+    if not compatible:
+        if not current.managed:
+            raise ValueError(detail)
+        if not replace:
+            raise ValueError(detail)
+        if (current.state or "").casefold() == "running":
+            raise ValueError(
+                "Cannot replace a running Artifex task; stop it safely first"
+            )
+        current = install_task(role, config=config, replace=True)
+        action = "replaced_and_started"
+        compatible, detail = task_configuration_matches(
+            role, config=config, status=current
+        )
+        if not compatible:
+            raise RuntimeError(detail)
+    if (current.state or "").casefold() != "running":
+        _run_powershell(
+            _start_script(
+                role,
+                execute=execute,
+                arguments=arguments,
+                working_directory=working_directory,
+            )
+        )
+        if action == "already_running":
+            action = "started"
+    status = task_status(role)
+    compatible, detail = task_configuration_matches(
+        role, config=config, status=status
+    )
+    if not compatible:
+        raise RuntimeError("scheduled task drifted during activation: " + detail)
+    return status, action

@@ -148,6 +148,60 @@ weight downloads still require explicit reviewed installation into
 an Artifex-created isolated ComfyUI environment; the existing
 `deps-install` safeguards and offline model hashing are unchanged.
 
+## Start existing Windows services with one command per PC
+
+A safe native Windows activation command combines scheduled-task ownership
+checks, configuration/path validation and the existing *live* deployment
+checks. It runs **locally** on each PC; it does not execute commands remotely,
+alter the other machine, silently install packages, or generate GPU images.
+
+After configuring both machines, on **PC-B (renderer)** run:
+
+```powershell
+# Preview: inspect registered task, current config and live connectivity
+uv run artifex deployment activate --role renderer `
+  --config .\\config\\render-node.yaml
+
+# Opt-in: create the current-user scheduled task if absent, start it, then
+# check live renderer readiness (10-minute maximum; default 90 seconds)
+uv run artifex deployment activate --role renderer `
+  --config .\\config\\render-node.yaml --apply --install-missing `
+  --wait-seconds 600
+```
+
+Once PC-B is reachable, run the same two operations on **PC-A (controller)**:
+
+```powershell
+uv run artifex deployment activate --role controller `
+  --config .\\config\\local.yaml
+uv run artifex deployment activate --role controller `
+  --config .\\config\\local.yaml --apply --install-missing `
+  --wait-seconds 600
+```
+
+The preview does not register or start anything. `--apply` explicitly
+activates only an **Artifex-owned** Windows Task Scheduler task, using the
+Python environment, current directory and YAML file selected on that PC.
+An already-running matching task is left alone, rather than spawning a second
+daemon. If the installed task still refers to an old Python executable,
+directory, or config, the command refuses to launch it. Use `--apply --replace`
+to replace only an **Artifex-owned stopped task**; for a running task,
+stop it safely before replacement. An unrelated scheduled task can never be
+taken over. A missing task is only registered with `--install-missing --apply`;
+the existing Windows logon autostart and restart policy is preserved.
+
+After activation Artifex polls the **real** existing deployment checks:
+LLM/ComfyUI, authenticated renderer, workflow and model dependencies for
+PC-A; local renderer process readiness and config for PC-B. A Task Scheduler
+`Running` status alone is **not proof of healthy production**. The command
+returns a nonzero exit code and actual failing checks if readiness is not
+established within `--wait-seconds` (0–600, default 90). Output always
+sets `production_qualified=false`. Unlike
+`deployment pair-smoke --confirm-render` or
+`qualify archive-reproduce --confirm-render`, activation never submits
+a GPU job. Model downloads, permission approvals, the 8-hour soak, and
+the remaining strict qualification steps are still separate workflows.
+
 ## Automatic collection of completed Pack qualification
 
 When the two Windows PCs are already operating and you have a qualification
