@@ -12,6 +12,22 @@ Keep qualification.require_native_windows, require_uv, require_nvidia_gpu, requi
 
 Directories are recursively hashed with stable relative paths. Final verification re-hashes local assets and re-fetches renderer attestations, so replacing a model on either PC during qualification invalidates the session.
 
+## Activate both native Windows PCs with minimum operator steps
+
+After each PC has its own valid configuration, use the safe
+`deployment activate --role renderer --apply --install-missing` command on
+PC-B, then `deployment activate --role controller --apply --install-missing`
+on PC-A. The activation command installs only a missing Artifex-owned
+current-user scheduled task and starts it if not already running. The same
+command performs live deployment checks and reports missing/failed services;
+use `--wait-seconds 600` to allow slow model loading. Without `--apply`
+the command is read-only and does not start anything. Running tasks with
+stale configuration and unowned scheduled tasks are refused; paths/IPs/models
+remain configurable. See [two-pc-setup.md](two-pc-setup.md).
+
+Activation does not generate an image, run `qualify start`, initiate the
+8-hour soak or replace the 14-stage qualification ladder.
+
 ## Start
 
 On PC-B, first run `uv run artifex render-node preflight --config .\\config\\render-node.yaml --json` and address each reported issue. Run the authenticated render-node service and ComfyUI on the trusted LAN. On PC-A, run `artifex setup`, select the production checkpoint explicitly, configure controller-local evaluation assets and start the local LLM endpoint. The renderer preflight checks only PC-B-local state; the PC-A doctor and qualification check the end-to-end configuration.
