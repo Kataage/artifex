@@ -384,6 +384,8 @@ class RenderAgentConfig(StrictModel):
 
 class ComfyUiConfig(StrictModel):
     base_url: str = "http://127.0.0.1:8188"
+    # Shared by ALL Artifex processes on PC-A; use the same path in CLI and daemon.
+    submission_fence_path: Path = Path("data/comfy-submission-fence.sqlite3")
     output_mode: Literal["filesystem", "api"] = "filesystem"
     output_dir: Path | None = None
     download_dir: Path = Path("data/render-cache")
