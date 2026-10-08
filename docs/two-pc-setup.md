@@ -235,6 +235,33 @@ render_nodes:
 
 Current production dispatch uses the configured primary node. The node model deliberately leaves room for later scheduling/failover across multiple renderers without changing Pack, workflow or provenance formats.
 
+## PC-A to PC-B end-to-end preflight
+
+After configuring both PCs, starting ComfyUI and the PC-B render-node service,
+and starting your local LLM server on PC-A, run the **read-only controller
+preflight**:
+
+```powershell
+uv run artifex preflight --config .\\config\\local.yaml --json
+```
+
+It reads the saved URLs and paths (you do not have to reenter any IP addresses)
+and checks:
+
+- PC-A can connect to ComfyUI's `/system_stats` on PC-B
+- PC-A has a bearer token and can obtain authenticated renderer attestation
+- PC-B's node ID, Windows/NVIDIA GPU evidence, inventory status and timestamps
+- PC-A's checkpoint/refiner/VAE/upscaler filenames match the PC-B inventory
+- The local llama.cpp/OpenAI-compatible server is running and, when bootstrap
+  is enabled, the selected GGUF file exists on PC-A
+
+The response lists each check with a `ready` flag. The command exits nonzero
+if any check fails, but **does not download models, change configuration, start
+ComfyUI or submit image generation jobs**. It is a connectivity/prerequisite
+diagnostic, not the full quality/long-running qualification. Token values are
+never printed. Missing files must be fixed with the respective PC-specific
+`setup --update` / `render-node configure --update` commands.
+
 ## Qualification
 
 Complete the PC-B preflight first; then on PC-A run `artifex setup`,
