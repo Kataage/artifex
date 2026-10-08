@@ -2,6 +2,19 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## Automatic safe runtime revalidation after renderer changes
+
+After a model or node change on PC-B, run
+`uv run artifex onboard reconcile-renderer --config
+.\\config\\render-node.yaml --wait-seconds 600`.
+This read-only observer waits for the actual ComfyUI `/object_info`
+production/repair workflow check to pass while verifying its live
+`queue_running` and `queue_pending` state. It never sends a prompt or
+interrupt, terminates any child/external renderer, or treats a mere installed
+file as runtime proof. Busy, missing, unreachable and malformed states remain
+explicitly unqualified; an idle queue alone is not safe permission to restart.
+Only `qualify verify` can declare 14-stage production qualification.
+
 ## Prepare renderer model dependencies without manual repeated downloads
 
 On PC-B, `artifex onboard prepare-renderer --config
