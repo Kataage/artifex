@@ -350,6 +350,8 @@ class ManagedComfyConfig(StrictModel):
     working_directory: Path | None = None
     arguments: tuple[str, ...] = ()
     log_path: Path = Path("data/logs/comfyui.log")
+    # PC-B: durable proof for read-only reattachment after supervisor exit.
+    ownership_receipt_path: Path = Path("data/render/comfy-owner-receipt.json")
     startup_timeout_seconds: float = Field(default=180.0, gt=0, le=1800)
     poll_seconds: float = Field(default=15.0, gt=0, le=3600)
     restart_limit: int = Field(default=3, ge=0, le=20)
