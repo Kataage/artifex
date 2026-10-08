@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_two_pc_readiness import _native, _snapshot
 from typer.testing import CliRunner
 
 from artifex.cli import app
@@ -16,8 +17,6 @@ from artifex.pair_render_proof import (
 )
 from artifex.render_node.models import RenderAssetDigest, RenderNodeAttestation
 from artifex.two_pc_readiness import PairReadiness, RendererEvidence
-
-from test_two_pc_readiness import _native, _snapshot
 
 
 def _settings() -> ArtifexSettings:
