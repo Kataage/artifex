@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
 import threading
 import time
@@ -165,9 +164,11 @@ def test_remote_reader_rejects_wrong_node_and_unsafe_flags(
     def mismatched(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_observation(node_id="other"))
 
-    with httpx.Client(transport=httpx.MockTransport(mismatched)) as client:
-        with pytest.raises(ValueError, match="node ID"):
-            fetch_renderer_owner_audit("gpu-b", config, client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(mismatched)) as client,
+        pytest.raises(ValueError, match="node ID"),
+    ):
+        fetch_renderer_owner_audit("gpu-b", config, client=client)
 
     unsafe = _observation()
     unsafe["audit"]["restart_authorized"] = True
@@ -175,9 +176,11 @@ def test_remote_reader_rejects_wrong_node_and_unsafe_flags(
     def unsafe_reply(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=unsafe)
 
-    with httpx.Client(transport=httpx.MockTransport(unsafe_reply)) as client:
-        with pytest.raises(ValidationError):
-            fetch_renderer_owner_audit("gpu-b", config, client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(unsafe_reply)) as client,
+        pytest.raises(ValidationError),
+    ):
+        fetch_renderer_owner_audit("gpu-b", config, client=client)
 
 
 def test_remote_reader_refuses_unauthenticated_or_missing_url(
