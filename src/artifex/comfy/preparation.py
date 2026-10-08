@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,8 @@ from pydantic import BaseModel, ConfigDict
 
 from artifex.comfy.dependency_installer import (
     DependencyInstallResult,
+    DependencyManifest,
+    PinnedDependency,
     _safe_install_root,
     install_manifest,
 )
@@ -34,10 +37,61 @@ class RendererPreparationReport(BaseModel):
     node_candidates: tuple[dict[str, Any], ...]
     node_discovery_error: str | None
     installed: tuple[dict[str, Any], ...]
+    existing_verified: tuple[dict[str, Any], ...] = ()
+    download_required: tuple[dict[str, Any], ...] = ()
+    next_actions: tuple[str, ...] = ()
     needs_comfy_restart_and_reaudit: bool
     ready: bool
     manual_action_required: bool
     production_qualified: bool = False
+
+
+def _hash_file(path: Path) -> str:
+    sha = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+def _existing_models(
+    root: Path,
+    manifest: DependencyManifest,
+) -> tuple[DependencyManifest, tuple[dict[str, Any], ...]]:
+    """Reuse only byte-verified models inside Artifex-owned isolated ComfyUI.
+
+    A mismatched, nonregular or symlinked destination is a hard failure,
+    never a reason to overwrite or download again. Preflight all targets
+    before downloading even a single missing model.
+    """
+    pending: list[PinnedDependency] = []
+    verified: list[dict[str, Any]] = []
+    model_root = root / "models"
+    if model_root.is_symlink():
+        raise ValueError("Refusing symlinked ComfyUI model root")
+    for item in manifest.artifacts:
+        if item.kind != "model" or item.model_folder is None:
+            raise ValueError("Renderer preparation never installs arbitrary custom code")
+        folder = model_root / item.model_folder
+        target = folder / item.name
+        if folder.is_symlink() or target.is_symlink():
+            raise ValueError(f"Refusing symlinked ComfyUI model destination: {target}")
+        if not target.exists():
+            pending.append(item)
+            continue
+        if not target.is_file():
+            raise ValueError(f"Existing model destination is not a regular file: {target}")
+        if target.stat().st_size != item.size_bytes:
+            raise ValueError(f"Existing model size differs from pinned source: {target}")
+        if _hash_file(target) != item.sha256.lower():
+            raise ValueError(f"Existing model SHA-256 differs from pinned source: {target}")
+        verified.append({
+            "id": item.id,
+            "destination": str(target),
+            "sha256": item.sha256.lower(),
+            "size_bytes": item.size_bytes,
+        })
+    return DependencyManifest(artifacts=tuple(pending)), tuple(verified)
 
 
 async def prepare_renderer(
@@ -61,11 +115,14 @@ async def prepare_renderer(
             raise ValueError("--apply requires --accept-licenses for reviewed model terms")
         if comfy_root is None:
             raise ValueError("--apply requires --comfy-root for an Artifex isolated ComfyUI")
-        # Fail before contacting Hub/Manager when installation destination is
-        # untrusted, e.g. an existing personal ComfyUI tree or symlink.
-        await asyncio.to_thread(_safe_install_root, comfy_root)
     elif accept_licenses:
         raise ValueError("--accept-licenses requires --apply")
+    verified_root: Path | None = None
+    if comfy_root is not None:
+        if comfy_root.expanduser().is_symlink():
+            raise ValueError("Refusing symlinked ComfyUI installation root")
+        # An unsafe root aborts before contacting ComfyUI, Hub or Manager.
+        verified_root = await asyncio.to_thread(_safe_install_root, comfy_root)
 
     saved = read_model_source_registry(sources, if_missing_empty=True)
     audit = await audit_workflows(settings)
@@ -96,14 +153,20 @@ async def prepare_renderer(
     elif needed_nodes:
         node_error = "Node discovery disabled; missing code requires separate review"
 
+    pending = draft.manifest
+    existing_verified: tuple[dict[str, Any], ...] = ()
+    if verified_root is not None and pending.artifacts:
+        pending, existing_verified = await asyncio.to_thread(
+            _existing_models, verified_root, pending
+        )
+
     installed: DependencyInstallResult | None = None
-    if apply and draft.manifest.artifacts:
+    if apply and pending.artifacts:
         assert comfy_root is not None
-        # The existing installer enforces pinned source/SHA, size, approved
-        # destination and no overwrite. Never grant third-party code consent.
+        # The original installer still rechecks races and refuses overwrites.
         installed = await asyncio.to_thread(
             install_manifest,
-            draft.manifest,
+            pending,
             comfy_root,
             accept_licenses=True,
             allow_custom_code=False,
@@ -115,9 +178,26 @@ async def prepare_renderer(
             item.model_dump(mode="json") for item in installed.installed
         )
     pinned = tuple(item.model_dump(mode="json") for item in draft.manifest.artifacts)
+    download_required = tuple(item.model_dump(mode="json") for item in pending.artifacts)
     unresolved = tuple(item.model_dump(mode="json") for item in draft.unresolved)
-    manual = bool(unresolved or needed_nodes)
     changed = bool(installed_rows)
+    refresh_needed = changed or bool(existing_verified)
+    actions: list[str] = []
+    if unresolved:
+        actions.append("review_and_register_exact_model_publisher_bindings")
+    if needed_nodes:
+        actions.append("review_and_install_missing_custom_nodes_separately")
+    if pending.artifacts and not apply:
+        actions.append("review_model_licenses_then_apply_pinned_download")
+    if refresh_needed:
+        actions.append("refresh_or_restart_comfyui_then_repeat_live_workflow_audit")
+    if not audit.ready and not (
+        unresolved or needed_nodes or pending.artifacts or refresh_needed
+    ):
+        actions.append("investigate_unverified_workflow_inputs")
+    if audit.ready:
+        actions.append("run_two_pc_deployment_verify")
+    manual = bool(actions and actions != ["run_two_pc_deployment_verify"])
     return RendererPreparationReport(
         mode="apply" if apply else "preview",
         audit_ready_before=audit.ready,
@@ -129,9 +209,11 @@ async def prepare_renderer(
         node_candidates=candidates,
         node_discovery_error=node_error,
         installed=installed_rows,
-        # ComfyUI may cache input model lists; even after a download its
-        # previously captured /object_info is NOT reinterpreted as a PASS.
-        needs_comfy_restart_and_reaudit=changed,
-        ready=audit.ready and not changed and not manual,
+        existing_verified=existing_verified,
+        download_required=download_required,
+        next_actions=tuple(actions),
+        # Files on disk alone are never runtime readiness evidence.
+        needs_comfy_restart_and_reaudit=refresh_needed,
+        ready=audit.ready and not refresh_needed and not manual,
         manual_action_required=manual,
     )
