@@ -307,6 +307,66 @@ diagnostic, not the full quality/long-running qualification. Token values are
 never printed. Missing files must be fixed with the respective PC-specific
 `setup --update` / `render-node configure --update` commands.
 
+## Windows autostart after sign-in
+
+On each PC, install its own **opt-in per-user Windows Task Scheduler task**.
+No Docker, Windows service account, administrator privileges, or saved Windows
+password is required. Run these commands on the actual PC, from the Artifex
+project/working directory, using the same `uv` environment in which Artifex
+was installed.
+
+**PC-A:**
+```powershell
+uv run artifex startup install --role controller --config .\\config\\local.yaml
+uv run artifex startup status --role controller --json
+```
+
+**PC-B:**
+```powershell
+uv run artifex startup install --role renderer --config .\\config\\render-node.yaml
+uv run artifex startup status --role renderer --json
+```
+
+The tasks launch the existing project's Python environment directly
+(`python -m artifex.cli daemon` on PC-A and `python -m artifex.cli render-node serve`
+on PC-B), using absolute configuration paths and the installation-time
+working directory. User-specific IPs, local paths and environment settings
+remain configurable; no machine-specific address or GPU index is baked into
+the task implementation.
+
+Task Scheduler starts the task **on that Windows user's next sign-in**, not
+before sign-in or immediately upon registration. A failed task is retried at
+one-minute intervals, up to ten retries by default (configure
+`--restart-count`). Concurrent starts of the same scheduled task are
+ignored, and there is no three-day run-time timeout. The restart policy is
+bounded; persistent errors still require operator attention.
+
+Use `--replace` to update a previously installed Artifex task after moving
+the repository, changing Python environments, or changing its config path.
+Normal changes *inside* the existing YAML do not require re-registering a
+task; restart the process to apply them. Example:
+
+```powershell
+uv run artifex startup install --role controller --config .\\config\\local.yaml --replace
+uv run artifex startup uninstall --role controller
+```
+
+The task registration never stores Discord or render-node tokens in command
+arguments or XML. **Environment variables set only in the current PowerShell
+window do not automatically become available to a future login task.**
+Provision credentials to the intended user through an appropriate persistent
+secret/environment mechanism, and restrict access accordingly. PC-A and PC-B
+must each have their required credentials available to the scheduled process.
+The CLI refuses to overwrite or remove unrelated tasks with the same name.
+
+This feature supervises Artifex's controller process and PC-B's lightweight
+render-node attestation endpoint. It does **not** yet start the separate
+ComfyUI application on PC-B; configure ComfyUI's own startup independently,
+including its LAN binding, before expecting unattended image generation.
+This logon-triggered configuration also does not guarantee execution
+before anyone signs in; a pre-login service deployment has different Windows
+account/GPU-session and secret-handling requirements.
+
 ## Qualification
 
 Complete the PC-B preflight first; then on PC-A run `artifex setup`,
