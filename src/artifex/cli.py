@@ -14,9 +14,9 @@ from artifex.characters import HololiveCatalog
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.controller_preflight import check_controller
-from artifex.deployment import DeploymentRole, verify_deployment
 from artifex.db import Database
 from artifex.db.models import PackInventoryRow
+from artifex.deployment import DeploymentRole, verify_deployment
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.evaluation import (
     SemanticArchiveIndexer,
