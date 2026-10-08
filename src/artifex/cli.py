@@ -61,6 +61,7 @@ from artifex.research import (
 from artifex.review import ReviewQueueRepository
 from artifex.series import SeriesRepository
 from artifex.setup import configure_two_pc
+from artifex.setup_renderer import configure_renderer
 from artifex.telemetry import EventSeverity
 
 app = typer.Typer(
@@ -136,12 +137,12 @@ def _settings(config: Path | None) -> ArtifexSettings:
 @app.command("setup")
 def setup(
     comfy_url: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--comfy-url",
-            help="Reachable ComfyUI base URL on the render PC.",
+            help="Reachable ComfyUI URL; optional when --update reuses saved settings.",
         ),
-    ],
+    ] = None,
     output: Annotated[
         Path,
         typer.Option(
@@ -150,9 +151,9 @@ def setup(
         ),
     ] = Path("config/local.yaml"),
     render_node_id: Annotated[
-        str,
+        str | None,
         typer.Option("--render-node-id"),
-    ] = "renderer",
+    ] = None,
     attestation_url: Annotated[
         str | None,
         typer.Option(
@@ -167,15 +168,46 @@ def setup(
             help="Optional controller directory for the selected GGUF.",
         ),
     ] = None,
+    render_cache_dir: Annotated[
+        Path | None,
+        typer.Option("--render-cache-dir", help="Controller folder for retrieved images."),
+    ] = None,
+    production_checkpoint: Annotated[
+        str | None,
+        typer.Option("--production-checkpoint", help="ComfyUI checkpoint filename."),
+    ] = None,
+    semantic_model_path: Annotated[
+        Path | None,
+        typer.Option("--semantic-model-path", help="Controller-local semantic model asset."),
+    ] = None,
+    llm_url: Annotated[
+        str | None,
+        typer.Option("--llm-url", help="Local llama.cpp/OpenAI-compatible server URL."),
+    ] = None,
     download_llm: Annotated[
         bool,
         typer.Option("--download-llm/--skip-llm-download"),
     ] = True,
+    update: Annotated[
+        bool,
+        typer.Option("--update", help="Change only supplied values and preserve other settings."),
+    ] = False,
     force: Annotated[bool, typer.Option("--force")] = False,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
-    """Create a minimal two-PC controller config and optionally fetch the LLM."""
-    settings = _settings(None)
+    """Create or safely update the PC-A controller config."""
+    settings = _settings(output) if update and output.is_file() else _settings(None)
+    primary = settings.render_nodes.primary_node()
+    node_id = render_node_id or (primary[0] if primary else "renderer")
+    base_url = comfy_url or (primary[1].base_url if primary else None)
+    if not base_url:
+        typer.echo("setup error: --comfy-url is required for initial setup", err=True)
+        raise typer.Exit(code=1)
+    resolved_attestation_url = attestation_url
+    if resolved_attestation_url is None and comfy_url is None and primary is not None:
+        resolved_attestation_url = primary[1].attestation_url
+    if render_cache_dir is not None:
+        settings.comfyui.download_dir = render_cache_dir
     if llm_models_dir is not None:
         bootstrap = settings.llm.bootstrap.model_copy(
             update={"models_dir": llm_models_dir}
@@ -190,10 +222,14 @@ def setup(
     try:
         result = configure_two_pc(
             settings,
-            comfyui_base_url=comfy_url,
+            comfyui_base_url=base_url,
             output_path=output,
-            render_node_id=render_node_id,
-            attestation_url=attestation_url,
+            render_node_id=node_id,
+            attestation_url=resolved_attestation_url,
+            production_checkpoint=production_checkpoint,
+            semantic_model_path=semantic_model_path,
+            llm_base_url=llm_url,
+            update=update,
             force=force,
         )
         payload = result.model_dump(mode="json")
@@ -440,6 +476,83 @@ def characters_audit(
                 typer.echo(f"{name}: {', '.join(values)}")
     finally:
         asyncio.run(core.close())
+
+
+@render_node_app.command("configure")
+def render_node_configure(
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="PC-B renderer override YAML."),
+    ] = Path("config/render-node.yaml"),
+    node_id: Annotated[
+        str | None, typer.Option("--node-id", help="Must match PC-A render node ID."),
+    ] = None,
+    bind_host: Annotated[
+        str | None, typer.Option("--bind-host", help="PC-B listen address (restrict firewall to trusted LAN)."),
+    ] = None,
+    port: Annotated[
+        int | None, typer.Option("--port", min=1, max=65535),
+    ] = None,
+    comfy_url: Annotated[
+        str | None, typer.Option("--comfy-url", help="ComfyUI URL as seen from PC-B."),
+    ] = None,
+    checkpoint_path: Annotated[
+        Path | None, typer.Option("--checkpoint-path", help="Full production checkpoint path on PC-B."),
+    ] = None,
+    refiner_path: Annotated[
+        Path | None, typer.Option("--refiner-path"),
+    ] = None,
+    vae_path: Annotated[
+        Path | None, typer.Option("--vae-path"),
+    ] = None,
+    upscaler_path: Annotated[
+        Path | None, typer.Option("--upscaler-path"),
+    ] = None,
+    lora_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--lora-dir", help="PC-B LoRA folder. Repeat for multiple roots."),
+    ] = None,
+    token_env: Annotated[
+        str | None, typer.Option("--token-env", help="Environment variable NAME only, never the secret."),
+    ] = None,
+    update: Annotated[
+        bool, typer.Option("--update", help="Preserve other YAML settings and change supplied values."),
+    ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Replace the entire renderer override YAML."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Create/update PC-B renderer paths, IPs and ports without requiring a running ComfyUI."""
+    settings = _settings(output) if update and output.is_file() else _settings(None)
+    supplied_assets = {
+        name: value
+        for name, value in (
+            ("production_checkpoint", checkpoint_path),
+            ("refiner_checkpoint", refiner_path),
+            ("vae", vae_path),
+            ("upscale_model", upscaler_path),
+        )
+        if value is not None
+    }
+    try:
+        result = configure_renderer(
+            settings,
+            output_path=output,
+            node_id=node_id,
+            bind_host=bind_host,
+            port=port,
+            comfyui_base_url=comfy_url,
+            asset_paths=supplied_assets,
+            lora_roots=tuple(lora_dir) if lora_dir is not None else None,
+            token_env=token_env,
+            update=update,
+            force=force,
+        )
+    except (FileExistsError, OSError, TypeError, ValueError) as exc:
+        typer.echo(f"render-node configuration error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(result.model_dump(mode="json"), as_json=json_output)
 
 
 @render_node_app.command("attest")

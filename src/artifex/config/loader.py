@@ -62,7 +62,9 @@ def _env_path(name: str) -> list[str] | None:
     if not name.startswith(_ENV_PREFIX):
         return None
     suffix = name[len(_ENV_PREFIX) :]
-    if suffix == "DISCORD_TOKEN":
+    # Credential variables are read directly by their respective adapters.
+    # They must not be interpreted as unknown ArtifexSettings model fields.
+    if suffix in {"DISCORD_TOKEN", "RENDER_NODE_TOKEN"}:
         return None
     if "__" in suffix:
         return [part.lower() for part in suffix.split("__") if part]

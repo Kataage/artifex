@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-import yaml
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
+from artifex.configuration_edit import write_override
 
 
 class SetupResult(BaseModel):
@@ -73,6 +74,11 @@ def configure_two_pc(
     output_path: Path,
     render_node_id: str = "renderer",
     attestation_url: str | None = None,
+    production_checkpoint: str | None = None,
+    semantic_model_path: Path | None = None,
+    llm_base_url: str | None = None,
+    attestation_token_env: str = "ARTIFEX_RENDER_NODE_TOKEN",
+    update: bool = False,
     force: bool = False,
     client: httpx.Client | None = None,
 ) -> SetupResult:
@@ -98,7 +104,7 @@ def configure_two_pc(
 
     target = output_path.expanduser().resolve(strict=False)
     llm_path = settings.llm.bootstrap.model_path().expanduser().resolve(strict=False)
-    payload = {
+    payload: dict[str, Any] = {
         "llm": {
             "bootstrap": {
                 "enabled": settings.llm.bootstrap.enabled,
@@ -121,7 +127,7 @@ def configure_two_pc(
                         settings.comfyui.download_dir.expanduser().resolve(strict=False)
                     ),
                     "attestation_url": attestation,
-                    "attestation_token_env": "ARTIFEX_RENDER_NODE_TOKEN",
+                    "attestation_token_env": attestation_token_env,
                 }
             },
         },
@@ -132,28 +138,18 @@ def configure_two_pc(
         },
     }
 
-    if target.exists() and not force:
-        # Re-running setup after a download/network failure is safe, but never
-        # silently replace an operator-modified configuration.
-        existing = yaml.safe_load(target.read_text(encoding="utf-8"))
-        if existing != payload:
-            raise FileExistsError(
-                f"configuration already exists with different settings: {target}; "
-                "rerun with --force to replace it"
-            )
-    else:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(target.suffix + ".tmp")
-        temporary.write_text(
-            yaml.safe_dump(
-                payload,
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-            ),
-            encoding="utf-8",
+    if production_checkpoint is not None:
+        if not production_checkpoint.strip():
+            raise ValueError("production checkpoint must not be empty")
+        payload["production"] = {"checkpoint": production_checkpoint.strip()}
+    if semantic_model_path is not None:
+        payload["qualification"]["asset_paths"]["semantic_model"] = str(
+            semantic_model_path.expanduser().resolve(strict=False)
         )
-        temporary.replace(target)
+    if llm_base_url is not None:
+        payload["llm"]["base_url"] = _normalize_base_url(llm_base_url)
+
+    write_override(target, payload, update=update, force=force)
 
     return SetupResult(
         config_path=target,
