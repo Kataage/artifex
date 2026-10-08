@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -37,6 +38,14 @@ class ComfyUIClient:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._config = config
+        self._gateway_token: str | None = None
+        if config.gateway_token_env is not None:
+            self._gateway_token = os.environ.get(config.gateway_token_env)
+            if not self._gateway_token:
+                raise ValueError(
+                    f"ComfyUI gateway token environment variable is missing: "
+                    f"{config.gateway_token_env}"
+                )
         self._submission_fence = ComfySubmissionFence(config.submission_fence_path)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
@@ -418,6 +427,10 @@ class ComfyUIClient:
                     path,
                     json=json,
                     params=params,
+                    headers=(
+                        {"Authorization": f"Bearer {self._gateway_token}"}
+                        if self._gateway_token is not None else None
+                    ),
                 )
                 if response.status_code >= 500:
                     raise httpx.HTTPStatusError(
