@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import json
 import re
 import sqlite3
@@ -9,7 +10,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
 
 import httpx
@@ -62,25 +63,7 @@ class RendererGatewayAdmission:
         finally:
             self._fence._finish(conn, commit=False)
 
-    def seal_if_idle(self, queue_snapshot: object) -> bool:
-        # Called after acquiring the SAME writer lock as /prompt.
-        with self.admit() as allowed:
-            if not allowed:
-                return True
-            if not isinstance(queue_snapshot, dict):
-                return False
-            running = queue_snapshot.get("queue_running")
-            pending = queue_snapshot.get("queue_pending")
-            if not isinstance(running, list) or not isinstance(pending, list):
-                return False
-            if running or pending:
-                return False
-        # The gap between the two transactions would reopen the race!
-        # The real implementation below performs recheck and update under
-        # a single admission transaction; this method is not used.
-        raise RuntimeError("use seal_with_queue for atomic gateway sealing")
-
-    def seal_with_queue(self, get_queue: Any) -> tuple[bool, str]:
+    def seal_with_queue(self, get_queue: Callable[[], object]) -> tuple[bool, str]:
         conn = self._fence._begin()
         commit = False
         try:
@@ -141,8 +124,6 @@ def make_gateway_server(
     ):
         raise ValueError("Gateway, attestation and ComfyUI ports must differ")
     token_name = settings.render_agent.token_env
-    import os
-
     token = os.environ.get(token_name, "") if token_name else ""
     if not token or len(token) < 24:
         raise ValueError("Render gateway requires a configured token of at least 24 chars")
@@ -197,7 +178,7 @@ def make_gateway_server(
                     method, path + ("?" + url.query if url.query else ""),
                     content=body, headers={"Content-Type": "application/json"} if body else {},
                 ) as result:
-                    if result.status_code >= 300:
+                    if result.status_code not in {200, 400}:
                         self._reject(HTTPStatus.BAD_GATEWAY, "upstream_error")
                         return
                     chunks: list[bytes] = []
@@ -209,7 +190,11 @@ def make_gateway_server(
                             return
                         chunks.append(chunk)
                     mime = result.headers.get("content-type", "application/octet-stream")
-                    self._body(HTTPStatus.OK, b"".join(chunks), mime)
+                    status = (
+                        HTTPStatus.BAD_REQUEST
+                        if result.status_code == 400 else HTTPStatus.OK
+                    )
+                    self._body(status, b"".join(chunks), mime)
             except (httpx.HTTPError, ValueError, OSError):
                 self._reject(HTTPStatus.BAD_GATEWAY, "upstream_unavailable")
 
@@ -280,8 +265,18 @@ def make_gateway_server(
 
     host = bind_host or cfg.bind_host
     bind_port = port if port is not None else cfg.port
+    class Server(ThreadingHTTPServer):
+        daemon_threads = True
+
+        def server_close(self) -> None:
+            try:
+                super().server_close()
+            finally:
+                if own_client:
+                    proxy_client.close()
+
     try:
-        return ThreadingHTTPServer((host, bind_port), Handler)
+        return Server((host, bind_port), Handler)
     except BaseException:
         if own_client:
             proxy_client.close()
