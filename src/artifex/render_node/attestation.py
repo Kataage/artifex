@@ -113,6 +113,7 @@ def _lora_inventory(
     extensions = {extension.casefold() for extension in config.extensions}
     items: list[RenderLoRAInventoryItem] = []
     errors: list[dict[str, str]] = []
+    seen_names: set[str] = set()
     for root in config.lora_roots:
         base = root.expanduser().resolve(strict=False)
         if not base.exists():
@@ -128,6 +129,16 @@ def _lora_inventory(
         )
         for path in paths:
             try:
+                # Resolved symlinks may leave the configured directory.
+                relative = path.relative_to(base).as_posix()
+                if relative.casefold() in seen_names:
+                    errors.append(
+                        {
+                            "path": str(path),
+                            "error": "duplicate renderer-relative LoRA asset name",
+                        }
+                    )
+                    continue
                 metadata = read_safetensors_metadata(
                     path,
                     max_header_bytes=config.metadata_header_max_mib * 1024 * 1024,
@@ -136,11 +147,12 @@ def _lora_inventory(
             except (OSError, SafeTensorMetadataError, ValueError) as exc:
                 errors.append({"path": str(path), "error": str(exc)})
                 continue
+            seen_names.add(relative.casefold())
             items.append(
                 RenderLoRAInventoryItem(
                     name=path.name,
                     path=str(path),
-                    relative_path=path.relative_to(base).as_posix(),
+                    relative_path=relative,
                     sha256=checksum,
                     bytes=path.stat().st_size,
                     metadata=metadata,
