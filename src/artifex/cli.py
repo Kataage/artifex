@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import httpx
 import typer
@@ -65,7 +65,7 @@ from artifex.series import SeriesRepository
 from artifex.setup import configure_two_pc
 from artifex.setup_renderer import configure_renderer
 from artifex.telemetry import EventSeverity
-from artifex.windows_tasks import install_task, task_status, uninstall_task
+from artifex.windows_tasks import StartupRole, install_task, task_status, uninstall_task
 
 app = typer.Typer(
     name="artifex",
@@ -160,11 +160,11 @@ def preflight(
         raise typer.Exit(code=1)
 
 
-def _startup_role(value: str) -> str:
+def _startup_role(value: str) -> StartupRole:
     selected = value.strip().casefold()
     if selected not in {"controller", "renderer"}:
         raise ValueError("startup role must be controller or renderer")
-    return selected
+    return cast(StartupRole, selected)
 
 
 @startup_app.command("install")
