@@ -162,7 +162,7 @@ def test_initial_controller_or_render_failure_stops_early_and_retains_file(
 def test_short_or_sparse_observations_never_pass_an_eight_hour_minimum(
     tmp_path: Path,
 ) -> None:
-    _, short = _observe(tmp_path, time_target=0.01, sample_seconds=10)
+    _, short = _observe(tmp_path, time_target=0.1, sample_seconds=10)
     assert not short.ready_for_soak_review
     assert any("shorter than required" in issue for issue in short.issues)
     path = tmp_path / "soak.jsonl"
