@@ -81,6 +81,79 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Isolated ComfyUI setup and exact workflow dependency audit
+
+To **avoid changing your existing ComfyUI installation**, Artifex can download
+a pinned Comfy-Org/ComfyUI source snapshot into a separate, versioned directory.
+Use a full 40-character commit SHA from the official
+[ComfyUI repository](https://github.com/Comfy-Org/ComfyUI).
+First, download source only (no Python packages executed):
+
+```powershell
+uv run artifex onboard comfy-install `
+  --commit <FULL_40_CHARACTER_COMMIT_SHA> `
+  --output-dir "D:/AI/Artifex/tools/ComfyUI"
+```
+
+The command never overwrites an existing target, never touches your original
+ComfyUI tree, and refuses unsafe ZIP paths, symlinks and oversized archives.
+The content SHA-256 is reported and saved with its requested commit.
+GitHub's pinned ZIP URL over HTTPS does **not** independently prove archive
+authenticity. If you have independently verified the exact ZIP SHA-256, supply
+`--archive-sha256 <SHA256>` to enforce it.
+
+For an **entirely new environment**, add `--install-deps` plus an explicit
+PyTorch backend compatible with your NVIDIA driver, for example:
+
+```powershell
+uv run artifex onboard comfy-install `
+  --commit <FULL_40_CHARACTER_COMMIT_SHA> `
+  --output-dir "D:/AI/Artifex/tools/ComfyUI" `
+  --install-deps --torch-backend cu130
+```
+
+Supported choices are `cpu`, `cu126`, `cu128`, and `cu130`.
+This uses `uv` to create an isolated ComfyUI `.venv` and installs PyTorch,
+TorchVision, TorchAudio and the pinned source's `requirements.txt` within
+the **new** folder only. The selected Python interpreter defaults to the one
+running Artifex, or you can provide `--python PATH`. PyTorch releases are
+resolved when installing, not reproducibly locked in this slice.
+The command performs **network installation of third-party Python packages**
+only with `--install-deps`, so use a trusted pinned ComfyUI commit.
+
+After installation, verify the Python/CUDA compatibility with
+`onboard dependencies --role renderer --comfy-root PATH --probe-torch`.
+An installed source tree alone is **not** a fully working ComfyUI; CUDA
+availability, model files, custom nodes and extensions must still be verified.
+No existing ComfyUI directories, weights, custom nodes or Python environments
+are replaced, copied or mutated.
+
+### Audit exactly what the actual Artifex workflows need
+
+After starting your existing or newly installed ComfyUI instance, run a
+read-only audit against its `/object_info` API:
+
+```powershell
+uv run artifex onboard workflow-audit `
+  --config .\\config\\local.yaml --json
+```
+
+The report separately identifies missing **ComfyUI node class types**, models
+not present in the loader's available choice list, and **unverifiable models**
+when ComfyUI exposes no choice list. Unknown is never reported as a confirmed
+model match. Both default production and repair workflow requirements are
+audited, including configured checkpoint, VAE, refiner, upscaler and any
+referenced detector and LoRA requirements. You may supply
+`--custom-nodes-root PATH` to list local custom-node directories, but
+folder names are **not** authoritative mappings of runtime node classes.
+
+The audit does not queue image jobs and does not automatically install unknown
+third-party custom-node repositories or download weight files: those require
+specific provenance, version compatibility and license information. It returns
+a nonzero exit code if any required node/model is missing or unverifiable.
+Once resolved, run `deployment verify` and then explicitly
+`deployment verify --render-smoke` for the real image generation check.
+
 ## Native first-run discovery (no network or background changes)
 
 You can inspect each machine **before starting ComfyUI, llama.cpp or the
