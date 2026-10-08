@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -275,8 +274,7 @@ async def test_release_requires_live_runtime_audit_and_never_resumes_automatical
         assert kwargs["wait_seconds"] == 0
         return _verified()
 
-    gateway.on_release = lambda: pytest.fail("controller local fence must remain until PC-B release")
-    # Replace callback with an assertion preserving the invariant.
+    # Controller admission must remain sealed until the renderer reopens.
     gateway.on_release = lambda: fence.status() or pytest.fail("PC-A released too early")
     released = await coordinate_pair_maintenance(
         _settings(tmp_path), db, runtime, FakeComfy(), fence,  # type: ignore[arg-type]
