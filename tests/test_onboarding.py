@@ -173,10 +173,7 @@ def test_controller_discovers_existing_binary_and_never_exposes_token(
     model.write_bytes(b"gguf")
     settings = ArtifexSettings()
     settings.llm.server.executable = str(exe)
-    settings.llm.bootstrap.profiles["local-model"] = {
-        "source": "local", "path": model,
-    }
-    # Validate after profile switch so model_path resolves to explicit location.
+    # Set the selected local GGUF through a validated profile.
     from artifex.config.models import LlmModelProfileConfig
 
     settings.llm.bootstrap.profiles["local-model"] = LlmModelProfileConfig(
