@@ -30,6 +30,10 @@ from artifex.qualification.archive_reproduction import (
     ArchiveReproductionProof,
     file_sha256,
 )
+from artifex.qualification.renderer_owner_evidence import (
+    persist_owner_observation,
+    verify_owner_observation,
+)
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     AssetDigest,
@@ -45,6 +49,7 @@ from artifex.qualification.soak_observer import (
     verify_soak_evidence,
 )
 from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
+from artifex.render_node.client import fetch_renderer_owner_audit
 
 _PACK_STAGES = frozenset(
     {
@@ -340,6 +345,34 @@ class QualificationService:
             path.read_text(encoding="utf-8")
         )
 
+    def collect_renderer_owner_observation(self, session_id: str) -> dict[str, object]:
+        """Fetch authenticated current PC-B state, append evidence, never mark stage PASS."""
+        session = self.load(session_id)
+        primary = self._settings.render_nodes.primary_node()
+        if primary is None:
+            raise ValueError("PC-B owner observation requires a configured primary node")
+        node_id, node = primary
+        observed = fetch_renderer_owner_audit(node_id, node)
+        binding = persist_owner_observation(self._root, session_id, observed)
+        self._write(session.model_copy(update={
+            "updated_at": _utcnow(),
+            "renderer_owner_observations": (
+                *session.renderer_owner_observations, binding,
+            ),
+        }))
+        return {
+            "session_id": session_id,
+            "node_id": node_id,
+            "observation_status": observed.audit.status,
+            "process_observation_verified": observed.audit.process_observation_verified,
+            "evidence_file": str(self._root / session_id / str(binding["file"])),
+            "evidence_sha256": binding["sha256"],
+            "restart_authorized": False,
+            "child_survival_qualified": False,
+            "production_qualified": False,
+            "stages_changed": False,
+        }
+
     def record(
         self,
         session_id: str,
@@ -464,6 +497,17 @@ class QualificationService:
             issues.append("native environment requirements are not all satisfied")
         if not session.doctor_ready:
             issues.append("doctor baseline is not ready")
+
+        primary = self._settings.render_nodes.primary_node()
+        if primary is not None and self._settings.qualification.require_renderer_owner_observation:
+            primary_id, _ = primary
+            owner_issue = verify_owner_observation(
+                self._root, session.session_id, primary_id,
+                session.renderer_owner_observations,
+                created_at=session.created_at,
+            )
+            if owner_issue is not None:
+                issues.append(f"renderer owner observation: {owner_issue}")
 
         for stage in REQUIRED_STAGES:
             evidence = session.stage(stage)
