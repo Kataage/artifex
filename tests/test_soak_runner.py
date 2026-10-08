@@ -74,6 +74,7 @@ def _run_setup(
     def observer(settings: ArtifexSettings, **kwargs: Any) -> SoakAssessment:
         path = kwargs["output"]
         calls.append(("observe", (path, kwargs["qualification_session_id"])))
+        calls.append(("duration_hours", kwargs["duration_hours"]))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"synthetic test data")
         if kwargs["on_sample"] is not None:
@@ -203,6 +204,22 @@ def test_soak_run_failed_binding_retains_trace_and_does_not_claim_pass(
     assert len(observed_paths) == 1
     assert observed_paths[0].read_bytes() == b"synthetic test data"
     assert observed_paths[0].is_relative_to(settings.qualification.evidence_dir)
+
+
+def test_soak_run_enforces_eight_hour_floor_even_if_configured_lower(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, calls, settings = _run_setup(tmp_path, monkeypatch)
+    settings.qualification.minimum_soak_hours = 1
+    rejected = _invoke(config, "--hours", "1")
+    assert rejected.exit_code == 1
+    assert "at least 8 hours" in rejected.output
+    assert not any(name == "doctor" for name, _ in calls)
+
+    accepted = _invoke(config)
+    assert accepted.exit_code == 0, accepted.output
+    assert json.loads(accepted.stdout)["overnight_soak"] == "pass"
+    assert ("duration_hours", 8.0) in calls
 
 
 def test_soak_run_refuses_evidence_outside_root(
