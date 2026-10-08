@@ -8,7 +8,11 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict
 
 from artifex.characters import CharacterRegistry
-from artifex.config.models import CharacterRegistryConfig, LoRARegistryConfig
+from artifex.config.models import (
+    CharacterRegistryConfig,
+    LoRARegistryConfig,
+    RenderNodesConfig,
+)
 from artifex.domain import CharacterOutfit, CharacterProfile, LoRAPolicy, LoRAProfile
 from artifex.loras.registry import LoRARegistry
 
@@ -78,11 +82,23 @@ class LoRAResolver:
         loras: LoRARegistry,
         character_config: CharacterRegistryConfig,
         lora_config: LoRARegistryConfig,
+        render_nodes: RenderNodesConfig | None = None,
     ) -> None:
         self._characters = characters
         self._loras = loras
         self._character_config = character_config
         self._lora_config = lora_config
+        self._render_nodes = render_nodes
+
+    def _available_on_primary(self, profile: LoRAProfile) -> bool:
+        if self._render_nodes is None:
+            return True
+        primary = self._render_nodes.primary_node()
+        if primary is None:
+            return True
+        # The controller cannot assume a local or another node's LoRA exists
+        # on ComfyUI's primary render host.
+        return profile.source == f"render-node:{primary[0]}"
 
     def resolve(
         self,
@@ -324,6 +340,7 @@ class LoRAResolver:
             )
             if candidate.id not in excluded
             and candidate.lora_type in {"character", "other"}
+            and self._available_on_primary(candidate)
         ]
         preferred_order = {
             lora_id: index for index, lora_id in enumerate(character.preferred_lora_ids)
@@ -378,6 +395,8 @@ class LoRAResolver:
             profile = self._loras.get(lora_id)
             if profile is None or profile.state.value != "production":
                 continue
+            if not self._available_on_primary(profile):
+                continue
             if profile.lora_type not in allowed_types:
                 continue
             if profile.model_families and model_family not in profile.model_families:
@@ -415,6 +434,11 @@ class LoRAResolver:
             if profile.state.value != "production":
                 warnings.append(
                     f"configured {layer} LoRA is not production-ready: {lora_id}"
+                )
+                continue
+            if not self._available_on_primary(profile):
+                warnings.append(
+                    f"configured {layer} LoRA is unavailable on primary renderer: {lora_id}"
                 )
                 continue
             if profile.lora_type not in allowed_types:
