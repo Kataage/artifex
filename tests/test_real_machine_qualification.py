@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
