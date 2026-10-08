@@ -148,6 +148,77 @@ weight downloads still require explicit reviewed installation into
 an Artifex-created isolated ComfyUI environment; the existing
 `deps-install` safeguards and offline model hashing are unchanged.
 
+## Unattended 8-hour evidence observer (first qualification gate)
+
+Artifex can **observe an already-running production controller** for
+an extended real interval from PC-A, without starting/stopping any
+services, sending GPU jobs, altering existing ComfyUI or requiring
+Docker. First qualify the two hosts with `deployment pair-check`
+and execute `deployment pair-smoke --confirm-render`, then start
+the normal Artifex production daemon using your existing setup.
+
+On **PC-A**, open a separate terminal and launch the read-only
+observer alongside the production process:
+
+```powershell
+uv run artifex qualify soak-observe `
+  --config .\\config\\local.yaml `
+  --output .\\data\\qualification\\soak-2026-10-08.jsonl `
+  --hours 8 --sample-seconds 300
+```
+
+A new file is required for each run; the observer refuses overwrite.
+The default duration is `qualification.minimum_soak_hours` (8
+hours), so `--hours` is optional. The defaults sample approximately
+every five minutes. The process **really waits the configured time**
+using monotonic elapsed timing. The observer does not fake or accelerate
+time in production. On each sample it checks the LLM endpoint,
+ComfyUI `/system_stats`, authenticated PC-B render-node attestation
+(with required checkpoint/refiner/VAE/upscale hashes and NVIDIA GPU),
+current GPU allocated/free VRAM metrics (when reported by ComfyUI),
+local RAM usage and free disk space, and **read-only** SQLite counts of
+stored agent events, error/critical events and finalized Packs.
+
+Each measurement is fsynced as JSONL. On application crash, Ctrl+C,
+Windows reboot or unexpected termination the file is **incomplete**
+(no final record), and validation will never say the soak succeeded.
+If the first sample fails, the observer stops immediately rather than
+spending 8 hours in a broken environment. The monitoring process itself
+does **not restart any services or automatically create Packs**;
+the production controller must already be running.
+
+Later, on PC-A, independently analyze a saved record:
+
+```powershell
+uv run artifex qualify soak-check `
+  --config .\\config\\local.yaml `
+  --evidence .\\data\\qualification\\soak-2026-10-08.jsonl
+```
+
+An acceptable record must contain 8 real elapsed hours, continuous
+sampling with bounded gaps, matching monotonic and UTC clock times,
+healthy LLM/ComfyUI/authenticated renderer checks, unchanged model
+hashes, observed GPU/RAM/disk and SQLite counters, **at least three
+new finalized Packs**, fresh agent telemetry, and **zero new error or
+critical events**. Failure and diagnostic data are always retained,
+with an actionable nonzero command exit.
+
+The results include the recorded metrics and evidence-file SHA-256,
+plus `ready_for_soak_review`. This flag **is not the same as a
+qualification PASS**: `production_qualified` is always false. The
+existing `qualify record ... overnight_soak` and `qualify verify`
+remain separate. The next development increment will bind stage PASS
+strictly to validated machine-generated evidence instead of accepting
+operator-entered duration/resource claims. The current metric observer
+uses a SQLite backend; if a non-SQLite database is configured, it
+fails closed until a dedicated read-only adapter is implemented.
+
+**Operational caveat:** PC-B attestation includes model and LoRA
+inventories. Collecting their hashes can increase disk I/O on PC-B,
+so avoid very short sampling periods with large LoRA collections.
+ComfyUI must expose numeric `vram_total` and `vram_free` per device
+for a complete VRAM profile; unknown counters do not pass silently.
+
 ## Explicit gated real-image test after two-PC readiness
 
 After PC-B `deployment pair-export` and PC-A `deployment pair-check`
