@@ -112,7 +112,7 @@ def test_huggingface_checksum_receipt_prevents_corrupt_reuse(tmp_path: Path) -> 
                 "test": LlmModelProfileConfig(
                     source="huggingface",
                     repository="org/repo",
-                    revision="1234567890abcdef",
+                    revision="1" * 40,
                     filename="model.gguf",
                 )
             },
@@ -164,3 +164,42 @@ def test_url_download_must_have_pinned_checksum(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="must configure sha256"):
         bootstrap_llm(config)
+
+
+def test_huggingface_hash_comes_from_hub_redirect_not_cdn(tmp_path: Path) -> None:
+    payload = b"GGUF-hub-content"
+    digest = hashlib.sha256(payload).hexdigest()
+    config = LlmConfig(
+        bootstrap=LlmBootstrapConfig(
+            models_dir=tmp_path,
+            profile="hf",
+            profiles={
+                "hf": LlmModelProfileConfig(
+                    source="huggingface",
+                    repository="org/repo",
+                    revision="a" * 40,
+                    filename="model.gguf",
+                )
+            },
+        )
+    )
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.method == "HEAD":
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": "https://cdn.example.test/model.gguf",
+                    "X-Linked-Etag": f'"{digest}"',
+                },
+            )
+        assert request.url.host == "huggingface.co"
+        return httpx.Response(200, content=payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = bootstrap_llm(config, client=client)
+    assert result.sha256 == digest
+    assert len(calls) == 2
+    assert all("cdn.example.test" not in url for url in calls)
