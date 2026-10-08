@@ -114,7 +114,7 @@ def _expected_sha256(
                 and isinstance(sha, str)
                 and re.fullmatch(r"[0-9a-fA-F]{64}", sha)
             ):
-                return sha.casefold()
+                return str(sha).casefold()
         except (OSError, ValueError, KeyError, TypeError):
             pass
 
