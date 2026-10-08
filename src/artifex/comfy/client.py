@@ -204,7 +204,7 @@ class ComfyUIClient:
     ) -> Path:
         """Stream an output through /view, publishing it only after full delivery."""
         root = destination_dir.expanduser().resolve(strict=False)
-        relative = Path(output.subfolder.replace("\\\\", "/")) / output.filename
+        relative = Path(output.subfolder.replace("\\", "/")) / output.filename
         target = (root / relative).resolve(strict=False)
         try:
             target.relative_to(root)
