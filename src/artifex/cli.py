@@ -328,12 +328,12 @@ def onboard_inspect(
         if role == "renderer":
             if root is None:
                 raise ValueError("--comfy-root is required for renderer inspection")
-            result = discover_renderer(root)
+            payload = discover_renderer(root).model_dump(mode="json")
         else:
             if root is not None:
                 raise ValueError("--comfy-root applies only to renderer inspection")
-            result = discover_controller(_settings(config))
-        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+            payload = discover_controller(_settings(config)).model_dump(mode="json")
+        _print_payload(payload, as_json=json_output)
     except (OSError, ValueError, TypeError) as exc:
         typer.echo(f"onboard inspect error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
