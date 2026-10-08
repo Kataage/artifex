@@ -288,8 +288,12 @@ def test_prepare_renderer_cli_preview_and_apply_flags(
 
 
 def _actual_pinned(data: bytes, *, name: str = "illustration.safetensors") -> PinnedDependency:
-    return _pinned().model_copy(
-        update={
+    base = _pinned()
+    return PinnedDependency(
+        **{
+            **base.model_dump(),
+            "id": "model-test-" + name.removesuffix(".safetensors"),
+            "url": base.url.rsplit("/", 1)[0] + "/" + name,
             "name": name,
             "sha256": hashlib.sha256(data).hexdigest(),
             "size_bytes": len(data),
