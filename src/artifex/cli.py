@@ -27,6 +27,7 @@ from artifex.comfy.model_sources import (
     unregister_model_source,
 )
 from artifex.comfy.preparation import prepare_renderer
+from artifex.comfy.reconciliation import reconcile_renderer
 from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
@@ -799,6 +800,56 @@ def onboard_deps_draft(
     except (FileExistsError, OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
         typer.echo(f"onboard deps-draft error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("reconcile-renderer")
+def onboard_reconcile_renderer(
+    config: ConfigOption = None,
+    wait_seconds: Annotated[
+        float,
+        typer.Option(
+            "--wait-seconds",
+            min=0,
+            max=600,
+            help="Bounded observation window for external renderer reload (no restart).",
+        ),
+    ] = 0,
+    poll_seconds: Annotated[
+        float,
+        typer.Option("--poll-seconds", min=0.1, max=60),
+    ] = 5,
+    require_idle: Annotated[
+        bool,
+        typer.Option(
+            "--require-idle/--allow-busy",
+            help="Require both ComfyUI pending and running queues empty before ready.",
+        ),
+    ] = True,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Watch live renderer reload safely without interrupting queued GPU work."""
+    target = config or Path("config/render-node.yaml")
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"onboard reconcile-renderer error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        report = asyncio.run(
+            reconcile_renderer(
+                _settings(target),
+                wait_seconds=wait_seconds,
+                poll_seconds=poll_seconds,
+                require_idle=require_idle,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard reconcile-renderer error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @onboard_app.command("prepare-renderer")
