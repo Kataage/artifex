@@ -51,7 +51,6 @@ from artifex.qualification import (
 from artifex.render_node import (
     build_attestation,
     check_render_node,
-    serve_attestation,
 )
 from artifex.research import (
     ResearchIntent,
@@ -65,6 +64,7 @@ from artifex.series import SeriesRepository
 from artifex.setup import configure_two_pc
 from artifex.setup_renderer import configure_renderer
 from artifex.telemetry import EventSeverity
+from artifex.render_node.comfy_process import serve_managed_renderer
 from artifex.windows_tasks import StartupRole, install_task, task_status, uninstall_task
 
 app = typer.Typer(
@@ -705,8 +705,8 @@ def render_node_serve(
         f"{settings.render_agent.bind_host}:{settings.render_agent.port}"
     )
     try:
-        serve_attestation(settings)
-    except (OSError, ValueError) as exc:
+        serve_managed_renderer(settings)
+    except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         typer.echo(f"render-node server error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
