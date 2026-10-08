@@ -254,9 +254,15 @@ def serve_managed_renderer(settings: ArtifexSettings) -> None:
             # Binding on the main thread makes startup fail immediately when
             # the protected gateway port is already claimed.
             server = make_gateway_server(settings)
+            def serve_protected_gateway() -> None:
+                try:
+                    serve_gateway(server, stop)
+                except Exception as exc:  # noqa: BLE001 - propagate fatal listener errors
+                    errors.append(exc)
+                    stop.set()
+
             gateway_thread = threading.Thread(
-                target=serve_gateway,
-                args=(server, stop),
+                target=serve_protected_gateway,
                 name="artifex-render-gateway",
                 daemon=True,
             )
@@ -268,7 +274,7 @@ def serve_managed_renderer(settings: ArtifexSettings) -> None:
             monitor.start()
         serve_attestation(settings, stop_event=stop)
         if errors:
-            raise RuntimeError(f"ComfyUI supervision failed: {errors[0]}") from errors[0]
+            raise RuntimeError(f"Renderer supervision failed: {errors[0]}") from errors[0]
     finally:
         stop.set()
         if monitor is not None:
