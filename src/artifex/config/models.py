@@ -342,6 +342,32 @@ class RenderNodesConfig(StrictModel):
         return self.primary, self.nodes[self.primary]
 
 
+class ManagedComfyConfig(StrictModel):
+    """Optional renderer-local ComfyUI child process, never a remote service."""
+
+    enabled: bool = False
+    executable: Path | None = None
+    working_directory: Path | None = None
+    arguments: tuple[str, ...] = ()
+    log_path: Path = Path("data/logs/comfyui.log")
+    startup_timeout_seconds: float = Field(default=180.0, gt=0, le=1800)
+    poll_seconds: float = Field(default=15.0, gt=0, le=3600)
+    restart_limit: int = Field(default=3, ge=0, le=20)
+    restart_backoff_seconds: float = Field(default=10.0, ge=0, le=600)
+
+    @model_validator(mode="after")
+    def validate_launch(self) -> ManagedComfyConfig:
+        if self.enabled and (
+            self.executable is None or self.working_directory is None
+        ):
+            raise ValueError(
+                "managed ComfyUI requires executable and working_directory"
+            )
+        if any(not item.strip() for item in self.arguments):
+            raise ValueError("managed ComfyUI arguments must be nonempty")
+        return self
+
+
 class RenderAgentConfig(StrictModel):
     node_id: str = "main"
     bind_host: str = "127.0.0.1"
@@ -349,6 +375,7 @@ class RenderAgentConfig(StrictModel):
     attestation_cache_seconds: float = Field(default=60.0, ge=0, le=3600)
     token_env: str | None = "ARTIFEX_RENDER_NODE_TOKEN"
     require_token: bool = True
+    comfyui_process: ManagedComfyConfig = Field(default_factory=ManagedComfyConfig)
     asset_paths: dict[str, Path] = Field(default_factory=dict)
     lora_roots: tuple[Path, ...] = ()
     extensions: tuple[str, ...] = (".safetensors",)
