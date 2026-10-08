@@ -12,11 +12,7 @@ from typer.testing import CliRunner
 
 from artifex.cli import app
 from artifex.config import load_settings
-from artifex.llm.release_install import (
-    extract_verified_zip,
-    install_official_llama,
-    official_release_assets,
-)
+from artifex.llm import release_install
 
 
 TAG = "b12345"
@@ -72,7 +68,7 @@ def _client(
 def test_approved_official_windows_asset_has_verified_digest() -> None:
     content = _zip()
     with _client(content) as client:
-        assets = official_release_assets(TAG, client=client)
+        assets = release_install.official_release_assets(TAG, client=client)
     assert len(assets) == 1
     assert assets[0].name == NAME
     assert assets[0].sha256 == hashlib.sha256(content).hexdigest()
@@ -84,14 +80,14 @@ def test_exact_download_sha_and_atomic_extract_with_dlls(
     content = _zip()
     calls: list[str] = []
     with _client(content, requests=calls) as client:
-        installed = install_official_llama(
+        installed = release_install.install_official_llama(
             TAG, NAME, tmp_path / "llama bins", client=client
         )
         assert installed.installed
         assert installed.executable.read_bytes() == b"MZllama server fake"
         assert (installed.executable.parent / "ggml-cuda.dll").is_file()
         assert len(installed.executable_sha256) == 64
-        reused = install_official_llama(
+        reused = release_install.install_official_llama(
             TAG, NAME, tmp_path / "llama bins", client=client
         )
     assert not reused.installed
@@ -104,7 +100,7 @@ def test_rejects_digest_mismatch_and_cleans_staging(tmp_path: Path) -> None:
     content = _zip()
     folder = tmp_path / "bin"
     with _client(content, digest="0" * 64) as client, pytest.raises(ValueError, match="SHA-256/size"):
-        install_official_llama(TAG, NAME, folder, client=client)
+        release_install.install_official_llama(TAG, NAME, folder, client=client)
     assert not list(folder.iterdir())
 
 
@@ -112,7 +108,7 @@ def test_rejects_size_mismatch_without_install(tmp_path: Path) -> None:
     content = _zip()
     folder = tmp_path / "bin"
     with _client(content, size=len(content) + 20) as client, pytest.raises(ValueError, match="SHA-256/size"):
-        install_official_llama(TAG, NAME, folder, client=client)
+        release_install.install_official_llama(TAG, NAME, folder, client=client)
     assert not list(folder.iterdir())
 
 
@@ -131,7 +127,7 @@ def test_zip_slip_rejected_even_when_download_hash_matches(
 ) -> None:
     contents = _zip(member=member)
     with _client(contents) as client, pytest.raises(ValueError, match="Unsafe archive member"):
-        install_official_llama(TAG, NAME, tmp_path / "bin", client=client)
+        release_install.install_official_llama(TAG, NAME, tmp_path / "bin", client=client)
     assert not (tmp_path / "escape.txt").exists()
 
 
@@ -143,13 +139,13 @@ def test_symlink_and_duplicate_archive_entries_are_rejected(tmp_path: Path) -> N
         link.external_attr = 0o120777 << 16
         archive.writestr(link, "../escape.exe")
     with pytest.raises(ValueError, match="symlink"):
-        extract_verified_zip(symlink_archive, tmp_path / "extract")
+        release_install.extract_verified_zip(symlink_archive, tmp_path / "extract")
     double = tmp_path / "duplicate.zip"
     with zipfile.ZipFile(double, "w") as archive:
         archive.writestr("bin/llama-server.exe", b"MZ")
         archive.writestr("BIN/LLAMA-SERVER.EXE", b"fake")
     with pytest.raises(ValueError, match="case-colliding"):
-        extract_verified_zip(double, tmp_path / "out")
+        release_install.extract_verified_zip(double, tmp_path / "out")
 
 
 def test_missing_executable_rejected(tmp_path: Path) -> None:
@@ -157,26 +153,26 @@ def test_missing_executable_rejected(tmp_path: Path) -> None:
     with zipfile.ZipFile(archive, "w") as zipout:
         zipout.writestr("README.md", "hello")
     with pytest.raises(ValueError, match="one llama-server.exe"):
-        extract_verified_zip(archive, tmp_path / "output")
+        release_install.extract_verified_zip(archive, tmp_path / "output")
 
 
 def test_missing_upstream_checksum_fails_closed() -> None:
     with _client(_zip(), digest="not-a-sha") as client:
-        assert official_release_assets(TAG, client=client) == ()
+        assert release_install.official_release_assets(TAG, client=client) == ()
 
 
 def test_release_metadata_mismatch_or_wrong_url_fails_closed() -> None:
     with _client(_zip(), tag="b9999") as client, pytest.raises(ValueError, match="does not match"):
-        official_release_assets(TAG, client=client)
+        release_install.official_release_assets(TAG, client=client)
     with _client(_zip(), source="https://evil.example.com/llama.zip") as client:
-        assert official_release_assets(TAG, client=client) == ()
+        assert release_install.official_release_assets(TAG, client=client) == ()
 
 
 def test_path_and_tag_injection_rejected_before_http_or_disk(tmp_path: Path) -> None:
     with _client(_zip()) as client, pytest.raises(ValueError, match="tag"):
-        official_release_assets("../main", client=client)
+        release_install.official_release_assets("../main", client=client)
         with pytest.raises(ValueError, match="asset"):
-            install_official_llama(TAG, "../../evil.zip", tmp_path, client=client)
+            release_install.install_official_llama(TAG, "../../evil.zip", tmp_path, client=client)
     assert list(tmp_path.iterdir()) == []
 
 
@@ -185,36 +181,33 @@ def test_existing_unowned_install_is_not_overwritten(tmp_path: Path) -> None:
     existing.mkdir()
     (existing / "my-file.txt").write_text("keep", encoding="utf-8")
     with _client(_zip()) as client, pytest.raises(FileExistsError, match="Refusing to overwrite"):
-        install_official_llama(TAG, NAME, tmp_path, client=client)
+        release_install.install_official_llama(TAG, NAME, tmp_path, client=client)
     assert (existing / "my-file.txt").read_text() == "keep"
 
 
 def test_existing_install_with_tampered_binary_is_rejected(tmp_path: Path) -> None:
     with _client(_zip()) as client:
-        installed = install_official_llama(TAG, NAME, tmp_path, client=client)
+        installed = release_install.install_official_llama(TAG, NAME, tmp_path, client=client)
         installed.executable.write_text("tampered", encoding="utf-8")
         with pytest.raises(FileExistsError, match="cannot be trusted"):
-            install_official_llama(TAG, NAME, tmp_path, client=client)
+            release_install.install_official_llama(TAG, NAME, tmp_path, client=client)
 
 
 def test_receipt_does_not_allow_parent_directory_binaries(tmp_path: Path) -> None:
     with _client(_zip()) as client:
-        installed = install_official_llama(TAG, NAME, tmp_path, client=client)
+        installed = release_install.install_official_llama(TAG, NAME, tmp_path, client=client)
         receipt = installed.directory / ".artifex-install.json"
         data = json.loads(receipt.read_text(encoding="utf-8"))
         data["relative_executable"] = "../../llama-server.exe"
         receipt.write_text(json.dumps(data), encoding="utf-8")
         with pytest.raises(FileExistsError, match="cannot be trusted"):
-            install_official_llama(TAG, NAME, tmp_path, client=client)
+            release_install.install_official_llama(TAG, NAME, tmp_path, client=client)
 
 
 def test_cli_assets_listing_and_config_update_are_explicit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from artifex.llm.release_install import (
-        LlamaInstallResult,
-        OfficialLlamaAsset,
-    )
+    from artifex.llm.release_install import LlamaInstallResult, OfficialLlamaAsset
 
     monkeypatch.setattr(
         "artifex.cli.official_release_assets",
