@@ -66,15 +66,15 @@ from artifex.performance import (
     load_manual_performance,
 )
 from artifex.policy import PolicyDecisionRepository
-from artifex.qualification.soak_observer import (
-    observe_soak,
-    verify_soak_evidence,
-)
 from artifex.qualification import (
     REQUIRED_STAGES,
     QualificationService,
     QualificationStage,
     QualificationStatus,
+)
+from artifex.qualification.soak_observer import (
+    observe_soak,
+    verify_soak_evidence,
 )
 from artifex.render_node import (
     build_attestation,
