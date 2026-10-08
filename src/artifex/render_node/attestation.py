@@ -260,7 +260,12 @@ def serve_attestation(
             if url.path not in {"/v1/attestation", "/v1/owner-audit"}:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
-            if not self._authorized():
+            if (
+                not self._authorized()
+                or (url.path == "/v1/owner-audit" and expected_token is None)
+            ):
+                # /health and legacy attestation can be configured public,
+                # but renderer owner evidence always requires a Bearer token.
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
                 return
             if url.path == "/v1/owner-audit":
