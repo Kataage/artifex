@@ -203,7 +203,14 @@ class ManagedComfyUI:
             if stop.wait(config.restart_backoff_seconds):
                 return
             if self._healthy():
-                # A separately managed instance claimed the port.
+                # A different process may have claimed the local port after
+                # our child exited; never silently attach a protected gateway
+                # to an unowned renderer.
+                if self.settings.render_agent.gateway.enabled:
+                    raise RuntimeError(
+                        "Protected gateway lost exclusive ComfyUI ownership; "
+                        "another process claimed the upstream port"
+                    )
                 self._external = True
                 return
             self._start_owned()
