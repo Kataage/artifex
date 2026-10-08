@@ -14,6 +14,8 @@ Directories are recursively hashed with stable relative paths. Final verificatio
 
 ## Start
 
+On PC-B, first run `uv run artifex render-node preflight --config .\\config\\render-node.yaml --json` and address each reported issue. Run the authenticated render-node service and ComfyUI on the trusted LAN. On PC-A, run `artifex setup`, select the production checkpoint explicitly, configure controller-local evaluation assets and start the local LLM endpoint. The renderer preflight checks only PC-B-local state; the PC-A doctor and qualification check the end-to-end configuration.
+
 With the real LLM and ComfyUI already running:
 
     uv run artifex doctor --config .\config\local.yaml
