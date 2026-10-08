@@ -13,6 +13,8 @@ import pytest
 from pydantic import ValidationError
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.qualification.models import QualificationSession
+from artifex.qualification.service import QualificationService
 from artifex.qualification.renderer_owner_evidence import (
     persist_owner_observation,
     verify_owner_observation,
@@ -260,3 +262,54 @@ def test_attestation_endpoint_authenticates_and_refuses_missing_config(
     finally:
         stop.set()
         thread.join(timeout=4)
+
+
+
+def test_qualification_service_persists_owner_snapshot_without_stage_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.qualification.service as module
+
+    now = datetime.now(UTC)
+    settings = ArtifexSettings()
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://127.0.0.1:8191",
+        attestation_url="http://127.0.0.1:8190",
+    )
+    service = object.__new__(QualificationService)
+    service._root = tmp_path
+    service._settings = settings
+    session = QualificationSession(
+        session_id="trial-01", created_at=now - timedelta(seconds=20),
+        updated_at=now, hostname="controller",
+        environment={}, configuration={}, workflow={},
+        assets=(), loras=(), doctor_ready=False,
+        doctor={}, stages={},
+    )
+    service._write(session)
+    calls: list[str] = []
+
+    def fetch(node_id: str, config: RenderNodeConfig) -> RemoteRendererOwnerAudit:
+        calls.append(node_id)
+        return RemoteRendererOwnerAudit.model_validate(
+            _observation(captured=now)
+        )
+
+    monkeypatch.setattr(module, "fetch_renderer_owner_audit", fetch)
+    outcome = service.collect_renderer_owner_observation("trial-01")
+    assert outcome["observation_status"] == "observed_stable"
+    assert outcome["production_qualified"] is False
+    assert outcome["stages_changed"] is False
+    assert calls == ["gpu-b"]
+    stored = service.load("trial-01")
+    assert not stored.stages
+    assert len(stored.renderer_owner_observations) == 1
+    assert verify_owner_observation(
+        tmp_path, "trial-01", "gpu-b",
+        stored.renderer_owner_observations,
+        created_at=stored.created_at,
+        now=now,
+    ) is None
+    service.collect_renderer_owner_observation("trial-01")
+    assert len(service.load("trial-01").renderer_owner_observations) == 2
