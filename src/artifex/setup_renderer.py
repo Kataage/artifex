@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.configuration_edit import write_override
 from artifex.setup import _normalize_base_url
@@ -82,13 +83,19 @@ def configure_renderer(
         "comfyui": {"base_url": comfy_url},
     }
     target = write_override(output_path, payload, update=update, force=force)
+    configured = load_settings(user_config=target, env={})
     return RendererSetupResult(
         config_path=target,
-        node_id=selected_node,
-        bind_host=selected_host,
-        port=selected_port,
-        comfyui_base_url=comfy_url,
-        asset_paths=changed_assets,
-        lora_roots=tuple(str(root) for root in roots),
-        token_env=selected_token_env,
+        node_id=configured.render_agent.node_id,
+        bind_host=configured.render_agent.bind_host,
+        port=configured.render_agent.port,
+        comfyui_base_url=configured.comfyui.base_url,
+        asset_paths={
+            name: str(path)
+            for name, path in configured.render_agent.asset_paths.items()
+        },
+        lora_roots=tuple(
+            str(root) for root in configured.render_agent.lora_roots
+        ),
+        token_env=configured.render_agent.token_env or selected_token_env,
     )
