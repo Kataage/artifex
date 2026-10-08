@@ -37,6 +37,7 @@ jobs:
       - run: uv run artifex startup --help
       - run: uv run artifex render-node socket-audit --help
       - run: uv run pytest -q tests/test_windows_task_safety.py
+      - run: uv run pytest -q tests/test_windows_task_native_integration.py
       - run: uv run artifex startup audit --help
       - run: uv run pytest -q tests/test_supervisor_lease.py
       - run: uv run pytest -q tests/test_renderer_socket_audit.py tests/test_comfy_reattachment.py
