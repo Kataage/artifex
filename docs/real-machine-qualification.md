@@ -2,6 +2,25 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## PC-B socket ownership / never-kill-live-child qualification
+
+On PC-B run
+`uv run artifex render-node socket-audit --config
+.\\config\\render-node.yaml`. This uses Windows'
+`Get-NetTCPConnection` to report the ComfyUI listener addresses/PIDs
+and observed loopback clients. The protected running manager additionally
+checks whether the port's actual listener PID equals its own spawned
+child PID; a failed or ambiguous probe prevents protected startup or
+continued supervision. This report never authorizes a restart because
+future local client submissions are not atomically blocked.
+
+Regression tests verify that a live ComfyUI child is **not** killed if its
+health endpoint hangs, even when the supervisor errors or stops. An
+already exited child can be relaunched within the configured retry budget.
+The remaining real-PC proof must cover Task Scheduler restart behavior,
+external local clients and ongoing CUDA generation. Unverified provenance
+must remain an explicit qualification blocker.
+
 ## Coordinated PC-A/PC-B acceptance and release
 
 `uv run artifex maintenance pair --config .\\config\\local.yaml`

@@ -12,6 +12,7 @@ import httpx
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.attestation import serve_attestation
 from artifex.render_node.gateway import make_gateway_server, serve_gateway
+from artifex.render_node.socket_audit import audit_renderer_sockets
 
 
 def _local_comfy_url(value: str) -> None:
@@ -126,6 +127,7 @@ class ManagedComfyUI:
                     f"ComfyUI exited during startup; see {config.log_path}"
                 )
             if self._healthy():
+                self._verify_owned_listener()
                 return
             stop.wait(min(1.0, max(0.01, deadline - monotonic())))
         if stop.is_set():
@@ -134,6 +136,27 @@ class ManagedComfyUI:
             f"ComfyUI not ready after {config.startup_timeout_seconds}s; "
             f"inspect {config.log_path}"
         )
+
+    def _verify_owned_listener(self) -> None:
+        if not self.settings.render_agent.gateway.enabled:
+            return
+        process = self.process
+        if process is None or process.poll() is not None:
+            raise RuntimeError("Protected ComfyUI child is no longer alive")
+        # The matching Popen.pid is evidence of the actual Windows TCP
+        # listener owner, not merely a checked --listen command line.
+        report = audit_renderer_sockets(
+            self.settings,
+            owned_pid=process.pid,
+            gateway_pid=os.getpid(),
+        )
+        if report.status != "owned_loopback_observed":
+            raise RuntimeError(
+                "Protected ComfyUI socket ownership is not proven: "
+                f"{report.status}; listener={report.listener_pids}; "
+                f"direct_clients={report.unexpected_client_pids}; "
+                "refusing automatic process shutdown or restart"
+            )
 
     def start(self, stop: threading.Event) -> None:
         if not self.settings.render_agent.comfyui_process.enabled:
@@ -198,11 +221,20 @@ class ManagedComfyUI:
             if process is None:
                 return
             if healthy and process.poll() is None:
+                self._verify_owned_listener()
                 failures = 0
                 continue
             failures += 1
-            if process.poll() is None and failures < 3:
-                continue
+            if process.poll() is None:
+                if failures < 3:
+                    continue
+                # HTTP health checks can fail while a live renderer is still
+                # generating. No one has fenced PC-B loopback submissions,
+                # so never terminate/kill a living renderer to restart it.
+                raise RuntimeError(
+                    "Managed ComfyUI stopped answering health checks but its "
+                    "child process is still alive; refusing an unsafe restart"
+                )
             failures = 0
             if self._restarts >= config.restart_limit:
                 raise RuntimeError(
@@ -231,12 +263,10 @@ class ManagedComfyUI:
         process, self.process = self.process, None
         if process is None or process.poll() is not None:
             return
-        process.terminate()
-        try:
-            process.wait(timeout=10.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10.0)
+        # A stopped *supervisor* is not evidence that ComfyUI's GPU queue
+        # and external loopback clients are idle. Detach a live child instead
+        # of sending terminate()/kill() on task shutdown or crash. An
+        # intentional owner-verified shutdown requires a separate protocol.
 
     def close(self) -> None:
         try:

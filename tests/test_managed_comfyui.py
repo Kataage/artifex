@@ -110,7 +110,7 @@ def test_managed_comfyui_spawns_expected_process_and_closes_only_owned(
         assert calls[0]["kwargs"]["shell"] is False
         assert "ARTIFEX_RENDER_NODE_TOKEN" not in calls[0]["kwargs"]["env"]
         manager.close()
-    assert processes[0].terminated and not processes[0].killed
+    # Closing a supervisor is not proof the ComfyUI GPU queue is drained.\n    assert not processes[0].terminated and not processes[0].killed
     assert settings.render_agent.comfyui_process.log_path.is_file()
 
 
@@ -164,7 +164,7 @@ def test_comfyui_restart_after_owned_crash(tmp_path: Path) -> None:
         manager.watch(stop)
         assert len(processes) == 2
         manager.close()
-    assert processes[1].terminated
+    # Exited first child was replaced; the new live child is left intact.\n    assert not processes[1].terminated and not processes[1].killed
 
 
 def test_comfyui_restart_budget_is_bounded(tmp_path: Path) -> None:

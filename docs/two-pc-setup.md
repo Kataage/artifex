@@ -81,6 +81,49 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Windows PC-B socket provenance and non-destructive supervision
+
+The PC-B render-node can inspect the **actual Windows TCP listener owner
+PID and live local client connections** using the built-in PowerShell
+`Get-NetTCPConnection`. This does not require Docker, psutil, an external
+service or manual socket data collection:
+
+```powershell
+uv run artifex render-node socket-audit `
+  --config .\\config\\render-node.yaml
+```
+
+The read-only report shows upstream listener addresses/PIDs, currently
+observed direct-loopback client PIDs, and a fail-closed diagnostic state.
+A listener exposed on `0.0.0.0` or `::`, missing TCP information, or a
+foreign client produces a nonzero CLI exit. The detached CLI cannot prove
+which PID was spawned by Artifex; it therefore explicitly reports
+`owner_unverified` for an otherwise valid loopback listener and **never**
+sets `restart_authorized=true`.
+
+In **managed protected mode** the running supervisor compares
+`Get-NetTCPConnection` listener PIDs to its actual
+`subprocess.Popen.pid` after startup and on subsequent health checks.
+Unknown PID ownership, externally visible listeners and locally observed
+direct clients cause protection to fail closed.
+
+**Important safety change:** if the child is still alive but stops answering
+HTTP health probes, Artifex will not terminate/kill it to auto-restart. A
+live child may be executing a GPU job. Exited children can still be
+restarted under the configured retry budget. When the supervisor shuts
+down/crashes, it detaches a surviving ComfyUI child rather than killing it;
+the child may consequently remain running, and a restarted protected
+supervisor will refuse to take ownership of that already-running process.
+This requires an explicit safe maintenance procedure; do not assume the
+Task Scheduler relaunch can seize or kill it. See the Windows socket
+report before resolving such a case.
+
+Even an owner-verified idle TCP snapshot does NOT exclude a future local
+process opening a new `/prompt` connection. It is **diagnostic evidence**,
+not an atomic admission lock, a Windows firewall, proof of external
+client isolation, or permission to restart. No automatic live-child
+restart is introduced in this step.
+
 ## Coordinated two-PC admission maintenance (PC-A)
 
 After configuring the **same authenticated PC-B gateway URL** for both
