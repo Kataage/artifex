@@ -34,6 +34,7 @@ from artifex.controller_preflight import check_controller
 from artifex.db import Database
 from artifex.db.models import PackInventoryRow
 from artifex.deployment import DeploymentRole, verify_deployment
+from artifex.deployment_activation import activate_deployment
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.evaluation import (
     SemanticArchiveIndexer,
@@ -276,6 +277,76 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@deployment_app.command("activate")
+def deployment_activate(
+    role: Annotated[
+        str, typer.Option("--role", help="Role of THIS PC: controller or renderer."),
+    ] = "controller",
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply",
+            help="Explicitly start this PC's matching Artifex task; default is read-only.",
+        ),
+    ] = False,
+    install_missing: Annotated[
+        bool,
+        typer.Option(
+            "--install-missing",
+            help="With --apply, install a missing Artifex-owned task for current user.",
+        ),
+    ] = False,
+    replace: Annotated[
+        bool,
+        typer.Option(
+            "--replace",
+            help="With --apply, replace a stopped, Artifex-owned stale task.",
+        ),
+    ] = False,
+    wait_seconds: Annotated[
+        float, typer.Option("--wait-seconds", min=0, max=600),
+    ] = 90,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Safely activate this host and verify real service readiness without GPU work."""
+    if role not in {"controller", "renderer"}:
+        typer.echo(
+            "deployment activate error: --role must be controller or renderer",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    selected = cast(DeploymentRole, role)
+    target = config or Path(
+        "config/local.yaml" if selected == "controller" else "config/render-node.yaml"
+    )
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"deployment activate error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        settings = _settings(target)
+        result = asyncio.run(
+            activate_deployment(
+                settings,
+                role=selected,
+                config=target,
+                apply=apply,
+                install_missing=install_missing,
+                replace=replace,
+                wait_seconds=wait_seconds,
+            )
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"deployment activate error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not result.ready:
+        raise typer.Exit(code=1)
 
 
 @deployment_app.command("pair-export")
