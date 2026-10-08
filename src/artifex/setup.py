@@ -97,11 +97,6 @@ def configure_two_pc(
             http.close()
 
     target = output_path.expanduser().resolve(strict=False)
-    if target.exists() and not force:
-        raise FileExistsError(
-            f"configuration already exists: {target}; rerun with --force to replace it"
-        )
-
     llm_path = settings.llm.bootstrap.model_path().expanduser().resolve(strict=False)
     payload = {
         "llm": {
@@ -137,18 +132,28 @@ def configure_two_pc(
         },
     }
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    temporary.write_text(
+    if target.exists() and not force:
+        # Re-running setup after a download/network failure is safe, but never
+        # silently replace an operator-modified configuration.
+        existing = yaml.safe_load(target.read_text(encoding="utf-8"))
+        if existing != payload:
+            raise FileExistsError(
+                f"configuration already exists with different settings: {target}; "
+                "rerun with --force to replace it"
+            )
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".tmp")
+        temporary.write_text(
         yaml.safe_dump(
             payload,
             allow_unicode=True,
             sort_keys=False,
             default_flow_style=False,
-        ),
-        encoding="utf-8",
-    )
-    temporary.replace(target)
+            ),
+            encoding="utf-8",
+        )
+        temporary.replace(target)
 
     return SetupResult(
         config_path=target,
