@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 import subprocess
+import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -292,3 +296,69 @@ def test_owner_audit_cli_missing_config_does_not_touch_host(
     )
     assert response.exit_code == 1
     assert "config required" in response.output
+
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows CIM and Get-NetTCPConnection")
+def test_native_windows_owner_audit_of_disposable_python_listener(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Real native PID/port inventory, no GPU, no real Scheduler task changes."""
+    import artifex.render_node.owner_audit as module
+    from artifex.render_node.process_identity import windows_process_identity
+
+    settings, _ = _settings(tmp_path)
+    cfg = settings.render_agent.comfyui_process
+    cfg.executable = Path(sys.executable)
+    cfg.working_directory = tmp_path
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        port = reserved.getsockname()[1]
+    settings.comfyui.base_url = f"http://127.0.0.1:{port}"
+    marker = tmp_path / "ready.txt"
+    release = tmp_path / "release.txt"
+    script = (
+        "import os,socket,sys,time,pathlib;"
+        "s=socket.socket();s.bind(('127.0.0.1',int(sys.argv[1])));s.listen(1);"
+        "pathlib.Path(sys.argv[2]).write_text(str(os.getpid()));"
+        "deadline=time.monotonic()+30;release=pathlib.Path(sys.argv[3]);"
+        "\nwhile time.monotonic()<deadline and not release.exists(): time.sleep(0.1)\n"
+        "s.close()"
+    )
+    cfg.arguments = ("-c", script, str(port), str(marker), str(release))
+    launched = subprocess.Popen(
+        [sys.executable, *cfg.arguments], cwd=str(tmp_path),
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert marker.exists(), "Isolated TCP mock did not start"
+        actual_pid = int(marker.read_text())
+        listener = windows_process_identity(actual_pid)
+        launcher = windows_process_identity(launched.pid)
+        assert listener is not None and launcher is not None
+        receipt = expected_receipt(
+            settings, listener,
+            launcher_identity=launcher if actual_pid != launched.pid else None,
+        )
+        ComfyReceiptStore(cfg.ownership_receipt_path).save(receipt)
+        monkeypatch.setattr(
+            module, "task_status",
+            lambda role: SimpleNamespace(state="Running"),
+        )
+        monkeypatch.setattr(
+            module, "task_configuration_matches",
+            lambda role, config, status: (True, "test-only"),
+        )
+        report = observe_renderer_owner(settings, config=tmp_path / "fake.yaml")
+        assert report["status"] == "observed_stable", report
+        assert report["actual_listener_pid"] == actual_pid
+        assert report["process_observation_verified"] is True
+        assert report["production_qualified"] is False
+    finally:
+        release.write_text("done", encoding="utf-8")
+        launched.wait(timeout=15)
