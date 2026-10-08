@@ -109,7 +109,7 @@ def _physical_ram_mib() -> float | None:
             kernel = ctypes.WinDLL("kernel32")  # type: ignore[attr-defined]
             if not kernel.GlobalMemoryStatusEx(ctypes.byref(status)):
                 return None
-            return (status.total_phys - status.avail_phys) / 1048576
+            return float(status.total_phys - status.avail_phys) / 1048576
         except (OSError, AttributeError):
             return None
     try:
@@ -191,10 +191,13 @@ def sample_soak(settings: ArtifexSettings, elapsed_seconds: float) -> SoakSample
     except (ValueError, OSError) as exc:
         free_gib = None
         errors.append(f"PC-A free disk check: {type(exc).__name__}")
+    telemetry: int | None
+    severe: int | None
+    packs: int | None
     try:
         telemetry, severe, packs = _read_db_counts(settings.storage.database_url)
     except (OSError, ValueError, sqlite3.Error) as exc:
-        telemetry = severe = packs = None
+        telemetry, severe, packs = None, None, None
         errors.append(f"SQLite telemetry/Pack counters: {type(exc).__name__}")
     if primary is None:
         errors.append("No primary renderer configured")
