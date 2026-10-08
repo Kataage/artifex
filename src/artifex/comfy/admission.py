@@ -90,11 +90,12 @@ class ComfySubmissionFence:
         except BaseException:
             # Cancellation while waiting for BEGIN IMMEDIATE cannot orphan
             # an already-acquired SQLite transaction.
+            connection: sqlite3.Connection | None = None
             try:
                 connection = await task
-            except BaseException:
-                pass
-            else:
+            except (sqlite3.Error, OSError, ValueError):
+                connection = None
+            if connection is not None:
                 await asyncio.to_thread(self._finish, connection, commit=False)
             raise
 
