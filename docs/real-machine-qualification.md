@@ -2,6 +2,20 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## Prepare renderer model dependencies without manual repeated downloads
+
+On PC-B, `artifex onboard prepare-renderer --config
+.\\config\\render-node.yaml` produces a read-only live workflow/asset
+report and a SHA-256-pinned plan for **previously approved** model source
+bindings. To download verified missing weights into an Artifex-owned isolated
+ComfyUI, explicitly add `--comfy-root PATH --apply --accept-licenses`.
+Unknown model publishers, unverified choices and third-party Python
+custom-node suggestions cannot be auto-installed by this command.
+See [two-pc-setup.md](two-pc-setup.md) for details and the source approval
+registry. A successful installation is not proof of model availability:
+restart/refresh ComfyUI and re-run its live audit before beginning the
+real-machine production qualification.
+
 ## Configure pinned production assets
 
 For a single-PC deployment, set qualification.asset_paths in the operator config for the real production checkpoint, refiner, VAE, upscaler, LLM model and semantic model.
