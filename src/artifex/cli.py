@@ -2926,7 +2926,8 @@ def qualify_verify(
             raise typer.Exit(code=1) from exc
         if owner_error is not None:
             result["ready"] = False
-            result["issues"] = [*result["issues"], owner_error]
+            issues = cast(list[str], result["issues"])
+            result["issues"] = [*issues, owner_error]
         _print_payload(result, as_json=json_output)
         if result["ready"] is not True:
             raise typer.Exit(code=1)
