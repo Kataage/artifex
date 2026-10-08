@@ -4,8 +4,7 @@ import hashlib
 import io
 import json
 import zipfile
-from pathlib import Path, PurePosixPath
-from typing import Any
+from pathlib import Path
 
 import httpx
 import pytest
@@ -104,18 +103,16 @@ def test_exact_download_sha_and_atomic_extract_with_dlls(
 def test_rejects_digest_mismatch_and_cleans_staging(tmp_path: Path) -> None:
     content = _zip()
     folder = tmp_path / "bin"
-    with _client(content, digest="0" * 64) as client:
-        with pytest.raises(ValueError, match="SHA-256/size"):
-            install_official_llama(TAG, NAME, folder, client=client)
+    with _client(content, digest="0" * 64) as client, pytest.raises(ValueError, match="SHA-256/size"):
+        install_official_llama(TAG, NAME, folder, client=client)
     assert not list(folder.iterdir())
 
 
 def test_rejects_size_mismatch_without_install(tmp_path: Path) -> None:
     content = _zip()
     folder = tmp_path / "bin"
-    with _client(content, size=len(content) + 20) as client:
-        with pytest.raises(ValueError, match="SHA-256/size"):
-            install_official_llama(TAG, NAME, folder, client=client)
+    with _client(content, size=len(content) + 20) as client, pytest.raises(ValueError, match="SHA-256/size"):
+        install_official_llama(TAG, NAME, folder, client=client)
     assert not list(folder.iterdir())
 
 
@@ -133,9 +130,8 @@ def test_zip_slip_rejected_even_when_download_hash_matches(
     member: str, tmp_path: Path
 ) -> None:
     contents = _zip(member=member)
-    with _client(contents) as client:
-        with pytest.raises(ValueError, match="Unsafe archive member"):
-            install_official_llama(TAG, NAME, tmp_path / "bin", client=client)
+    with _client(contents) as client, pytest.raises(ValueError, match="Unsafe archive member"):
+        install_official_llama(TAG, NAME, tmp_path / "bin", client=client)
     assert not (tmp_path / "escape.txt").exists()
 
 
@@ -170,17 +166,15 @@ def test_missing_upstream_checksum_fails_closed() -> None:
 
 
 def test_release_metadata_mismatch_or_wrong_url_fails_closed() -> None:
-    with _client(_zip(), tag="b9999") as client:
-        with pytest.raises(ValueError, match="does not match"):
-            official_release_assets(TAG, client=client)
+    with _client(_zip(), tag="b9999") as client, pytest.raises(ValueError, match="does not match"):
+        official_release_assets(TAG, client=client)
     with _client(_zip(), source="https://evil.example.com/llama.zip") as client:
         assert official_release_assets(TAG, client=client) == ()
 
 
 def test_path_and_tag_injection_rejected_before_http_or_disk(tmp_path: Path) -> None:
-    with _client(_zip()) as client:
-        with pytest.raises(ValueError, match="tag"):
-            official_release_assets("../main", client=client)
+    with _client(_zip()) as client, pytest.raises(ValueError, match="tag"):
+        official_release_assets("../main", client=client)
         with pytest.raises(ValueError, match="asset"):
             install_official_llama(TAG, "../../evil.zip", tmp_path, client=client)
     assert list(tmp_path.iterdir()) == []
@@ -190,9 +184,8 @@ def test_existing_unowned_install_is_not_overwritten(tmp_path: Path) -> None:
     existing = tmp_path / "llama-cpp-b12345-llama-b12345-bin-win-cuda-12.4-x64"
     existing.mkdir()
     (existing / "my-file.txt").write_text("keep", encoding="utf-8")
-    with _client(_zip()) as client:
-        with pytest.raises(FileExistsError, match="Refusing to overwrite"):
-            install_official_llama(TAG, NAME, tmp_path, client=client)
+    with _client(_zip()) as client, pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        install_official_llama(TAG, NAME, tmp_path, client=client)
     assert (existing / "my-file.txt").read_text() == "keep"
 
 
