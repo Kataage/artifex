@@ -59,6 +59,7 @@ from artifex.llm import (
 from artifex.llm.release_install import install_official_llama, official_release_assets
 from artifex.llm.server import ManagedLlmServer
 from artifex.native_dependencies import DependencyRole, check_native_dependencies
+from artifex.operations.quiescence import quiesce_controller
 from artifex.onboarding import (
     configure_discovered_renderer,
     discover_controller,
@@ -182,6 +183,12 @@ deployment_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(deployment_app, name="deployment")
+maintenance_app = typer.Typer(
+    name="maintenance",
+    help="Observe and control non-destructive controller drain before renderer maintenance.",
+    no_args_is_help=True,
+)
+app.add_typer(maintenance_app, name="maintenance")
 onboard_app = typer.Typer(
     name="onboard",
     help="Discover native two-PC dependencies and prepare safe first-run configuration.",
@@ -279,6 +286,46 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@maintenance_app.command("drain")
+def maintenance_drain(
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Pause new Artifex daemon work; never interrupt GPU."),
+    ] = False,
+    wait_seconds: Annotated[
+        float, typer.Option("--wait-seconds", min=0, max=600),
+    ] = 0,
+    poll_seconds: Annotated[
+        float, typer.Option("--poll-seconds", min=0.1, max=60),
+    ] = 5,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: pause scheduling and observe all in-flight Packs + ComfyUI queue.
+
+    This NEVER authorizes an automated restart of ComfyUI: external submitters
+    do not honor Artifex controller pause.
+    """
+    settings = _settings(config)
+    core = build_core(settings)
+    try:
+        report = asyncio.run(
+            quiesce_controller(
+                core.database, core.runtime, core.comfy,
+                apply=apply, wait_seconds=wait_seconds,
+                poll_seconds=poll_seconds,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"maintenance drain error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @deployment_app.command("activate")
