@@ -11,7 +11,6 @@ import pytest
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.comfy_process import ManagedComfyUI
 from artifex.render_node.process_identity import (
-    ComfyOwnershipReceipt,
     ComfyReceiptStore,
     WindowsProcessIdentity,
     expected_receipt,
@@ -221,8 +220,8 @@ def test_adopted_child_natural_exit_can_restart_without_termination(
     )
     monkeypatch.setattr(
         recovered, "_healthy",
-        lambda: not original.dead if recovered._adopted is not None
-        else recovered.process is not None,
+        lambda: not original.dead if recovered.process is None
+        else not recovered.process.dead,
     )
     recovered.start(threading.Event())
     assert recovered._adopted is not None
