@@ -97,6 +97,7 @@ from artifex.render_node import (
     check_render_node,
 )
 from artifex.render_node.comfy_process import serve_managed_renderer
+from artifex.render_node.socket_audit import audit_renderer_sockets
 from artifex.research import (
     ResearchIntent,
     ResearchProviderError,
@@ -1881,6 +1882,34 @@ def render_node_attest(
         typer.echo(f"render-node attestation error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     _print_payload(payload, as_json=json_output)
+
+
+@render_node_app.command("socket-audit")
+def render_node_socket_audit(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: inspect real Windows ComfyUI TCP listener and local clients.
+
+    A one-time socket snapshot never authorizes terminating a live renderer.
+    The detached CLI cannot prove child ownership; only the active supervisor
+    has access to the original subprocess.Popen handle.
+    """
+    target = config or Path("config/render-node.yaml")
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"render-node socket-audit error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        report = audit_renderer_sockets(_settings(target))
+    except (OSError, ValueError, TypeError) as exc:
+        typer.echo(f"render-node socket-audit error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    if report.status not in {"owner_unverified", "owned_loopback_observed"}:
+        raise typer.Exit(code=1)
 
 
 @render_node_app.command("preflight")
