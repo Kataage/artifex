@@ -130,3 +130,59 @@ def test_partial_remote_inventory_failure_never_disables_missing_loras(
     assert len(complete.removed) == 1
     assert registry.require(complete.removed[0].id).state is LoRAState.DISABLED
     database.dispose()
+
+
+def test_resolver_never_dispatches_secondary_or_controller_lora_to_primary(
+    tmp_path: Path,
+) -> None:
+    from artifex.config.models import (
+        CharacterRegistryConfig,
+        LoRARegistryConfig,
+        RenderNodeConfig,
+        RenderNodesConfig,
+    )
+    from artifex.domain import LoRAPolicy, LoRAProfile
+    from artifex.loras import LoRAResolver
+
+    database = Database(f"sqlite:///{(tmp_path / 'routing.sqlite3').as_posix()}")
+    database.migrate()
+    characters = CharacterRegistry(database)
+    characters.upsert(
+        CharacterProfile(
+            id="char-1",
+            display_name="Character One",
+            namespace="test",
+            canonical_tags=("char_1",),
+            lora_policy=LoRAPolicy.REQUIRED,
+            readiness=1.0,
+        )
+    )
+    registry = LoRARegistry(database)
+    for node in ("secondary", "primary"):
+        registry.upsert(
+            LoRAProfile(
+                id=f"{node}-char",
+                path=tmp_path / f"{node}.safetensors",
+                state=LoRAState.PRODUCTION,
+                lora_type="character",
+                model_families=("ilxl",),
+                target_character_ids=("char-1",),
+                readiness=1.0,
+                source=f"render-node:{node}",
+                metadata={"asset_name": "char.safetensors"},
+            )
+        )
+    renderer = RenderNodesConfig(
+        primary="primary",
+        nodes={
+            "primary": RenderNodeConfig(base_url="http://primary.test:8188"),
+            "secondary": RenderNodeConfig(base_url="http://secondary.test:8188"),
+        },
+    )
+    resolver = LoRAResolver(
+        characters, registry, CharacterRegistryConfig(), LoRARegistryConfig(),
+        renderer,
+    )
+    plan = resolver.resolve(("char-1",), model_family="ilxl")
+    assert [entry.lora_id for entry in plan.entries] == ["primary-char"]
+    database.dispose()
