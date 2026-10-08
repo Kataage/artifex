@@ -75,6 +75,7 @@ def _observe(
     time_target: float = 8,
     sample_seconds: float = 3600,
     sample_factory: Any = _sample,
+    on_sample: Any = None,
 ) -> tuple[Path, Any]:
     state = [0.0]
 
@@ -94,6 +95,7 @@ def _observe(
         duration_hours=time_target,
         interval_seconds=sample_seconds,
         sample=lambda settings, elapsed: sample_factory(elapsed),
+        on_sample=on_sample,
         monotonic=monotonic,
         sleep=sleep,
         now=now,
@@ -140,6 +142,22 @@ def test_eight_hour_trace_fails_if_activity_or_health_is_not_proved(
     assert not result.ready_for_soak_review
     assert result.production_qualified is False
     assert any(message in issue for issue in result.issues)
+
+
+def test_sample_callback_only_sees_fsynced_observations(
+    tmp_path: Path,
+) -> None:
+    seen: list[float] = []
+
+    def progress(sample: SoakSample) -> None:
+        lines = (tmp_path / "soak.jsonl").read_text(encoding="utf-8").splitlines()
+        assert json.loads(lines[-1])["kind"] == "sample"
+        assert json.loads(lines[-1])["elapsed_seconds"] == sample.elapsed_seconds
+        seen.append(sample.elapsed_seconds)
+
+    _, result = _observe(tmp_path, on_sample=progress)
+    assert result.ready_for_soak_review
+    assert seen == [float(hour * 3600) for hour in range(9)]
 
 
 def test_initial_controller_or_render_failure_stops_early_and_retains_file(

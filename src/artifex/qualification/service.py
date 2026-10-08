@@ -392,6 +392,28 @@ class QualificationService:
         self._write(updated)
         return updated
 
+    def require_soak_candidate(self, session: QualificationSession) -> None:
+        """Reject invalid or stale baselines before starting an 8-hour run."""
+        if not session.doctor_ready:
+            raise ValueError("soak qualification requires a ready doctor baseline")
+        if session.hostname != socket.gethostname():
+            raise ValueError("soak qualification session belongs to another controller")
+        requirements = session.environment.get("requirements")
+        if not isinstance(requirements, dict) or not all(
+            value is True for value in requirements.values()
+        ):
+            raise ValueError("soak qualification native requirements are not satisfied")
+        if session.stage(QualificationStage.OVERNIGHT_SOAK).status is QualificationStatus.PASS:
+            raise ValueError("overnight_soak already passed in this session")
+        original = json.loads(json.dumps(session.configuration))
+        current = self._configuration_snapshot()
+        for snapshot in (original, current):
+            loras = snapshot.get("loras")
+            if isinstance(loras, dict):
+                loras.pop("production_count", None)
+        if original != current:
+            raise ValueError("production configuration changed since qualification start")
+
     def verify(self, session_id: str) -> dict[str, object]:
         session = self.load(session_id)
         issues: list[str] = []
@@ -720,7 +742,8 @@ class QualificationService:
         if hashlib.sha256(path.read_bytes()).hexdigest() != supplied_hash:
             raise ValueError("overnight_soak evidence SHA-256 mismatch")
         report = verify_soak_evidence(
-            path, minimum_hours=self._settings.qualification.minimum_soak_hours,
+            path,
+            minimum_hours=max(8.0, self._settings.qualification.minimum_soak_hours),
         )
         if report.evidence_sha256 != supplied_hash:
             raise ValueError("overnight_soak evidence SHA-256 mismatch")

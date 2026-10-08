@@ -55,6 +55,27 @@ Unattended production requires at least three finalized Packs:
 
     uv run artifex qualify record <SESSION> unattended_multi_pack --status pass --pack-id <PACK1> --pack-id <PACK2> --pack-id <PACK3>
 
+For minimal manual interaction, after the production controller and
+PC-B services are already running, use **one command** on PC-A:
+
+```powershell
+uv run artifex qualify soak-run --config .\\config\\local.yaml
+```
+
+This runs Doctor, creates a session, watches a real 8-hour window,
+revalidates the persisted JSONL/SHA-256, and automatically records
+`overnight_soak` PASS only if every required observation succeeds.
+The command prints the session ID and output evidence location, and
+reports the 14-stage ladder still unfinished. The full production
+qualification is **not** automatically declared complete. The
+controller must already be making genuine Packs, and the PC-B renderer
+must already be accessible. For an existing partially qualified
+session, supply `--session-id <SESSION>`. A failed run retains
+evidence and exits nonzero without registering PASS. No Docker
+dependency, GPU-generating test loop, or service restarts are added.
+
+**Advanced manual commands** for independent observation and review:
+
 The overnight soak MUST use an actual read-only observer trace from
 the same qualification session. Start the normal Artifex daemon first,
 then on PC-A run the following in another terminal (saving evidence

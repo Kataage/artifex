@@ -157,6 +157,35 @@ Docker. First qualify the two hosts with `deployment pair-check`
 and execute `deployment pair-smoke --confirm-render`, then start
 the normal Artifex production daemon using your existing setup.
 
+**Recommended zero-copy workflow (PC-A, one command):** once
+Artifex, the local LLM, PC-B render-node and ComfyUI are running,
+start the bound 8-hour qualification with:
+
+```powershell
+uv run artifex qualify soak-run --config .\\config\\local.yaml
+```
+
+This command runs live Doctor checks, automatically creates a new
+qualification session, generates a collision-resistant JSONL evidence
+path under `qualification.evidence_dir`, logs progress samples to
+stderr, and registers the `overnight_soak` stage PASS **only if** the
+real observation lasts at least 8 hours (or a longer configured minimum)
+and passes every evidence check. It emits a
+machine-readable final JSON summary containing the session ID,
+observation metrics, remaining qualification stages, and
+`production_qualified=false`. On failure or interruption it never
+registers a successful soak. It does **not** start the Artifex daemon,
+send image-generation work, reboot Windows, restart services or
+qualify the other 13 stages. The production daemon must already be
+generating Packs. To resume qualification in an existing session
+instead of creating a new one, add `--session-id <SESSION>`. A
+configuration mismatch or unhealthy baseline is rejected *before*
+waiting overnight. `--no-progress` suppresses periodic stderr logs,
+and `--output` can select a new path within the configured evidence
+directory. This command never overwrites evidence.
+
+**Advanced/manual observer flow** (kept for forensic operation):
+
 On **PC-A**, first create the production qualification session with
 `uv run artifex qualify start --config .\\config\\local.yaml --json` and save
 the returned `session_id`. Then open a separate terminal and launch the

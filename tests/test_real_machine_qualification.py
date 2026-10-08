@@ -601,6 +601,43 @@ def test_overnight_soak_detects_session_metric_and_configuration_drift(
     database.dispose()
 
 
+def test_soak_candidate_preflight_rejects_stale_or_completed_sessions(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    service.require_soak_candidate(session)
+
+    with pytest.raises(ValueError, match="doctor baseline"):
+        service.require_soak_candidate(
+            session.model_copy(update={"doctor_ready": False})
+        )
+    with pytest.raises(ValueError, match="another controller"):
+        service.require_soak_candidate(
+            session.model_copy(update={"hostname": "another-pc"})
+        )
+    with pytest.raises(ValueError, match="native requirements"):
+        environment = dict(session.environment)
+        environment["requirements"] = {"native_windows": False}
+        service.require_soak_candidate(
+            session.model_copy(update={"environment": environment})
+        )
+
+    stages = dict(session.stages)
+    soak = session.stage(QualificationStage.OVERNIGHT_SOAK)
+    stages[QualificationStage.OVERNIGHT_SOAK.value] = soak.model_copy(
+        update={"status": QualificationStatus.PASS}
+    )
+    with pytest.raises(ValueError, match="already passed"):
+        service.require_soak_candidate(
+            session.model_copy(update={"stages": stages})
+        )
+    settings.llm.base_url = "http://wrong-llm:8899"
+    with pytest.raises(ValueError, match="configuration changed"):
+        service.require_soak_candidate(session)
+    database.dispose()
+
+
 def test_qualification_accepts_lora_promoted_after_session_started(
     tmp_path: Path,
 ) -> None:
