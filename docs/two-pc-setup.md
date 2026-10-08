@@ -7,6 +7,73 @@ Artifex supports a split native-Windows deployment where the controller and rend
 
 No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A is required.
 
+## Native first-run discovery (no network or background changes)
+
+You can inspect each machine **before starting ComfyUI, llama.cpp or the
+other PC**. These commands only read bounded local paths, selected GGUF
+metadata and environment-variable *presence*, not secret values:
+
+**On PC-B**, provide the existing ComfyUI or Windows Portable root:
+
+```powershell
+uv run artifex onboard inspect --role renderer `
+  --comfy-root "E:/ComfyUI_windows_portable" --json
+```
+
+The report lists the actual ComfyUI `main.py` directory, detected embedded
+or virtual-environment Python executables, checkpoint/VAE/upscale filenames,
+and the local LoRA directory. It deliberately does not scan entire drives,
+follow `extra_model_paths.yaml` references, download assets, or guess which
+of several Python installations or checkpoints is correct.
+
+Once a specific checkpoint is chosen, **one command** can generate PC-B's
+renderer YAML without having to type Python and working-directory paths:
+
+```powershell
+uv run artifex onboard renderer `
+  --comfy-root "E:/ComfyUI_windows_portable" `
+  --checkpoint-path "E:/ComfyUI_windows_portable/ComfyUI/models/checkpoints/your-ILXL.safetensors" `
+  --node-id rtx3060 `
+  --bind-host 0.0.0.0 `
+  --output .\\config\\render-node.yaml
+```
+
+The command automatically configures managed ComfyUI startup only when
+exactly **one** local Python environment is detected. With multiple candidates,
+supply `--comfy-exe`; with an independently managed ComfyUI process, pass
+`--external-comfy` instead. You may also specify `--refiner-path`,
+`--vae-path`, `--upscaler-path`, `--lora-dir` (repeatable),
+`--comfy-port`, `--port`, `--update` and `--force`.
+Model roles are **never** assigned based on guesses about filenames.
+Additional external model roots remain operator-configurable.
+
+**On PC-A**, inspect the local LLM executable, chosen GGUF, `uv`, Python,
+and render-node token presence:
+
+```powershell
+uv run artifex onboard inspect --role controller --json
+```
+
+You can create the controller YAML **while PC-B is turned off**, avoiding
+the earlier setup dependency on an already-running ComfyUI:
+
+```powershell
+uv run artifex setup `
+  --comfy-url http://192.168.1.50:8188 `
+  --render-node-id rtx3060 `
+  --production-checkpoint your-ILXL.safetensors `
+  --offline --skip-llm-download `
+  --output .\\config\\local.yaml
+```
+
+The `--offline` flag only skips the ComfyUI probe; the output reports
+`comfyui_probed: false`, not a fabricated successful connection.
+`--skip-llm-download` is optional and shown to keep this initial step
+network-free; remove it to use the existing resumable pinned GGUF bootstrap.
+No installer or command registers Windows startup tasks implicitly. Run
+`artifex deployment verify` when services are online and opt into the
+real `--render-smoke` when ready to allocate GPU resources.
+
 ## PC-B: renderer
 
 ComfyUI must listen on an address reachable from PC-A. Keep the ComfyUI port restricted to the trusted LAN/firewall scope.
