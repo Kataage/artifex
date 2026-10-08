@@ -110,8 +110,10 @@ Replacement first acquires the same exclusive supervisor lease, checks the
 persisted ComfyUI ownership receipt for a surviving process, and requires
 the configured upstream TCP port to have no listener. The native Windows
 registration script rechecks the listener and running-task state immediately
-before registration. Missing/invalid receipt data, failed socket inventory,
-a live orphan, or an occupied lease block replacement. No running ComfyUI
+before registration. An invalid receipt, failed socket inventory, a live receipt-recorded child,
+or an occupied lease block replacement. A missing receipt is not sufficient
+proof of child absence; the listener probe and exclusive lease are additional
+checks, not a guarantee against independently started processes. No running ComfyUI
 child is terminated. All launch paths for the same renderer must share the
 same ownership receipt/lease location. Non-Artifex clients cannot be
 atomically fenced by this check, so use a controlled maintenance window.
