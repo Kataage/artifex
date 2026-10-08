@@ -13,6 +13,7 @@ from artifex.application import CoreServices, build_application, build_core, bui
 from artifex.characters import HololiveCatalog
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
+from artifex.controller_preflight import check_controller
 from artifex.db import Database
 from artifex.db.models import PackInventoryRow
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
@@ -132,6 +133,23 @@ ConfigOption = Annotated[
 
 def _settings(config: Path | None) -> ArtifexSettings:
     return load_settings(user_config=config)
+
+
+@app.command("preflight")
+def preflight(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Check PC-A to PC-B ComfyUI and authenticated renderer, plus the local LLM."""
+    settings = _settings(config)
+    try:
+        report = check_controller(settings)
+    except (OSError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"controller preflight error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @app.command("setup")
