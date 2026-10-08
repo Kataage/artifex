@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import shutil
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -31,6 +33,11 @@ from artifex.domain import (
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorCheck, DoctorReport
 from artifex.operations.health import ComponentHealth, ComponentState, HealthReport
+from artifex.production import GeneratedBatch
+from artifex.qualification.archive_reproduction import (
+    file_sha256,
+    reproduce_archived_attempt,
+)
 from artifex.qualification import (
     QualificationService,
     QualificationStage,
@@ -333,6 +340,99 @@ def _bound_soak_trace(
     return report.evidence_sha256, path
 
 
+def _reproduce_fixture(
+    service: QualificationService,
+    database: Database,
+    tmp_path: Path,
+    settings: ArtifexSettings,
+    session_id: str,
+    pack_id: str,
+    *,
+    match: bool = True,
+) -> tuple[Path, object]:
+    """Fake replay is test-only: production CLI uses real ComfyUI."""
+    from PIL import Image
+
+    image_path = tmp_path / f"{pack_id}-archived.png"
+    Image.new("RGB", (5, 5), (35, 55, 75)).save(image_path)
+    compiled = {
+        "positive_prompt": "qualification prompt",
+        "negative_prompt": "",
+        "positive_tags": [],
+        "negative_tags": [],
+        "provenance": {
+            "adapter_id": "test", "adapter_version": "1",
+            "model_family": "ilxl", "character_ids": ["char-2"],
+            "lora_ids": [], "lora_weights": [],
+        },
+    }
+    lora = {"model_family": "ilxl", "character_ids": ["char-2"], "entries": []}
+    backend_provenance = {
+        "backend": "comfyui", "base_url": "http://test", "render_node_id": "legacy",
+        "checkpoint": "checkpoint.safetensors", "width": 1024, "height": 1024,
+        "batch_size": 1, "model_family": "ilxl",
+        "refiner_checkpoint": "refiner", "upscale_model": "upscaler",
+        "base_steps": 48, "base_cfg": 5.5, "base_sampler": "sampler",
+        "base_scheduler": "karras", "workflow_template": "illust_main_v1",
+        "workflow_version": 1,
+    }
+    with database.session() as db_session:
+        pack = db_session.get(PackRow, pack_id)
+        assert pack is not None
+        manifest_path = Path(pack.payload_json["archive"]["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        scene_id = f"{pack_id}-scene-1"
+        attempt_id = f"{pack_id}-attempt-1"
+        manifest["archived_outputs"] = [{
+            "selected": True, "scene_id": scene_id, "attempt_id": attempt_id,
+            "archived_path": str(image_path.resolve()),
+        }]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        manifest_hash = file_sha256(manifest_path)
+        pack.payload_json = {
+            **pack.payload_json,
+            "archive": {**pack.payload_json["archive"], "manifest_sha256": manifest_hash},
+        }
+        pack.checkpoint_json = {
+            **pack.checkpoint_json, "archive_manifest_sha256": manifest_hash,
+        }
+        row = db_session.get(GenerationAttemptRow, attempt_id)
+        assert row is not None
+        row.provenance_json = {
+            **backend_provenance,
+            "compiled_prompt": compiled,
+            "lora_plan": lora,
+            "comfy_prompt_id": "original-" + pack_id,
+        }
+
+    class FakeReplayBackend:
+        def provenance(self) -> dict[str, object]:
+            return backend_provenance
+
+        async def generate(self, request: object, *, on_submitted: object) -> GeneratedBatch:
+            from artifex.production import GenerationRequest
+            assert isinstance(request, GenerationRequest)
+            assert request.seed == 1
+            assert request.compiled.positive_prompt == "qualification prompt"
+            assert request.workflow_template_id == "illust_main_v1"
+            assert callable(on_submitted)
+            replay_id = "replay-" + pack_id
+            on_submitted(replay_id)
+            output = tmp_path / f"{request.attempt_id}.png"
+            if match:
+                shutil.copyfile(image_path, output)
+            else:
+                Image.new("RGB", (5, 5), (255, 0, 0)).save(output)
+            return GeneratedBatch(prompt_id=replay_id, output_paths=(output,))
+
+    path, proof = asyncio.run(reproduce_archived_attempt(
+        settings, database, FakeReplayBackend(),
+        session_id=session_id, pack_id=pack_id,
+        output_root=settings.qualification.evidence_dir,
+    ))
+    return path, proof
+
+
 def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
     tmp_path: Path,
 ) -> None:
@@ -435,6 +535,11 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
             offset_seconds=offset,
         )
 
+    reproduction_path, reproduction_proof = _reproduce_fixture(
+        service, database, tmp_path, settings, session.session_id, single,
+    )
+    assert reproduction_proof.exact_match
+
     records = (
         (QualificationStage.SINGLE_CHARACTER, (single,), {}),
         (QualificationStage.LORA_REQUIRED, (required,), {}),
@@ -466,8 +571,8 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
             QualificationStage.ARCHIVE_REPRODUCTION,
             (single,),
             {
-                "reproduction_verified": True,
-                "hash_match": True,
+                "evidence_path": str(reproduction_path),
+                "evidence_sha256": file_sha256(reproduction_path),
             },
         ),
     )
@@ -723,6 +828,56 @@ def test_verify_fails_if_qualified_asset_changes(tmp_path: Path) -> None:
 
     assert verified["ready"] is False
     assert any("hash changed" in issue for issue in verified["issues"])
+    database.dispose()
+
+
+def test_archive_reproduction_refuses_claims_and_mismatching_actual_image(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    pack_id = _seed_pack(database, tmp_path, "archive-claim", character_ids=("char-2",))
+    with pytest.raises(ValueError, match="manually supplied claims"):
+        service.record(
+            session.session_id, QualificationStage.ARCHIVE_REPRODUCTION,
+            status=QualificationStatus.PASS, pack_ids=(pack_id,),
+            details={"reproduction_verified": True, "hash_match": True},
+        )
+    path, proof = _reproduce_fixture(
+        service, database, tmp_path, settings, session.session_id, pack_id,
+        match=False,
+    )
+    assert not proof.exact_match
+    with pytest.raises(ValueError, match="hash mismatch"):
+        service.record(
+            session.session_id, QualificationStage.ARCHIVE_REPRODUCTION,
+            status=QualificationStatus.PASS, pack_ids=(pack_id,),
+            details={"evidence_path": str(path), "evidence_sha256": file_sha256(path)},
+        )
+    database.dispose()
+
+
+def test_archive_reproduction_rechecked_after_file_and_database_tampering(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    pack_id = _seed_pack(database, tmp_path, "archive-proof", character_ids=("char-2",))
+    path, proof = _reproduce_fixture(
+        service, database, tmp_path, settings, session.session_id, pack_id,
+    )
+    assert proof.exact_match
+    details = {"evidence_path": str(path), "evidence_sha256": file_sha256(path)}
+    recorded = service.record(
+        session.session_id, QualificationStage.ARCHIVE_REPRODUCTION,
+        status=QualificationStatus.PASS, pack_ids=(pack_id,), details=details,
+    )
+    assert recorded.stage(QualificationStage.ARCHIVE_REPRODUCTION).status is QualificationStatus.PASS
+    replay_path = Path(proof.reproduced_path)
+    replay_path.write_bytes(b"tampered")
+    checked = service.verify(session.session_id)
+    assert not checked["ready"]
+    assert any("archive_reproduction" in issue for issue in checked["issues"])
     database.dispose()
 
 
