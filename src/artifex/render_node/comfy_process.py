@@ -540,7 +540,12 @@ def serve_managed_renderer(
                 target=supervise, name="artifex-comfy-watch", daemon=True
             )
             monitor.start()
-        serve_attestation(settings, stop_event=stop, owner_config=config_path)
+        if config_path is None:
+            # Preserve the existing standalone API for callers and test
+            # supervisors that do not supply an on-disk renderer YAML.
+            serve_attestation(settings, stop_event=stop)
+        else:
+            serve_attestation(settings, stop_event=stop, owner_config=config_path)
         if errors:
             raise RuntimeError(f"Renderer supervision failed: {errors[0]}") from errors[0]
     finally:
