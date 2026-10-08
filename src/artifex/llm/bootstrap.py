@@ -131,7 +131,7 @@ def _expected_sha256(
         for header_name in ("x-linked-etag", "etag"):
             raw = hop.headers.get(header_name, "").strip('"')
             if re.fullmatch(r"[0-9a-fA-F]{64}", raw):
-                return raw.casefold()
+                return str(raw).casefold()
     raise ValueError("Hugging Face did not supply a verifiable model SHA-256")
 
 
