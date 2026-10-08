@@ -6,6 +6,9 @@ import os
 import platform
 import socket
 import subprocess
+import time
+from threading import Lock
+from urllib.parse import parse_qs, urlsplit
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -189,6 +192,23 @@ def serve_attestation(settings: ArtifexSettings) -> None:
             "render-node token is required but the configured environment variable is empty"
         )
 
+    cache_lock = Lock()
+    cached: tuple[float, RenderNodeAttestation] | None = None
+
+    def snapshot(*, fresh: bool) -> RenderNodeAttestation:
+        nonlocal cached
+        with cache_lock:
+            now = time.monotonic()
+            if (
+                not fresh
+                and cached is not None
+                and now - cached[0] < settings.render_agent.attestation_cache_seconds
+            ):
+                return cached[1]
+            evidence = build_attestation(settings)
+            cached = (time.monotonic(), evidence)
+            return evidence
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "ArtifexRenderNode/1"
 
@@ -211,7 +231,8 @@ def serve_attestation(settings: ArtifexSettings) -> None:
             self.wfile.write(body)
 
         def do_GET(self) -> None:
-            if self.path == "/health":
+            url = urlsplit(self.path)
+            if url.path == "/health":
                 self._json(
                     HTTPStatus.OK,
                     {
@@ -220,14 +241,15 @@ def serve_attestation(settings: ArtifexSettings) -> None:
                     },
                 )
                 return
-            if self.path != "/v1/attestation":
+            if url.path != "/v1/attestation":
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
             if not self._authorized():
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
                 return
             try:
-                payload: Any = build_attestation(settings).model_dump(mode="json")
+                fresh = parse_qs(url.query).get("fresh") == ["1"]
+                payload: Any = snapshot(fresh=fresh).model_dump(mode="json")
             except Exception as exc:  # noqa: BLE001
                 self._json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
