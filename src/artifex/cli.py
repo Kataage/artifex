@@ -46,7 +46,11 @@ from artifex.qualification import (
     QualificationStage,
     QualificationStatus,
 )
-from artifex.render_node import build_attestation, serve_attestation
+from artifex.render_node import (
+    build_attestation,
+    check_render_node,
+    serve_attestation,
+)
 from artifex.research import (
     ResearchIntent,
     ResearchProviderError,
@@ -451,6 +455,23 @@ def render_node_attest(
         typer.echo(f"render-node attestation error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     _print_payload(payload, as_json=json_output)
+
+
+@render_node_app.command("preflight")
+def render_node_preflight(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Check PC-B's GPU, model hashes, LoRAs, ComfyUI and LAN configuration."""
+    settings = _settings(config)
+    try:
+        report = check_render_node(settings)
+    except (OSError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"render-node preflight error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @render_node_app.command("serve")
