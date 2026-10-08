@@ -125,6 +125,29 @@ is busy. The audit reports `restart_authorized=false` and
 `child_survival_qualified=false`; the real two-PC qualification remains
 required.
 
+## Windows virtualenv Python launcher and actual renderer PID
+
+Native Windows may run a venv \`Scripts\python.exe\` as a **launcher** and execute
+the Python interpreter as a separate child process. \`Popen.pid\` can then be
+different from the ComfyUI TCP listener PID. In protected gateway mode Artifex
+must **not** infer ownership from the listener port alone. It now first
+verifies the launcher's full executable/arguments and Windows CIM identity;
+a distinct listening Python PID is accepted only when it is its **direct**
+child, starts no earlier than the launcher, has the expected arguments and
+matches a repeat socket inventory. A schema-2 ownership receipt preserves
+both identities. Subsequent supervisor recovery checks the *actual* child
+PID, immutable creation time, executable, command line and recorded parent
+rather than trusting a possibly exited/reused launcher PID. An unknown,
+foreign, reordered or ambiguous chain blocks automatic ownership/restart.
+
+The native Windows CI tests launch only a temporary loopback Python listener,
+not ComfyUI or a GPU workload. They prove identity checking on a disposable
+venv launcher but **do not** qualify the production PC-B, GPU process,
+Task Scheduler logoff/shutdown or Windows Job Object effects. On the target
+PC-B, record the launcher PID, actual listener PID, creation time, parent PID
+and receipt while a real workload is active. Any mismatch remains
+fail-closed and should be investigated before activating protected startup.
+
 ## Isolated Windows Task Scheduler process-tree probe
 
 This deliberately uses **only a temporary, random-name Task Scheduler task**,
