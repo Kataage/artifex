@@ -19,6 +19,7 @@ from artifex.loras.discovery import (
     _metadata_text,
 )
 from artifex.loras.registry import LoRARegistry
+
 if TYPE_CHECKING:
     from artifex.render_node.models import RenderNodeAttestation
 
