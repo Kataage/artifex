@@ -434,6 +434,67 @@ This logon-triggered configuration also does not guarantee execution
 before anyone signs in; a pre-login service deployment has different Windows
 account/GPU-session and secret-handling requirements.
 
+## One-command deployment verification on each PC
+
+The `deployment verify` command aggregates the existing role-specific
+preflight and (on the controller) validates the configured generation and
+repair workflow's required ComfyUI node types and model choices. It also
+inspects the Windows user-logon startup task. **Normal verification is
+read-only:** it does not submit a prompt, download files, register tasks,
+start services or mark real-machine qualification stages complete.
+
+With ComfyUI and render-node already started on PC-B, run on **PC-B**:
+
+```powershell
+uv run artifex deployment verify --role renderer --config .\\config\\render-node.yaml --json
+```
+
+With the local LLM endpoint available, run on **PC-A**:
+
+```powershell
+uv run artifex deployment verify --role controller --config .\\config\\local.yaml --json
+```
+
+Both commands return a structured list of passing/failing checks and a
+nonzero exit code when an essential prerequisite fails. Windows startup
+registration is reported as an optional observation unless you add
+`--require-autostart`. This allows first-run service setup to be verified
+before you register a persistent startup task.
+
+### Explicit real image transport smoke (PC-A only)
+
+After the read-only deployment verification passes, a **single actual
+ComfyUI workflow** can be submitted from PC-A:
+
+```powershell
+uv run artifex deployment verify --role controller `
+  --config .\\config\\local.yaml `
+  --render-smoke `
+  --json
+```
+
+This step exercises the selected `comfyui.default_template` with the
+configured production checkpoint, refiner, VAE, upscaler and sampling
+parameters. It submits to PC-B's ComfyUI `/prompt`, waits for `/history`,
+downloads an image to PC-A using `/view`, and verifies the downloaded
+image can be completely decoded. The report includes the prompt ID,
+download path, image dimensions, byte count and SHA-256. Evidence defaults
+to a unique folder under `data/render-cache/deployment-smoke/`, or below
+the configured render-cache folder. No existing operator output is
+overwritten. `--output-dir` can choose another location; optional
+`--width` and `--height` can request a different initial canvas size.
+Without them the production dimensions are used. Full production
+workflows may upscale the output beyond the initial canvas size.
+
+The smoke probe does **not** test character-LoRA selection, full
+Artifex Pack production, editorial/Discord publication, continuity or
+eight-hour unattended recovery. Those remain in the strict qualification
+ladder in `docs/real-machine-qualification.md`. Smoke images are not
+automatically published, nor is smoke success recorded as a qualification
+pass. It is intentionally opt-in because it consumes GPU memory and time.
+If network/model/workflow prerequisites fail, **no GPU prompt is queued**.
+Use `--render-smoke` only when PC-B is ready for a real job.
+
 ## Qualification
 
 Complete the PC-B preflight first; then on PC-A run `artifex setup`,

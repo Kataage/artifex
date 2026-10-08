@@ -16,6 +16,7 @@ from artifex.config.models import ArtifexSettings
 from artifex.controller_preflight import check_controller
 from artifex.db import Database
 from artifex.db.models import PackInventoryRow
+from artifex.deployment import DeploymentRole, verify_deployment
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.evaluation import (
     SemanticArchiveIndexer,
@@ -132,6 +133,12 @@ startup_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(startup_app, name="startup")
+deployment_app = typer.Typer(
+    name="deployment",
+    help="Verify two-PC rollout and optionally generate one real transport smoke image.",
+    no_args_is_help=True,
+)
+app.add_typer(deployment_app, name="deployment")
 
 ConfigOption = Annotated[
     Path | None,
@@ -223,6 +230,71 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@deployment_app.command("verify")
+def deployment_verify(
+    role: Annotated[
+        str, typer.Option("--role", help="Local PC role: controller or renderer."),
+    ] = "controller",
+    config: ConfigOption = None,
+    require_autostart: Annotated[
+        bool,
+        typer.Option(
+            "--require-autostart",
+            help="Treat missing Windows startup registration as a blocking failure.",
+        ),
+    ] = False,
+    render_smoke: Annotated[
+        bool,
+        typer.Option(
+            "--render-smoke",
+            help="Explicitly queue one real production workflow and download its image.",
+        ),
+    ] = False,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Optional directory for smoke images on PC-A."),
+    ] = None,
+    width: Annotated[
+        int | None, typer.Option("--width", min=64, max=8192),
+    ] = None,
+    height: Annotated[
+        int | None, typer.Option("--height", min=64, max=8192),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """One read-only rollout check; --render-smoke explicitly runs one real image."""
+    if role not in {"controller", "renderer"}:
+        typer.echo("deployment verify error: --role must be controller or renderer", err=True)
+        raise typer.Exit(code=1)
+    selected = cast(DeploymentRole, role)
+    if config is None:
+        config = Path(
+            "config/local.yaml" if selected == "controller" else "config/render-node.yaml"
+        )
+    if not config.is_file():
+        typer.echo(f"deployment verify error: config does not exist: {config}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        settings = _settings(config)
+        report = asyncio.run(
+            verify_deployment(
+                settings,
+                role=selected,
+                require_autostart=require_autostart,
+                render_smoke=render_smoke,
+                output_dir=output_dir,
+                width=width,
+                height=height,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError) as exc:
+        typer.echo(f"deployment verify error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @app.command("setup")
