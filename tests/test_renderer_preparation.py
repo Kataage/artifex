@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,11 @@ from artifex.comfy.model_sources import (
     ModelSourceRegistry,
     save_model_source_registry,
 )
-from artifex.comfy.preparation import RendererPreparationReport, prepare_renderer
+from artifex.comfy.preparation import (
+    RendererPreparationReport,
+    _existing_models,
+    prepare_renderer,
+)
 from artifex.comfy.workflow_audit import (
     MissingWorkflowAsset,
     WorkflowAudit,
@@ -280,3 +285,173 @@ def test_prepare_renderer_cli_preview_and_apply_flags(
     )
     assert missing.exit_code != 0
     assert "existing non-symlink config required" in missing.output
+
+
+def _actual_pinned(data: bytes, *, name: str = "illustration.safetensors") -> PinnedDependency:
+    base = _pinned()
+    return PinnedDependency(
+        **{
+            **base.model_dump(),
+            "id": "model-test-" + name.removesuffix(".safetensors"),
+            "url": base.url.rsplit("/", 1)[0] + "/" + name,
+            "name": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size_bytes": len(data),
+        }
+    )
+
+
+def _isolated_comfy(tmp_path: Path) -> Path:
+    root = tmp_path / "isolated" / "ComfyUI"
+    root.mkdir(parents=True)
+    (root / "main.py").touch()
+    (root.parent / ".artifex-comfy-install.json").write_text(
+        '{"source":"Comfy-Org/ComfyUI"}', encoding="utf-8"
+    )
+    return root
+
+
+def test_existing_pinned_models_are_reused_by_exact_sha_without_overwrite(
+    tmp_path: Path,
+) -> None:
+    root = _isolated_comfy(tmp_path)
+    data = b"trusted-verified-model-weights"
+    target = root / "models" / "checkpoints" / "illustration.safetensors"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(data)
+    wanted = _actual_pinned(data)
+    another = _actual_pinned(b"more", name="second.safetensors")
+    pending, existing = _existing_models(
+        root, DependencyManifest(artifacts=(wanted, another))
+    )
+    assert pending.artifacts == (another,)
+    assert len(existing) == 1
+    assert existing[0]["sha256"] == wanted.sha256
+    assert existing[0]["destination"] == str(target)
+    assert target.read_bytes() == data
+
+
+def test_existing_model_mismatch_and_symlinks_fail_before_download(
+    tmp_path: Path,
+) -> None:
+    root = _isolated_comfy(tmp_path)
+    correct = b"expected source model"
+    wanted = _actual_pinned(correct)
+    dest = root / "models" / "checkpoints" / wanted.name
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"modified weights!!!!")
+    with pytest.raises(ValueError, match="size differs|SHA-256 differs"):
+        _existing_models(root, DependencyManifest(artifacts=(wanted,)))
+    dest.write_bytes(b"x" * len(correct))
+    with pytest.raises(ValueError, match="SHA-256 differs"):
+        _existing_models(root, DependencyManifest(artifacts=(wanted,)))
+    dest.unlink()
+    dest.symlink_to(root / "main.py")
+    with pytest.raises(ValueError, match="symlinked"):
+        _existing_models(root, DependencyManifest(artifacts=(wanted,)))
+    dest.unlink()
+    dest.parent.rmdir()
+    dest.parent.symlink_to(root)
+    with pytest.raises(ValueError, match="symlinked"):
+        _existing_models(root, DependencyManifest(artifacts=(wanted,)))
+
+
+@pytest.mark.asyncio
+async def test_repeat_apply_does_not_redownload_verified_model_and_requires_runtime_reaudit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.comfy.preparation as prep
+
+    model_data = b"already-pinned-artifact"
+    item = _actual_pinned(model_data)
+    root = _isolated_comfy(tmp_path)
+    destination = root / "models" / "checkpoints" / item.name
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(model_data)
+    bind = ApprovedModelSource(
+        role="checkpoint", model_name=item.name, repository="publisher/approved",
+        rationale="Operator previously approved the publisher and license",
+    )
+    sources = tmp_path / "model-sources.json"
+    save_model_source_registry(sources, ModelSourceRegistry(sources=(bind,)))
+
+    async def runtime_missing(_: ArtifexSettings) -> WorkflowAudit:
+        return _audit(with_nodes=False)
+
+    def draft(*args: Any, **kwargs: Any) -> ModelManifestDraft:
+        assert kwargs["bindings"] == (bind,)
+        return ModelManifestDraft(
+            manifest=DependencyManifest(artifacts=(item,)),
+            evidence=(), unresolved=(), repositories_checked=("publisher/approved",),
+        )
+
+    monkeypatch.setattr(prep, "audit_workflows", runtime_missing)
+    monkeypatch.setattr(prep, "draft_hf_models", draft)
+    monkeypatch.setattr(
+        prep, "install_manifest",
+        lambda *a, **kw: pytest.fail("matching model must never be downloaded again"),
+    )
+    preview = await prepare_renderer(
+        ArtifexSettings(), sources=sources, comfy_root=root,
+        discover_nodes=False,
+    )
+    assert preview.mode == "preview" and preview.download_required == ()
+    assert len(preview.existing_verified) == 1
+    assert preview.needs_comfy_restart_and_reaudit
+    assert preview.next_actions == (
+        "refresh_or_restart_comfyui_then_repeat_live_workflow_audit",
+    )
+    assert not preview.ready
+
+    applied = await prepare_renderer(
+        ArtifexSettings(), sources=sources, comfy_root=root,
+        apply=True, accept_licenses=True, discover_nodes=False,
+    )
+    assert not applied.installed
+    assert applied.existing_verified == preview.existing_verified
+    assert applied.download_required == ()
+    assert not applied.ready
+    assert applied.production_qualified is False
+    assert destination.read_bytes() == model_data
+
+
+@pytest.mark.asyncio
+async def test_corrupt_existing_model_blocks_all_other_downloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.comfy.preparation as prep
+
+    data = b"expected trusted bytes"
+    item = _actual_pinned(data)
+    other = _actual_pinned(b"other model", name="other.safetensors")
+    root = _isolated_comfy(tmp_path)
+    destination = root / "models" / "checkpoints" / item.name
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"wrong but same length"[:len(data)].ljust(len(data), b"x"))
+    bind = ApprovedModelSource(
+        role="checkpoint", model_name=item.name, repository="publisher/approved",
+        rationale="Operator already approved this model source",
+    )
+    sources = tmp_path / "model-sources.json"
+    save_model_source_registry(sources, ModelSourceRegistry(sources=(bind,)))
+    async def audit(_: ArtifexSettings) -> WorkflowAudit:
+        return _audit(with_nodes=False)
+    monkeypatch.setattr(prep, "audit_workflows", audit)
+    monkeypatch.setattr(
+        prep, "draft_hf_models",
+        lambda *args, **kwargs: ModelManifestDraft(
+            manifest=DependencyManifest(artifacts=(other, item)),
+            evidence=(), unresolved=(), repositories_checked=("publisher/approved",),
+        ),
+    )
+    monkeypatch.setattr(
+        prep, "install_manifest",
+        lambda *args, **kwargs: pytest.fail("must preflight entire manifest before any download"),
+    )
+    with pytest.raises(ValueError, match="SHA-256 differs"):
+        await prepare_renderer(
+            ArtifexSettings(), sources=sources, comfy_root=root,
+            apply=True, accept_licenses=True, discover_nodes=False,
+        )
+    assert not (destination.parent / other.name).exists()
+    assert destination.read_bytes() != data

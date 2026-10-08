@@ -119,7 +119,12 @@ The path is illustrative; use the actual source directory inside a
 verified `onboard comfy-install` installation. The existing installer
 enforces that ownership receipt, exact fixed-commit source, expected file
 size and SHA-256 and **never overwrites** an existing model or modifies an
-unowned ComfyUI tree. Installing models is not proof that the running
+unowned ComfyUI tree. Specify `--comfy-root` even without `--apply` to inspect
+the Artifex-owned local model folder read-only. Already-installed, exact-SHA-256
+verified weights appear under `existing_verified`, are removed from
+`download_required`, and will **not be downloaded twice**. A corrupted,
+non-file or symlinked destination is rejected rather than replaced. This
+prevents a stale ComfyUI loader cache from triggering repeat multi-GB downloads. Installing models is not proof that the running
 ComfyUI has loaded them: restart or rescan the renderer as appropriate,
 then rerun the preview to verify actual loader availability. The tool's
 `ready` is based only on the *live pre-install audit*, and output

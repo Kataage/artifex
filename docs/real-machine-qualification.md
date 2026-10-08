@@ -14,7 +14,13 @@ custom-node suggestions cannot be auto-installed by this command.
 See [two-pc-setup.md](two-pc-setup.md) for details and the source approval
 registry. A successful installation is not proof of model availability:
 restart/refresh ComfyUI and re-run its live audit before beginning the
-real-machine production qualification.
+real-machine production qualification. Re-running `onboard prepare-renderer`
+with `--comfy-root` safely reuses previously downloaded models only if their
+physical file size and full SHA-256 still match the pinned manifest. Its
+`existing_verified`, `download_required` and `next_actions` entries
+explain which work is already complete and what is still blocked; an existing
+correct model that ComfyUI has not indexed yet triggers a refresh/re-audit
+action, **not** a second download or a false qualification PASS.
 
 ## Configure pinned production assets
 
