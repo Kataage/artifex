@@ -2,6 +2,26 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## PC-B Task Scheduler supervisor exclusivity qualification
+
+In managed protected gateway mode, Artifex uses a cross-process OS lease
+derived from `render_agent.comfyui_process.ownership_receipt_path`.
+Real-PC checks must explicitly attempt two simultaneous supervisor launches
+(one Task Scheduler launch and one manual launch) and verify the second
+fails **without** starting a new ComfyUI child, changing the ownership
+receipt or disrupting a render. Then stop the first **supervisor only**,
+verify the file lock is released even if the supervisor crashes, and that a
+new supervisor reattaches to the original living ComfyUI PID.
+
+CI tests include a real separate Windows Python interpreter trying to
+acquire the lock while it is owned, and a child interpreter exiting via
+`os._exit` before a replacement acquires it. These tests do not exercise
+the actual Windows Task Scheduler's process-tree termination semantics or
+prove whether its configured job object kills descendants. Confirm the
+actual scheduled-task configuration and an active GPU generation on PC-B
+before considering those steps qualified. Do not enable an automatic
+ComfyUI terminate/kill path on the basis of an exclusive lock alone.
+
 ## PC-B socket ownership / never-kill-live-child qualification
 
 On PC-B run
