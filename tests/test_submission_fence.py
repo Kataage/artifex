@@ -13,7 +13,6 @@ from artifex.config.models import ComfyUiConfig
 from artifex.db import Database
 from artifex.domain import AgentState
 from artifex.operations.fence import manage_submission_fence
-from artifex.operations.quiescence import ControllerQuiescenceReport, QuiescenceSample
 from artifex.runtime import RuntimeStore
 
 
@@ -52,7 +51,7 @@ async def test_fence_preview_is_read_only_and_seal_persists_between_instances(
     assert await fence.seal(lambda: asyncio.sleep(0, result=True)) is True
     assert fence.status() is True
     other = ComfySubmissionFence(file)
-    async with pytest.raises(SubmissionFencedError):
+    with pytest.raises(SubmissionFencedError):
         async with other.admit():
             pytest.fail("sealed admission must refuse a POST")
     await other.release()
