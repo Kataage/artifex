@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -53,7 +53,7 @@ def observe_renderer_owner(
     checks: dict[str, dict[str, str]] = {}
     report: dict[str, Any] = {
         "schema_version": 1,
-        "captured_utc": datetime.now(timezone.utc).isoformat(),
+        "captured_utc": datetime.now(UTC).isoformat(),
         "status": "inconclusive",
         "checks": checks,
         "actual_listener_pid": None,
