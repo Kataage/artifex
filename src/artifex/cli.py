@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import socket
 from pathlib import Path
@@ -1842,6 +1843,10 @@ def qualify_soak_observe(
     sample_seconds: Annotated[
         float, typer.Option("--sample-seconds", min=10, max=3600),
     ] = 300,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Bind observed evidence to a qualification session."),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
     """PC-A: observe live autonomous production and PC-B for hours, read-only."""
@@ -1853,15 +1858,27 @@ def qualify_soak_observe(
         typer.echo(f"qualify soak-observe error: refusing to overwrite {output}", err=True)
         raise typer.Exit(code=1)
     try:
+        settings = _settings(config)
+        if session_id is not None:
+            core = build_core(settings)
+            try:
+                session = _qualification_service(core).load(session_id)
+                if not session.doctor_ready:
+                    raise ValueError("qualification session has no ready doctor baseline")
+                if session.hostname != socket.gethostname():
+                    raise ValueError("qualification session is for a different controller")
+            finally:
+                asyncio.run(core.close())
         result = observe_soak(
-            _settings(config), output=output,
+            settings, output=output,
             duration_hours=hours, interval_seconds=sample_seconds,
+            qualification_session_id=session_id,
         )
         _print_payload(
             {"evidence_path": str(output), **result.model_dump(mode="json")},
             as_json=json_output,
         )
-    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+    except (KeyError, OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
         typer.echo(f"qualify soak-observe error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     if not result.ready_for_soak_review:
@@ -1963,6 +1980,13 @@ def qualify_record(
         ),
     ] = None,
     note: Annotated[str | None, typer.Option("--note")] = None,
+    soak_evidence: Annotated[
+        Path | None,
+        typer.Option(
+            "--soak-evidence",
+            help="Automatically hash and bind a soak JSONL to overnight_soak PASS.",
+        ),
+    ] = None,
     config: ConfigOption = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
@@ -1975,13 +1999,34 @@ def qualify_record(
             parsed_status = QualificationStatus(status.casefold())
             if parsed_status is QualificationStatus.PENDING:
                 raise ValueError("record status cannot be pending")
+            recorded_details = _qualification_details(details)
+            if soak_evidence is not None:
+                if (
+                    parsed_stage is not QualificationStage.OVERNIGHT_SOAK
+                    or parsed_status is not QualificationStatus.PASS
+                ):
+                    raise ValueError("--soak-evidence is only valid for overnight_soak PASS")
+                if recorded_details:
+                    raise ValueError("--soak-evidence cannot be combined with --detail")
+                if (
+                    soak_evidence.is_symlink()
+                    or not soak_evidence.is_file()
+                    or soak_evidence.stat().st_size > 12 * 1024 * 1024
+                ):
+                    raise ValueError("--soak-evidence requires a regular JSONL <= 12 MiB")
+                recorded_details = {
+                    "evidence_path": str(soak_evidence),
+                    "evidence_sha256": hashlib.sha256(
+                        soak_evidence.read_bytes()
+                    ).hexdigest(),
+                }
             session = service.record(
                 session_id,
                 parsed_stage,
                 status=parsed_status,
                 pack_ids=tuple(pack_ids or ()),
                 note=note,
-                details=_qualification_details(details),
+                details=recorded_details,
             )
         except (KeyError, OSError, ValueError) as exc:
             typer.echo(f"qualification record error: {exc}", err=True)

@@ -34,6 +34,7 @@ class SoakHeader(BaseModel):
     kind: Literal["start"] = "start"
     schema_version: Literal[1] = 1
     run_id: str
+    qualification_session_id: str | None = Field(default=None, min_length=1)
     controller_host: str
     renderer_id: str
     started_at: datetime
@@ -273,6 +274,7 @@ def observe_soak(
     output: Path,
     duration_hours: float | None = None,
     interval_seconds: float = 300,
+    qualification_session_id: str | None = None,
     sample: Callable[[ArtifexSettings, float], SoakSample] = sample_soak,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -297,7 +299,8 @@ def observe_soak(
     primary = settings.render_nodes.primary_node()
     run_id = uuid4().hex
     header = SoakHeader(
-        run_id=run_id, controller_host=socket.gethostname(),
+        run_id=run_id, qualification_session_id=qualification_session_id,
+        controller_host=socket.gethostname(),
         renderer_id=primary[0] if primary else "(unconfigured)",
         started_at=now(), target_seconds=target * 3600,
         interval_seconds=interval_seconds,

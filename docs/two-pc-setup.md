@@ -157,13 +157,17 @@ Docker. First qualify the two hosts with `deployment pair-check`
 and execute `deployment pair-smoke --confirm-render`, then start
 the normal Artifex production daemon using your existing setup.
 
-On **PC-A**, open a separate terminal and launch the read-only
-observer alongside the production process:
+On **PC-A**, first create the production qualification session with
+`uv run artifex qualify start --config .\\config\\local.yaml --json` and save
+the returned `session_id`. Then open a separate terminal and launch the
+read-only observer alongside the production process. The `--session-id`
+argument binds its JSONL trace to that exact qualification run:
 
 ```powershell
 uv run artifex qualify soak-observe `
   --config .\\config\\local.yaml `
   --output .\\data\\qualification\\soak-2026-10-08.jsonl `
+  --session-id <SESSION> `
   --hours 8 --sample-seconds 300
 ```
 
@@ -205,13 +209,30 @@ with an actionable nonzero command exit.
 
 The results include the recorded metrics and evidence-file SHA-256,
 plus `ready_for_soak_review`. This flag **is not the same as a
-qualification PASS**: `production_qualified` is always false. The
-existing `qualify record ... overnight_soak` and `qualify verify`
-remain separate. The next development increment will bind stage PASS
-strictly to validated machine-generated evidence instead of accepting
-operator-entered duration/resource claims. The current metric observer
-uses a SQLite backend; if a non-SQLite database is configured, it
-fails closed until a dedicated read-only adapter is implemented.
+qualification PASS**: `production_qualified` is always false.
+When the independent review reports `ready_for_soak_review=true`,
+register this trace to its original qualification session:
+
+```powershell
+uv run artifex qualify record <SESSION> overnight_soak `
+  --status pass `
+  --soak-evidence .\\data\\qualification\\soak-2026-10-08.jsonl `
+  --config .\\config\\local.yaml
+```
+
+This shortcut calculates the SHA-256 rather than asking an operator to
+copy it. Qualification **requires** the observed trace, matching session
+ID, controller hostname, renderer ID, session start time, configuration
+hash, pinned asset hashes and 8-hour live checks. It stores an absolute
+evidence path, its SHA-256 and measured metrics; `qualify verify` checks
+these again. A file that was moved, edited or replaced invalidates
+the stage. Manually entered elapsed time, resource usage or fault counts
+cannot produce PASS. Standalone `soak-observe` without `--session-id`
+is still available for diagnostics, but its trace cannot qualify a stage.
+Evidence must be saved under the configured `qualification.evidence_dir`.
+The current metric observer uses a SQLite backend; if a non-SQLite
+database is configured, it fails closed until a dedicated read-only
+adapter is implemented.
 
 **Operational caveat:** PC-B attestation includes model and LoRA
 inventories. Collecting their hashes can increase disk I/O on PC-B,

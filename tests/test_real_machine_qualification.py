@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from artifex.qualification import (
     QualificationStage,
     QualificationStatus,
 )
+from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
 
@@ -258,12 +260,84 @@ def _event(
         )
 
 
+def _bound_soak_trace(
+    service: QualificationService,
+    settings: ArtifexSettings,
+    session_id: str,
+    *,
+    evidence_name: str = "soak.jsonl",
+) -> tuple[str, Path]:
+    """Synthetic 8-hour clock trace for binding tests, never hardware evidence."""
+    settings.render_nodes = RenderNodesConfig(
+        primary="gpu-b",
+        nodes={
+            "gpu-b": RenderNodeConfig(
+                base_url="http://test-renderer:8188",
+                attestation_url="http://test-renderer:8190",
+                output_mode="api",
+            )
+        },
+    )
+    started = datetime.now(UTC) - timedelta(hours=8, minutes=3)
+    session = service.load(session_id)
+    # Only this deterministic fixture backdates the session and snapshot.
+    session = session.model_copy(update={
+        "created_at": started - timedelta(minutes=1),
+        "configuration": service._configuration_snapshot(),
+    })
+    service._write(session)
+    clock = [0.0]
+
+    def now() -> datetime:
+        return started + timedelta(seconds=clock[0])
+
+    def sample(_: ArtifexSettings, elapsed: float) -> SoakSample:
+        hours = int(elapsed // 3600)
+        return SoakSample(
+            observed_at=started + timedelta(seconds=elapsed),
+            elapsed_seconds=elapsed,
+            llm_ok=True,
+            comfyui_ok=True,
+            renderer_ok=True,
+            gpu_used_mib=5000,
+            ram_used_mib=10000,
+            free_disk_gib=50,
+            telemetry_rows=10 + hours,
+            severe_events=0,
+            finalized_packs=10 + hours,
+            asset_sha256={
+                "production_checkpoint": "a" * 64,
+                "refiner_checkpoint": "b" * 64,
+                "vae": "c" * 64,
+                "upscale_model": "d" * 64,
+            },
+        )
+
+    path = settings.qualification.evidence_dir / evidence_name
+    report = observe_soak(
+        settings,
+        output=path,
+        duration_hours=8,
+        interval_seconds=3600,
+        qualification_session_id=session_id,
+        sample=sample,
+        monotonic=lambda: clock[0],
+        sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+        now=now,
+    )
+    assert report.ready_for_soak_review
+    return report.evidence_sha256, path
+
+
 def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
     tmp_path: Path,
 ) -> None:
-    service, database, _, _, _, _ = _service(tmp_path)
+    service, database, _, _, settings, _ = _service(tmp_path)
     session = service.start(_doctor())
     assert session.doctor_ready is True
+    digest, evidence_path = _bound_soak_trace(
+        service, settings, session.session_id,
+    )
 
     SeriesRepository(database).create(
         title="Qualification Series",
@@ -380,12 +454,8 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
             QualificationStage.OVERNIGHT_SOAK,
             (),
             {
-                "duration_hours": 8.5,
-                "fatal_errors": 0,
-                "peak_vram_mib": 11000,
-                "peak_ram_mib": 24000,
-                "minimum_free_disk_gib": 100.0,
-                "telemetry_rows": 5000,
+                "evidence_path": str(evidence_path),
+                "evidence_sha256": digest,
             },
         ),
         (
@@ -413,6 +483,122 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
     assert verified["stages"]["discord_controls"] == "skipped"
     database.dispose()
 
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("manual", "manually supplied claims"),
+        ("missing", "requires evidence_path"),
+        ("wrong_digest", "SHA-256 mismatch"),
+        ("wrong_session", "another qualification session"),
+        ("missing_session", "another qualification session"),
+        ("external_path", "qualification.evidence_dir"),
+    ],
+)
+def test_overnight_soak_rejects_unbound_and_unverified_claims(
+    tmp_path: Path,
+    case: str,
+    expected: str,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    digest, path = _bound_soak_trace(service, settings, session.session_id)
+    details: dict[str, object] = {
+        "evidence_path": str(path),
+        "evidence_sha256": digest,
+    }
+    if case == "manual":
+        details = {"duration_hours": 8, "peak_vram_mib": 7000}
+    elif case == "missing":
+        details = {"evidence_sha256": digest}
+    elif case == "wrong_digest":
+        details["evidence_sha256"] = "0" * 64
+    elif case in ("wrong_session", "missing_session"):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        header = json.loads(lines[0])
+        header["qualification_session_id"] = (
+            "other-session" if case == "wrong_session" else None
+        )
+        lines[0] = json.dumps(header)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        details["evidence_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    elif case == "external_path":
+        external = tmp_path / "external-soak.jsonl"
+        external.write_bytes(path.read_bytes())
+        details["evidence_path"] = str(external)
+    with pytest.raises(ValueError, match=expected):
+        service.record(
+            session.session_id,
+            QualificationStage.OVERNIGHT_SOAK,
+            status=QualificationStatus.PASS,
+            details=details,
+        )
+    assert service.load(session.session_id).stage(
+        QualificationStage.OVERNIGHT_SOAK
+    ).status is QualificationStatus.PENDING
+    database.dispose()
+
+
+def test_overnight_soak_is_rechecked_and_revoked_after_tampering(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    digest, path = _bound_soak_trace(service, settings, session.session_id)
+    service.record(
+        session.session_id, QualificationStage.OVERNIGHT_SOAK,
+        status=QualificationStatus.PASS,
+        details={"evidence_path": str(path), "evidence_sha256": digest},
+    )
+    recorded = service.load(session.session_id).stage(
+        QualificationStage.OVERNIGHT_SOAK
+    )
+    assert recorded.details["observed_metrics"]["verified_completed_packs"] == 8
+    assert recorded.details["observed_metrics"]["production_qualified"] is False
+
+    path.write_bytes(path.read_bytes() + b"\n")
+    rechecked = service.verify(session.session_id)
+    assert rechecked["ready"] is False
+    assert any(
+        "overnight_soak" in issue and "SHA-256 mismatch" in issue
+        for issue in rechecked["issues"]
+    )
+    database.dispose()
+
+
+def test_overnight_soak_detects_session_metric_and_configuration_drift(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    digest, path = _bound_soak_trace(service, settings, session.session_id)
+    service.record(
+        session.session_id, QualificationStage.OVERNIGHT_SOAK,
+        status=QualificationStatus.PASS,
+        details={"evidence_path": str(path), "evidence_sha256": digest},
+    )
+    recorded = service.load(session.session_id)
+    evidence = recorded.stage(QualificationStage.OVERNIGHT_SOAK)
+    mutated = dict(evidence.details)
+    metrics = dict(mutated["observed_metrics"])
+    metrics["verified_completed_packs"] = 999
+    mutated["observed_metrics"] = metrics
+    stages = dict(recorded.stages)
+    stages[QualificationStage.OVERNIGHT_SOAK.value] = evidence.model_copy(
+        update={"details": mutated},
+    )
+    service._write(recorded.model_copy(update={"stages": stages}))
+    issues = service.verify(session.session_id)["issues"]
+    assert any("recorded metrics were modified" in issue for issue in issues)
+
+    # Even intact evidence cannot qualify after controller config drift.
+    stages[QualificationStage.OVERNIGHT_SOAK.value] = evidence
+    service._write(recorded.model_copy(update={"stages": stages}))
+    settings.llm.base_url = "http://unexpected-llm:1234"
+    issues = service.verify(session.session_id)["issues"]
+    assert any("observed a different configuration" in issue for issue in issues)
+    database.dispose()
 
 
 def test_qualification_accepts_lora_promoted_after_session_started(
