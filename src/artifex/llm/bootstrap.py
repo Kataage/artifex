@@ -127,8 +127,9 @@ def _expected_sha256(
     # X-Linked-Etag / ETag on the resolve request (sometimes on a redirect).
     response = http.head(source_url)
     response.raise_for_status()
-    for hop in (response, *response.history):
-        for header_name in ("x-linked-etag", "etag"):
+    # Prefer Hub-signed linked blob hashes over CDN ETags when redirected.
+    for header_name in ("x-linked-etag", "etag"):
+        for hop in (response, *response.history):
             raw = hop.headers.get(header_name, "").strip('"')
             if re.fullmatch(r"[0-9a-fA-F]{64}", raw):
                 return str(raw).casefold()
