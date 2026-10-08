@@ -82,7 +82,7 @@ def official_release_assets(
             raise ValueError("GitHub release tag does not match requested tag")
         listed = data.get("assets")
         if not isinstance(listed, list):
-            raise ValueError("GitHub release has no assets list")
+            raise TypeError("GitHub release has no assets list")
         found: list[OfficialLlamaAsset] = []
         for entry in listed:
             if not isinstance(entry, dict):
