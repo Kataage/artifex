@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -103,7 +104,7 @@ def configure_two_pc(
 
     target = output_path.expanduser().resolve(strict=False)
     llm_path = settings.llm.bootstrap.model_path().expanduser().resolve(strict=False)
-    payload = {
+    payload: dict[str, Any] = {
         "llm": {
             "bootstrap": {
                 "enabled": settings.llm.bootstrap.enabled,
