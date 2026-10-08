@@ -144,15 +144,26 @@ class ManagedComfyUI:
             # only when Artifex owns the *locally loopback-bound* ComfyUI.
             args = self.settings.render_agent.comfyui_process.arguments
             listen_values: list[str] = []
+            port_values: list[str] = []
             for index, arg in enumerate(args):
                 if arg == "--listen":
                     listen_values.append(args[index + 1] if index + 1 < len(args) else "")
                 elif arg.startswith("--listen="):
                     listen_values.append(arg.partition("=")[2])
+                elif arg == "--port":
+                    port_values.append(args[index + 1] if index + 1 < len(args) else "")
+                elif arg.startswith("--port="):
+                    port_values.append(arg.partition("=")[2])
             if listen_values != ["127.0.0.1"]:
                 raise ValueError(
                     "Gateway-managed ComfyUI requires exactly one explicit "
                     "'--listen 127.0.0.1' option; do not expose its upstream LAN port"
+                )
+            expected_port = urlsplit(self.settings.comfyui.base_url).port
+            if port_values != [str(expected_port)]:
+                raise ValueError(
+                    "Gateway-managed ComfyUI requires exactly one '--port PORT' "
+                    "matching the local upstream URL"
                 )
         if self._healthy():
             if self.settings.render_agent.gateway.enabled:
