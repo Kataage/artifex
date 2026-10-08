@@ -44,16 +44,16 @@ launcher ancestry (if applicable); two consecutive real upstream TCP listener
 inventories; and unchanged process/receipt during the observation. It refuses
 unknown or foreign owners, changed/recycled PIDs, unexpected direct clients,
 publicly exposed listeners, missing/unsafe scheduled tasks and unverifiable
-launcher state. A scheduler state of \`Ready\` is reported **inconclusive**:
+launcher state. A scheduler state of `Ready` is reported **inconclusive**:
 a live orphan can still exist, but scheduled reattachment is not demonstrated.
 Missing receipt and conflicting evidence produce **blocked**.
 
-\`observed_stable\` is **only a point-in-time snapshot**: it is *not*
+`observed_stable` is **only a point-in-time snapshot**: it is *not*
 evidence that any real GPU job survived Task Scheduler stop, logoff or Windows
-shutdown. Every result explicitly sets \`restart_authorized=false\`,
-\`child_survival_qualified=false\`, \`production_qualified=false\` and
-\`mutated_services=false\`. Failed/inconclusive observations exit nonzero,
-but may still be saved using \`--save\` for diagnosis. \`--output PATH\` can
+shutdown. Every result explicitly sets `restart_authorized=false`,
+`child_survival_qualified=false`, `production_qualified=false` and
+`mutated_services=false`. Failed/inconclusive observations exit nonzero,
+but may still be saved using `--save` for diagnosis. `--output PATH` can
 select a new destination; existing files, symlinks and overwrites are refused.
 The JSON report deliberately omits raw command lines, config file contents,
 tokens and environment variables. **Do not** record an Issue #40 PASS merely
