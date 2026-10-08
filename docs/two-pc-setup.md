@@ -81,6 +81,44 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Safe runtime reconciliation after installing models or custom nodes
+
+**PC-B can automatically wait for a fresh ComfyUI workflow inspection** rather
+than guessing that an installed file is already available to the runtime.
+After the actual renderer has refreshed its model choices or restarted through
+its regular owner-managed lifecycle, run:
+
+```powershell
+# Read-only single check of live ComfyUI queue and production/repair workflows
+uv run artifex onboard reconcile-renderer `
+  --config .\\config\\render-node.yaml
+
+# Read-only bounded observation of an external refresh/restart, up to 10 minutes
+uv run artifex onboard reconcile-renderer `
+  --config .\\config\\render-node.yaml `
+  --wait-seconds 600 --poll-seconds 5
+```
+
+This command sends only ComfyUI `GET /queue` and `GET /object_info`
+requests, never a GPU `/prompt`, `/interrupt`, `/queue` deletion, system
+process signal, or Windows Task Scheduler restart. To be considered
+`ready`, the current configured production **and** repair workflows must
+pass the actual runtime audit and ComfyUI must explicitly return empty
+`queue_running` and `queue_pending` lists. An unreachable endpoint,
+malformed/missing queue fields, busy GPU, missing model/node or unknown loader
+choices is reported with structured `next_actions` and a nonzero exit code.
+Use `--allow-busy` only when you need to inspect workflow readiness while
+other rendering work is in progress; it does **not** make a destructive restart
+safe.
+
+This is **automatic observation and verification**, not automatic process
+restarting. A queue-empty snapshot is not a lock against new remote prompts:
+Artifex cannot yet guarantee a zero-interruption restart from another process
+without coordinated submission fencing. It consequently leaves that
+operation to the already configured renderer owner, rather than unexpectedly
+interrupting personal ComfyUI jobs. `production_qualified` remains false
+until the separate real-machine qualification ladder succeeds.
+
 ## One-command safe renderer model preparation
 
 After the initial PC-B configuration and a running ComfyUI endpoint, use the
