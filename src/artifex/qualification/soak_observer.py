@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
-import json
 import os
 import platform
 import shutil
@@ -224,7 +223,7 @@ def sample_soak(settings: ArtifexSettings, elapsed_seconds: float) -> SoakSample
                 response.raise_for_status()
                 raw: Any = response.json()
                 if not isinstance(raw, dict) or not isinstance(raw.get("system"), dict):
-                    raise ValueError("ComfyUI system_stats shape is invalid")
+                    raise TypeError("ComfyUI system_stats shape is invalid")
                 comfyui_ok = True
                 gpu = _gpu_usage_mib(raw)
                 if gpu is None:
