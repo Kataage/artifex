@@ -157,7 +157,7 @@ class QualificationEvidenceCollector:
             "stages": statuses,
             "remaining_stages": [
                 evidence.stage.value for evidence in qualification.stages.values()
-                if stage.status is QualificationStatus.PENDING
+                if evidence.status is QualificationStatus.PENDING
             ],
             # Only qualify verify can assess the complete 14-stage ladder.
             "production_qualified": False,
