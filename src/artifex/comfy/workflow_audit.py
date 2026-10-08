@@ -119,7 +119,7 @@ async def audit_workflows(
         if owned_client:
             await comfy.aclose()
     if not isinstance(raw, dict):
-        raise ValueError("ComfyUI /object_info must be a JSON object")
+        raise TypeError("ComfyUI /object_info must be a JSON object")
 
     registry = WorkflowTemplateRegistry.with_packaged_templates()
     entries: list[WorkflowAuditEntry] = []
