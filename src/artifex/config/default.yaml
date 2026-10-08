@@ -146,6 +146,17 @@ render_agent:
   port: 8190
   token_env: ARTIFEX_RENDER_NODE_TOKEN
   require_token: true
+  # Set executable, working_directory and arguments on PC-B to opt in.
+  comfyui_process:
+    enabled: false
+    executable: null
+    working_directory: null
+    arguments: []
+    log_path: data/logs/comfyui.log
+    startup_timeout_seconds: 180
+    poll_seconds: 15
+    restart_limit: 3
+    restart_backoff_seconds: 10
   asset_paths: {}
   lora_roots: []
   extensions:
