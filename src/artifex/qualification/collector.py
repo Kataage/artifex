@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterator
-from itertools import combinations
 
 from sqlalchemy import select
 
@@ -157,7 +156,7 @@ class QualificationEvidenceCollector:
             "scan_truncated": truncated,
             "stages": statuses,
             "remaining_stages": [
-                stage.value for stage in qualification.stages.values()
+                evidence.stage.value for evidence in qualification.stages.values()
                 if stage.status is QualificationStatus.PENDING
             ],
             # Only qualify verify can assess the complete 14-stage ladder.
@@ -178,7 +177,9 @@ class QualificationEvidenceCollector:
                 if isinstance(series_id, str) and series_id:
                     by_series[series_id].append(pack_id)
             for series_id in sorted(by_series):
-                yield from combinations(by_series[series_id], 2)
+                related = by_series[series_id]
+                if len(related) >= 2:
+                    yield (related[0], related[1])
             return
         if stage is QualificationStage.UNATTENDED_MULTI_PACK:
             if len(evidence) >= 3:
@@ -187,6 +188,10 @@ class QualificationEvidenceCollector:
         for pack_id, data in evidence.items():
             characters = data.get("character_ids", [])
             tiers = data.get("publication_tiers", [])
+            if not isinstance(characters, list):
+                continue
+            if not isinstance(tiers, list):
+                continue
             if stage is QualificationStage.SINGLE_CHARACTER and len(characters) != 1:
                 continue
             if stage is QualificationStage.LORA_REQUIRED and not data.get("lora_ids"):
