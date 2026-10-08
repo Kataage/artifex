@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict
@@ -123,16 +123,30 @@ def _expected_sha256(
             "download profiles using source=url must configure sha256; "
             "unverified remote models cannot be adopted"
         )
-    # A pinned Hugging Face revision exposes the blob's SHA-256 as an
-    # X-Linked-Etag / ETag on the resolve request (sometimes on a redirect).
-    response = http.head(source_url)
-    response.raise_for_status()
-    # Prefer Hub-signed linked blob hashes over CDN ETags when redirected.
-    for header_name in ("x-linked-etag", "etag"):
-        for hop in (response, *response.history):
-            raw = hop.headers.get(header_name, "").strip('"')
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", profile.revision):
+        raise ValueError(
+            "Hugging Face profiles without sha256 must use an immutable "
+            "40-character revision commit"
+        )
+    # Xet/LFS metadata lives on Hugging Face's resolve redirect. Following
+    # the external CDN redirect with HEAD can fail or lose X-Linked-Etag.
+    metadata_url = source_url
+    for _ in range(5):
+        response = http.head(metadata_url, follow_redirects=False)
+        response.raise_for_status()
+        for header_name in ("x-linked-etag", "etag"):
+            raw = response.headers.get(header_name, "").strip('"')
             if re.fullmatch(r"[0-9a-fA-F]{64}", raw):
                 return str(raw).casefold()
+        if not 300 <= response.status_code < 400:
+            break
+        location = response.headers.get("Location")
+        if not location:
+            break
+        next_url = urljoin(metadata_url, location)
+        if urlsplit(next_url).hostname != urlsplit(source_url).hostname:
+            break
+        metadata_url = next_url
     raise ValueError("Hugging Face did not supply a verifiable model SHA-256")
 
 
