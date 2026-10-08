@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from typer.testing import CliRunner
+
 import httpx
 import pytest
 import yaml
 
+from artifex.cli import app
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.setup import configure_two_pc
@@ -134,3 +137,47 @@ def test_render_secret_token_does_not_break_strict_config_validation() -> None:
     )
     assert settings.llm.base_url == "http://127.0.0.1:9797"
     assert not hasattr(settings, "render_node_token")
+
+
+def test_missing_update_file_is_not_silently_created(tmp_path: Path) -> None:
+    missing = tmp_path / "not-configured.yaml"
+    with pytest.raises(FileNotFoundError, match="cannot update"):
+        configure_renderer(
+            ArtifexSettings(), output_path=missing, update=True
+        )
+    assert not missing.exists()
+
+
+def test_renderer_configure_cli_supports_later_port_and_folder_changes(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "render-node.yaml"
+    runner = CliRunner()
+    created = runner.invoke(
+        app,
+        [
+            "render-node", "configure", "--output", str(output),
+            "--node-id", "my-renderer",
+            "--bind-host", "192.168.1.8",
+            "--port", "9190",
+            "--lora-dir", str(tmp_path / "lora-a"),
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    updated = runner.invoke(
+        app,
+        [
+            "render-node", "configure", "--output", str(output),
+            "--port", "9191",
+            "--lora-dir", str(tmp_path / "lora-b"),
+            "--update",
+        ],
+    )
+    assert updated.exit_code == 0, updated.output
+    saved = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert saved["render_agent"]["port"] == 9191
+    assert saved["render_agent"]["node_id"] == "my-renderer"
+    assert saved["render_agent"]["bind_host"] == "192.168.1.8"
+    assert saved["render_agent"]["lora_roots"] == [
+        str((tmp_path / "lora-b").resolve())
+    ]
