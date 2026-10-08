@@ -43,6 +43,7 @@ from artifex.qualification.archive_reproduction import (
     file_sha256,
     reproduce_archived_attempt,
 )
+from artifex.qualification.collector import QualificationEvidenceCollector
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
@@ -431,6 +432,167 @@ def _reproduce_fixture(
         output_root=settings.qualification.evidence_dir,
     ))
     return path, proof
+
+
+def test_collect_qualifications_uses_only_new_finalized_packs_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    SeriesRepository(database).create(
+        title="Auto Collect Series",
+        character_ids=("char-1",),
+        series_id="auto-series",
+    )
+    old = _seed_pack(database, tmp_path, "pre-session", character_ids=("char-2",))
+    with database.session() as db_session:
+        row = db_session.get(PackRow, old)
+        assert row is not None
+        row.created_at = session.created_at - timedelta(minutes=1)
+    new = {
+        "single": _seed_pack(database, tmp_path, "auto-single", character_ids=("char-2",)),
+        "required": _seed_pack(
+            database, tmp_path, "auto-lora",
+            character_ids=("char-1",), lora_ids=("lora-1",),
+        ),
+        "duo": _seed_pack(
+            database, tmp_path, "auto-duo", character_ids=("char-1", "char-2"),
+        ),
+        "group": _seed_pack(
+            database, tmp_path, "auto-group",
+            character_ids=("char-1", "char-2", "char-3"),
+        ),
+        "public_member": _seed_pack(
+            database, tmp_path, "auto-tiers",
+            character_ids=("char-2",), tiers=("public", "member"),
+        ),
+        "series_a": _seed_pack(
+            database, tmp_path, "auto-series-a",
+            character_ids=("char-1",), series_id="auto-series",
+        ),
+        "series_b": _seed_pack(
+            database, tmp_path, "auto-series-b",
+            character_ids=("char-1",), series_id="auto-series",
+        ),
+        "retry": _seed_pack(
+            database, tmp_path, "auto-retry", character_ids=("char-2",), retry=True,
+        ),
+        "restart": _seed_pack(
+            database, tmp_path, "auto-restart", character_ids=("char-2",),
+            prompt_id="unique-restart",
+        ),
+        "backend": _seed_pack(
+            database, tmp_path, "auto-backend", character_ids=("char-2",),
+        ),
+    }
+    collector = QualificationEvidenceCollector(service, database)
+
+    preview = collector.collect(session.session_id)
+    by_stage = {item["stage"]: item for item in preview["stages"]}
+    assert preview["mode"] == "preview"
+    assert preview["finalized_packs_scanned"] == len(new)
+    assert preview["scan_truncated"] is False
+    assert by_stage["single_character"]["state"] == "ready"
+    assert old not in by_stage["single_character"]["pack_ids"]
+    assert by_stage["series_continuation"]["pack_ids"] == [
+        new["series_a"], new["series_b"],
+    ]
+    assert by_stage["restart_generation"]["state"] == "missing"
+    assert by_stage["backend_recovery"]["state"] == "missing"
+    assert service.load(session.session_id).stage(QualificationStage.SINGLE_CHARACTER).status is QualificationStatus.PENDING
+
+    first = collector.collect(session.session_id, apply=True)
+    done = {item["stage"]: item for item in first["stages"]}
+    assert done["single_character"]["state"] == "recorded"
+    assert done["lora_required"]["state"] == "recorded"
+    assert done["unattended_multi_pack"]["state"] == "recorded"
+    assert done["restart_generation"]["state"] == "missing"
+    assert done["backend_recovery"]["state"] == "missing"
+    assert service.load(session.session_id).stage(QualificationStage.OVERNIGHT_SOAK).status is QualificationStatus.PENDING
+    assert service.load(session.session_id).stage(QualificationStage.ARCHIVE_REPRODUCTION).status is QualificationStatus.PENDING
+
+    _event(database, "recovery.pack_checked", {"pack_id": new["restart"]}, offset_seconds=1)
+    for offset, component, state in (
+        (2, "comfyui", "unhealthy"),
+        (3, "comfyui", "healthy"),
+        (4, "llm", "unhealthy"),
+        (5, "llm", "healthy"),
+    ):
+        _event(
+            database, "health.component_changed",
+            {"component": component, "state": state},
+            offset_seconds=offset,
+        )
+    second = collector.collect(session.session_id, apply=True)
+    stages = {item["stage"]: item for item in second["stages"]}
+    assert stages["single_character"]["state"] == "already_recorded"
+    assert stages["restart_generation"]["state"] == "recorded"
+    assert stages["backend_recovery"]["state"] == "recorded"
+    assert second["production_qualified"] is False
+    database.dispose()
+
+
+def test_collect_qualification_excludes_bad_manifests_and_rejects_stale_baselines(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    bad = _seed_pack(
+        database, tmp_path, "auto-broken", character_ids=("char-2",),
+    )
+    with database.session() as db_session:
+        row = db_session.get(PackRow, bad)
+        assert row is not None
+        path = Path(row.payload_json["archive"]["manifest_path"])
+    path.write_text('{"tampered":true}', encoding="utf-8")
+    collector = QualificationEvidenceCollector(service, database)
+    preview = collector.collect(session.session_id)
+    assert preview["valid_packs"] == 0
+    assert preview["invalid_packs"][0]["pack_id"] == bad
+    assert all(
+        item["state"] != "ready"
+        for item in preview["stages"]
+    )
+    with pytest.raises(ValueError, match="max_packs"):
+        collector.collect(session.session_id, max_packs=0)
+    settings.production.checkpoint = "changed-checkpoint"
+    with pytest.raises(ValueError, match="configuration changed"):
+        collector.collect(session.session_id, apply=True)
+    assert service.load(session.session_id).stage(QualificationStage.SINGLE_CHARACTER).status is QualificationStatus.PENDING
+    database.dispose()
+
+
+def test_collect_discord_only_after_real_telemetry(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    settings.discord = DiscordConfig(
+        enabled=True, guild_id=111, channel_id=222, allowed_user_ids=(333,),
+    )
+    session = service.start(_doctor())
+    collector = QualificationEvidenceCollector(service, database)
+    initial = collector.collect(session.session_id, apply=True)
+    assert next(item for item in initial["stages"] if item["stage"] == "discord_controls")["state"] == "missing"
+
+    audit = DiscordQualificationAudit(settings.discord, TelemetryRepository(database))
+    for index, command in enumerate(("status", "pause", "resume", "approve", "reject", "retry")):
+        message = (
+            "Artifex paused." if command == "pause"
+            else "Artifex resumed." if command == "resume"
+            else "Success."
+        )
+        assert audit.record_completed(
+            command=command,
+            response=CommandResponse(ok=True, message=message),
+            operator=OperatorContext(user_id=333),
+            interaction_id=400 + index, guild_id=111, channel_id=222,
+        )
+    result = collector.collect(session.session_id, apply=True)
+    discord = next(item for item in result["stages"] if item["stage"] == "discord_controls")
+    assert discord["state"] == "recorded"
+    assert discord["pack_ids"] == []
+    assert service.load(session.session_id).stage(QualificationStage.DISCORD_CONTROLS).status is QualificationStatus.PASS
+    database.dispose()
 
 
 def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
