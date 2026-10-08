@@ -203,3 +203,32 @@ def test_huggingface_hash_comes_from_hub_redirect_not_cdn(tmp_path: Path) -> Non
     assert result.sha256 == digest
     assert len(calls) == 2
     assert all("cdn.example.test" not in url for url in calls)
+
+
+def test_complete_part_file_recovers_without_range_request(tmp_path: Path) -> None:
+    payload = b"GGUF-fully-downloaded"
+    digest = hashlib.sha256(payload).hexdigest()
+    config = LlmConfig(
+        bootstrap=LlmBootstrapConfig(
+            models_dir=tmp_path,
+            profile="test",
+            profiles={
+                "test": LlmModelProfileConfig(
+                    source="url",
+                    url="https://models.test/model.gguf",
+                    filename="model.gguf",
+                    sha256=digest,
+                )
+            },
+        )
+    )
+    (tmp_path / "model.gguf.part").write_bytes(payload)
+
+    def unexpected(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    with httpx.Client(transport=httpx.MockTransport(unexpected)) as client:
+        result = bootstrap_llm(config, client=client)
+    assert result.path.read_bytes() == payload
+    assert result.resumed_from_bytes == len(payload)
+    assert not (tmp_path / "model.gguf.part").exists()
