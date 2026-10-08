@@ -14,11 +14,11 @@ from pydantic import ValidationError
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
 from artifex.qualification.models import QualificationSession
-from artifex.qualification.service import QualificationService
 from artifex.qualification.renderer_owner_evidence import (
     persist_owner_observation,
     verify_owner_observation,
 )
+from artifex.qualification.service import QualificationService
 from artifex.render_node.attestation import serve_attestation
 from artifex.render_node.client import fetch_renderer_owner_audit
 from artifex.render_node.models import RemoteRendererOwnerAudit
