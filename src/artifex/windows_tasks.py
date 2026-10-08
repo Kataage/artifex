@@ -5,6 +5,8 @@ import json
 import platform
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Literal
 
@@ -101,6 +103,22 @@ if ($null -eq $task) {{
 }}
 $actions = @($task.Actions)
 $action = if ($actions.Count -eq 1) {{ $actions[0] }} else {{ $null }}
+# Preserve unknown/missing settings as $null. Casting $null to [bool]/[int]
+# would falsely report AllowHardTerminate=false and ExecutionTimeLimit=0.
+$hardTerminate = $null
+$instances = $null
+$limitSeconds = $null
+if ($null -ne $task.Settings) {{
+  if ($null -ne $task.Settings.AllowHardTerminate) {{
+    $hardTerminate = [bool]$task.Settings.AllowHardTerminate
+  }}
+  if ($null -ne $task.Settings.MultipleInstances) {{
+    $instances = [string]$task.Settings.MultipleInstances
+  }}
+  if ($null -ne $task.Settings.ExecutionTimeLimit) {{
+    $limitSeconds = [int]$task.Settings.ExecutionTimeLimit.TotalSeconds
+  }}
+}}
 [pscustomobject]@{{
   installed=$true
   managed=($task.Description -eq {marker})
@@ -109,9 +127,9 @@ $action = if ($actions.Count -eq 1) {{ $actions[0] }} else {{ $null }}
   arguments=[string]$action.Arguments
   working_directory=[string]$action.WorkingDirectory
   action_count=[int]$actions.Count
-  allow_hard_terminate=[bool]$task.Settings.AllowHardTerminate
-  multiple_instances=[string]$task.Settings.MultipleInstances
-  execution_time_limit_seconds=[int]$task.Settings.ExecutionTimeLimit.TotalSeconds
+  allow_hard_terminate=$hardTerminate
+  multiple_instances=$instances
+  execution_time_limit_seconds=$limitSeconds
 }} | ConvertTo-Json -Compress
 """
 
@@ -135,6 +153,44 @@ def task_status(role: StartupRole) -> StartupTaskStatus:
     )
 
 
+@contextmanager
+def _renderer_replacement_guard(config: Path) -> Iterator[int]:
+    """Refuse replacing a stopped task while its GPU child could still live.
+
+    The OS lease excludes an overlapping protected Artifex supervisor from
+    starting between the process/socket inventory and task re-registration.
+    This does not fence non-Artifex clients; the script rechecks TCP as well.
+    """
+    from artifex.config import load_settings
+    from artifex.render_node.process_identity import (
+        ComfyReceiptStore,
+        windows_process_identity,
+    )
+    from artifex.render_node.socket_audit import audit_renderer_sockets
+    from artifex.render_node.supervisor_lease import RendererSupervisorLease
+
+    settings = load_settings(user_config=config)
+    receipt_path = settings.render_agent.comfyui_process.ownership_receipt_path
+    lease = RendererSupervisorLease(receipt_path)
+    lease.acquire()
+    try:
+        receipt = ComfyReceiptStore(receipt_path).load()
+        if receipt is not None and windows_process_identity(receipt.identity.pid) is not None:
+            raise RuntimeError(
+                "Refusing renderer task replacement: a receipt-recorded ComfyUI "
+                "process is still alive, even though Task Scheduler may say Ready"
+            )
+        report = audit_renderer_sockets(settings)
+        if report.status != "missing_listener":
+            raise RuntimeError(
+                "Refusing renderer task replacement: ComfyUI upstream is not "
+                f"proven unoccupied ({report.status}); listener={report.listener_pids}"
+            )
+        yield report.upstream_port
+    finally:
+        lease.release()
+
+
 def _install_script(
     role: StartupRole,
     *,
@@ -143,7 +199,25 @@ def _install_script(
     working_directory: str,
     replace: bool,
     restart_count: int,
+    replacement_port: int | None = None,
 ) -> str:
+    if role == "renderer" and replace and (
+        replacement_port is None or not 1 <= replacement_port <= 65535
+    ):
+        raise ValueError("renderer replacement needs a validated upstream TCP port")
+    listener_guard = (
+        f"""
+  # Recheck the actual Windows socket immediately before re-registration.
+  $listeners = @(Get-NetTCPConnection -ErrorAction Stop | Where-Object {{
+    $_.LocalPort -eq {replacement_port} -and [string]$_.State -eq 'Listen'
+  }})
+  if ($listeners.Count -ne 0) {{
+    throw 'Refusing renderer task replacement while ComfyUI TCP listener exists'
+  }}
+"""
+        if role == "renderer" and replace
+        else ""
+    )
     name = _literal(_TASKS[role])
     marker = _literal(f"{_MARKER}/{role}")
     force = "$true" if replace else "$false"
@@ -162,7 +236,7 @@ if ($null -ne $old) {{
   if ([string]$old.State -eq 'Running') {{
     throw 'Refusing to replace a running Artifex scheduled task; avoid stopping live GPU work'
   }}
-}}
+{listener_guard}}}
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute {_literal(execute)} -Argument {_literal(arguments)} -WorkingDirectory {_literal(working_directory)}
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
@@ -199,29 +273,36 @@ def install_task(
     if not 0 <= restart_count <= 999:
         raise ValueError("restart_count must be between 0 and 999")
     execute, arguments, workdir = _command(role, config)
-    _run_powershell(
-        _install_script(
-            role,
-            execute=execute,
-            arguments=arguments,
-            working_directory=workdir,
-            replace=replace,
-            restart_count=restart_count,
-        )
+    guard = (
+        _renderer_replacement_guard(config)
+        if role == "renderer" and replace
+        else nullcontext(None)
     )
-    result = task_status(role)
-    if not result.installed or not result.managed:
-        raise RuntimeError("Artifex scheduled task was not registered as expected")
-    if role == "renderer":
-        matching, detail = task_configuration_matches(
-            role, config=config, status=result
-        )
-        if not matching:
-            raise RuntimeError(
-                "Renderer startup registration failed post-install safety audit: "
-                + detail
+    with guard as replacement_port:
+        _run_powershell(
+            _install_script(
+                role,
+                execute=execute,
+                arguments=arguments,
+                working_directory=workdir,
+                replace=replace,
+                restart_count=restart_count,
+                replacement_port=replacement_port,
             )
-    return result
+        )
+        result = task_status(role)
+        if not result.installed or not result.managed:
+            raise RuntimeError("Artifex scheduled task was not registered as expected")
+        if role == "renderer":
+            matching, detail = task_configuration_matches(
+                role, config=config, status=result
+            )
+            if not matching:
+                raise RuntimeError(
+                    "Renderer startup registration failed post-install safety audit: "
+                    + detail
+                )
+        return result
 
 
 def uninstall_task(role: StartupRole) -> bool:
