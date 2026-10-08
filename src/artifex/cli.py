@@ -310,10 +310,16 @@ def maintenance_drain(
     """
     settings = _settings(config)
     core = build_core(settings)
+    # PC-A may still carry a legacy loopback URL in comfyui.base_url.
+    # Always observe the *configured primary* PC-B endpoint, like deployment
+    # verify, not an unrelated ComfyUI process on PC-A.
+    primary = settings.render_nodes.primary_node()
+    endpoint = primary[1].base_url if primary is not None else settings.comfyui.base_url
+    comfy = ComfyUIClient(settings.comfyui.model_copy(update={"base_url": endpoint}))
     try:
         report = asyncio.run(
             quiesce_controller(
-                core.database, core.runtime, core.comfy,
+                core.database, core.runtime, comfy,
                 apply=apply, wait_seconds=wait_seconds,
                 poll_seconds=poll_seconds,
             )
@@ -323,6 +329,7 @@ def maintenance_drain(
         typer.echo(f"maintenance drain error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     finally:
+        asyncio.run(comfy.aclose())
         asyncio.run(core.close())
     if not report.ready:
         raise typer.Exit(code=1)
