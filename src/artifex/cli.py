@@ -478,6 +478,83 @@ def characters_audit(
         asyncio.run(core.close())
 
 
+@render_node_app.command("configure")
+def render_node_configure(
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="PC-B renderer override YAML."),
+    ] = Path("config/render-node.yaml"),
+    node_id: Annotated[
+        str | None, typer.Option("--node-id", help="Must match PC-A render node ID."),
+    ] = None,
+    bind_host: Annotated[
+        str | None, typer.Option("--bind-host", help="PC-B listen address (restrict firewall to trusted LAN)."),
+    ] = None,
+    port: Annotated[
+        int | None, typer.Option("--port", min=1, max=65535),
+    ] = None,
+    comfy_url: Annotated[
+        str | None, typer.Option("--comfy-url", help="ComfyUI URL as seen from PC-B."),
+    ] = None,
+    checkpoint_path: Annotated[
+        Path | None, typer.Option("--checkpoint-path", help="Full production checkpoint path on PC-B."),
+    ] = None,
+    refiner_path: Annotated[
+        Path | None, typer.Option("--refiner-path"),
+    ] = None,
+    vae_path: Annotated[
+        Path | None, typer.Option("--vae-path"),
+    ] = None,
+    upscaler_path: Annotated[
+        Path | None, typer.Option("--upscaler-path"),
+    ] = None,
+    lora_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--lora-dir", help="PC-B LoRA folder. Repeat for multiple roots."),
+    ] = None,
+    token_env: Annotated[
+        str | None, typer.Option("--token-env", help="Environment variable NAME only, never the secret."),
+    ] = None,
+    update: Annotated[
+        bool, typer.Option("--update", help="Preserve other YAML settings and change supplied values."),
+    ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Replace the entire renderer override YAML."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Create/update PC-B renderer paths, IPs and ports without requiring a running ComfyUI."""
+    settings = _settings(output) if update and output.is_file() else _settings(None)
+    supplied_assets = {
+        name: value
+        for name, value in (
+            ("production_checkpoint", checkpoint_path),
+            ("refiner_checkpoint", refiner_path),
+            ("vae", vae_path),
+            ("upscale_model", upscaler_path),
+        )
+        if value is not None
+    }
+    try:
+        result = configure_renderer(
+            settings,
+            output_path=output,
+            node_id=node_id,
+            bind_host=bind_host,
+            port=port,
+            comfyui_base_url=comfy_url,
+            asset_paths=supplied_assets,
+            lora_roots=tuple(lora_dir) if lora_dir is not None else None,
+            token_env=token_env,
+            update=update,
+            force=force,
+        )
+    except (FileExistsError, OSError, TypeError, ValueError) as exc:
+        typer.echo(f"render-node configuration error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(result.model_dump(mode="json"), as_json=json_output)
+
+
 @render_node_app.command("attest")
 def render_node_attest(
     config: ConfigOption = None,
