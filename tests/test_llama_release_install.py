@@ -14,7 +14,6 @@ from artifex.cli import app
 from artifex.config import load_settings
 from artifex.llm import release_install
 
-
 TAG = "b12345"
 NAME = "llama-b12345-bin-win-cuda-12.4-x64.zip"
 DOWNLOAD = f"https://github.com/ggml-org/llama.cpp/releases/download/{TAG}/{NAME}"
