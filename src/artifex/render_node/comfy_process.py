@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import IO
 from urllib.parse import urlsplit
 
