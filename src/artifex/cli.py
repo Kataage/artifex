@@ -60,12 +60,12 @@ from artifex.llm import (
 from artifex.llm.release_install import install_official_llama, official_release_assets
 from artifex.llm.server import ManagedLlmServer
 from artifex.native_dependencies import DependencyRole, check_native_dependencies
-from artifex.operations.quiescence import quiesce_controller
 from artifex.onboarding import (
     configure_discovered_renderer,
     discover_controller,
     discover_renderer,
 )
+from artifex.operations.quiescence import quiesce_controller
 from artifex.pair_render_proof import run_pair_render_proof
 from artifex.performance import (
     PatreonV2PublicationProvider,
