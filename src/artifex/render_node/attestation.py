@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -197,7 +197,7 @@ def _token(settings: ArtifexSettings) -> str | None:
     return os.environ.get(name)
 
 
-def serve_attestation(settings: ArtifexSettings) -> None:
+def serve_attestation(settings: ArtifexSettings, *, stop_event: Event | None = None) -> None:
     expected_token = _token(settings)
     if settings.render_agent.require_token and not expected_token:
         raise ValueError(
@@ -278,6 +278,11 @@ def serve_attestation(settings: ArtifexSettings) -> None:
         Handler,
     )
     try:
-        server.serve_forever()
+        if stop_event is None:
+            server.serve_forever()
+        else:
+            server.timeout = 0.5
+            while not stop_event.is_set():
+                server.handle_request()
     finally:
         server.server_close()
