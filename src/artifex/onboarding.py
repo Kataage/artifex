@@ -5,7 +5,6 @@ import platform
 import shutil
 import sys
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
