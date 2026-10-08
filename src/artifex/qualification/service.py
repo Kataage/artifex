@@ -30,10 +30,6 @@ from artifex.qualification.archive_reproduction import (
     ArchiveReproductionProof,
     file_sha256,
 )
-from artifex.qualification.renderer_owner_evidence import (
-    persist_owner_observation,
-    verify_owner_observation,
-)
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     AssetDigest,
@@ -41,6 +37,10 @@ from artifex.qualification.models import (
     QualificationStage,
     QualificationStageEvidence,
     QualificationStatus,
+)
+from artifex.qualification.renderer_owner_evidence import (
+    persist_owner_observation,
+    verify_owner_observation,
 )
 from artifex.qualification.soak_observer import (
     SoakEnd,
