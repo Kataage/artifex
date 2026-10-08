@@ -628,12 +628,14 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
     discord_runtime: DiscordRuntime | None = None
     discord_token: str | None = None
     if settings.discord.enabled:
+        from artifex.discord.audit import DiscordQualificationAudit
         from artifex.discord.bot import ArtifexDiscordClient, token_from_environment
 
         discord_runtime = ArtifexDiscordClient(
             settings.discord,
             router,
             DailySummaryBuilder(core.database),
+            audit=DiscordQualificationAudit(settings.discord, core.telemetry),
         )
         discord_token = token_from_environment(settings.discord)
 

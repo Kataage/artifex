@@ -664,24 +664,7 @@ class QualificationService:
                 raise ValueError("overnight_soak requires its qualification session")
             self._verify_soak_stage(session, details)
         elif stage is QualificationStage.DISCORD_CONTROLS:
-            if self._settings.discord.enabled:
-                commands = details.get("verified_commands")
-                required = {
-                    "status",
-                    "pause",
-                    "resume",
-                    "approve",
-                    "reject",
-                    "retry",
-                }
-                if not isinstance(commands, list | tuple):
-                    raise ValueError(
-                        "discord_controls requires verified_commands"
-                    )
-                if not required <= {str(item) for item in commands}:
-                    raise ValueError(
-                        "discord_controls is missing required verified commands"
-                    )
+            self._verify_discord_controls(details, since=since)
         elif stage is QualificationStage.ARCHIVE_REPRODUCTION:
             if details.get("reproduction_verified") is not True:
                 raise ValueError(
@@ -696,6 +679,99 @@ class QualificationService:
                     "archive_reproduction requires intact archived manifest provenance"
                 )
         return packs
+
+    def _verify_discord_controls(
+        self,
+        details: dict[str, object],
+        *,
+        since: datetime,
+    ) -> None:
+        """Trust only successfully delivered, authorized Discord interactions.
+
+        The CLI cannot create these events by listing command names. Every
+        required action must be observed on the configured guild/channel
+        after the qualification session started; verification reads SQLite
+        again and compares the original event IDs.
+        """
+        config = self._settings.discord
+        if not config.enabled:
+            raise ValueError("discord_controls PASS requires enabled Discord")
+        if config.guild_id is None or config.channel_id is None:
+            raise ValueError("discord_controls requires configured guild_id and channel_id")
+        allowed = {"verified_commands", "observed_interactions"}
+        if set(details) - allowed:
+            raise ValueError("discord_controls rejects manually supplied claims")
+        required = {"status", "pause", "resume", "approve", "reject", "retry"}
+        with self._database.session() as db_session:
+            events = db_session.scalars(
+                select(AgentEventRow)
+                .where(
+                    AgentEventRow.event_type == "discord.interaction_completed",
+                    AgentEventRow.created_at >= since,
+                    AgentEventRow.created_at <= _utcnow(),
+                )
+                .order_by(AgentEventRow.created_at.asc(), AgentEventRow.id.asc())
+                .limit(5000)
+            ).all()
+        observed: dict[str, dict[str, object]] = {}
+        seen_interactions: set[str] = set()
+        for event in events:
+            payload = event.payload_json
+            if not isinstance(payload, dict) or payload.get("response_ok") is not True:
+                continue
+            command = payload.get("command")
+            if not isinstance(command, str) or command not in required:
+                continue
+            if (
+                payload.get("guild_id") != config.guild_id
+                or payload.get("channel_id") != config.channel_id
+            ):
+                continue
+            user_id = payload.get("user_id")
+            roles = payload.get("role_ids")
+            if not isinstance(user_id, int) or not isinstance(roles, list):
+                continue
+            if not all(isinstance(role, int) for role in roles):
+                continue
+            if (
+                user_id not in config.allowed_user_ids
+                and not set(roles).intersection(config.allowed_role_ids)
+            ):
+                continue
+            interaction_id = payload.get("interaction_id")
+            if (
+                not isinstance(interaction_id, str)
+                or not interaction_id.isascii()
+                or not interaction_id.isdecimal()
+                or int(interaction_id) <= 0
+                or interaction_id in seen_interactions
+            ):
+                continue
+            seen_interactions.add(interaction_id)
+            if command not in observed:
+                observed[command] = {
+                    "command": command,
+                    "event_id": event.id,
+                    "interaction_id": interaction_id,
+                    "user_id": user_id,
+                }
+        missing = sorted(required - observed.keys())
+        if missing:
+            raise ValueError(
+                "discord_controls lacks delivered authorized interactions: "
+                + ", ".join(missing)
+            )
+        commands = sorted(observed)
+        interactions = [observed[command] for command in commands]
+        if "verified_commands" in details and details["verified_commands"] != commands:
+            raise ValueError("discord_controls stored commands differ from telemetry")
+        if (
+            "observed_interactions" in details
+            and details["observed_interactions"] != interactions
+        ):
+            raise ValueError("discord_controls stored interactions differ from telemetry")
+        details["verified_commands"] = commands
+        details["observed_interactions"] = interactions
 
     def _verify_soak_stage(
         self,
@@ -1276,6 +1352,8 @@ class QualificationService:
                 "enabled": settings.discord.enabled,
                 "guild_id": settings.discord.guild_id,
                 "channel_id": settings.discord.channel_id,
+                "allowed_user_ids": list(settings.discord.allowed_user_ids),
+                "allowed_role_ids": list(settings.discord.allowed_role_ids),
             },
             "patreon": {
                 "enabled": settings.patreon.enabled,
