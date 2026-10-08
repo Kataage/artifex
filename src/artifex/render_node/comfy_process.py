@@ -20,6 +20,7 @@ from artifex.render_node.process_identity import (
     windows_process_identity,
 )
 from artifex.render_node.socket_audit import audit_renderer_sockets
+from artifex.render_node.supervisor_lease import RendererSupervisorLease
 
 
 def _local_comfy_url(value: str) -> None:
@@ -67,6 +68,9 @@ class ManagedComfyUI:
         self._adopted: ComfyOwnershipReceipt | None = None
         self._current_receipt: ComfyOwnershipReceipt | None = None
         self._receipts = ComfyReceiptStore(
+            settings.render_agent.comfyui_process.ownership_receipt_path
+        )
+        self._supervisor_lease = RendererSupervisorLease(
             settings.render_agent.comfyui_process.ownership_receipt_path
         )
 
@@ -239,6 +243,17 @@ class ManagedComfyUI:
     def start(self, stop: threading.Event) -> None:
         if not self.settings.render_agent.comfyui_process.enabled:
             return
+        # Serialize protected start / reattachment / monitoring across
+        # independent Task Scheduler and manual invocations of Artifex.
+        if self.settings.render_agent.gateway.enabled:
+            self._supervisor_lease.acquire()
+        try:
+            self._start_with_lease(stop)
+        except BaseException:
+            self.close()
+            raise
+
+    def _start_with_lease(self, stop: threading.Event) -> None:
         _local_comfy_url(self.settings.comfyui.base_url)
         if self.settings.render_agent.gateway.enabled:
             # A LAN-facing authenticated gateway can claim a single writer
@@ -395,9 +410,12 @@ class ManagedComfyUI:
         try:
             self._stop_owned()
         finally:
-            if self._log is not None:
-                self._log.close()
-                self._log = None
+            try:
+                if self._log is not None:
+                    self._log.close()
+                    self._log = None
+            finally:
+                self._supervisor_lease.release()
 
 
 def serve_managed_renderer(settings: ArtifexSettings) -> None:
