@@ -48,5 +48,8 @@ jobs:
       - run: uv run artifex onboard deps-install --help
       - run: uv run artifex onboard deps-draft --help
       - run: uv run artifex onboard models-draft --help
+      - run: uv run artifex onboard model-sources-list --help
+      - run: uv run artifex onboard model-sources-add --help
+      - run: uv run artifex onboard model-sources-remove --help
       - run: uv run artifex startup status --role controller --json
       - run: uv run artifex research status --json

@@ -11,6 +11,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.comfy.dependency_installer import DependencyManifest, PinnedDependency
+from artifex.comfy.model_sources import ApprovedModelSource
 from artifex.comfy.workflow_audit import WorkflowAudit
 
 _HF_API = "https://huggingface.co/api/models/"
@@ -231,19 +232,45 @@ def _needed(
 
 def draft_hf_models(
     audit: WorkflowAudit, *, repositories: tuple[str, ...],
+    bindings: tuple[ApprovedModelSource, ...] | None = None,
     client: httpx.Client | None = None,
 ) -> ModelManifestDraft:
-    """Draft only exact, unique files from explicitly shortlisted HF publishers.
+    """Draft from operator shortlist, or strictly scoped approved role/name bindings.
 
-    No speculative filename-to-publisher search. Hub LFS SHA256 and pinned
-    revision are used without downloading multi-GB model weights.
+    With bindings, only the specified publisher and optional exact source path
+    may satisfy each missing model. A same-named file in another trusted
+    repository cannot be substituted. Existing manual shortlist mode remains.
     """
+    pending, unresolved = _needed(audit)
+    assigned: dict[tuple[str, str], ApprovedModelSource] | None = None
+    if bindings is not None:
+        assigned = {}
+        for source in bindings:
+            source_key = (source.role, source.model_name)
+            if source_key in assigned:
+                raise ValueError("Duplicate registered publisher for a model role/name")
+            assigned[source_key] = source
+        for role, name in sorted(pending.difference(assigned)):
+            unresolved.append(
+                UnresolvedModel(
+                    label=role, requested=name,
+                    reason="No operator-approved source registered for this exact model role/name",
+                )
+            )
+        pending.intersection_update(assigned)
+        repositories = tuple(dict.fromkeys(source.repository for source in (
+            assigned[key] for key in sorted(pending)
+        )))
+        if not pending:
+            return ModelManifestDraft(
+                manifest=DependencyManifest(), evidence=(),
+                unresolved=tuple(unresolved), repositories_checked=(),
+            )
     if not repositories or len(repositories) > _MAX_SOURCES:
         raise ValueError("Provide between 1 and 12 shortlisted Hugging Face repositories")
     clean = tuple(_clean_repo(repo) for repo in repositories)
     if len({value.casefold() for value in clean}) != len(clean):
         raise ValueError("Duplicate model publisher repository in shortlist")
-    pending, unresolved = _needed(audit)
     owned = client is None
     http = client or httpx.Client(
         timeout=httpx.Timeout(connect=20, read=30, write=20, pool=20),
@@ -255,8 +282,18 @@ def draft_hf_models(
         for repo in clean:
             try:
                 revision, license_id, index = _read_repo(http, repo)
-                for _, name in sorted(pending):
+                for role, name in sorted(pending):
+                    key = (role, name)
+                    rule = assigned[key] if assigned is not None else None
+                    if rule is not None and rule.repository.casefold() != repo.casefold():
+                        continue
                     paths = index.get(name, ())
+                    if rule is not None and rule.file_path is not None:
+                        paths = tuple(p for p in paths if p == rule.file_path)
+                        if not paths:
+                            failures[repo + ":" + name] = (
+                                "Registered exact model source path is absent from pinned revision"
+                            )
                     if len(paths) > 1:
                         failures[repo + ":" + name] = (
                             "Multiple files in the same repository share this basename"
@@ -266,9 +303,15 @@ def draft_hf_models(
                             found_name = _file_info(
                                 http, repo, revision, paths[0], license_id
                             )
-                            for key in pending:
-                                if key[1] == name:
-                                    found[key].append(found_name)
+                            if (
+                                rule is not None
+                                and rule.expected_sha256 is not None
+                                and rule.expected_sha256.casefold() != found_name.sha256
+                            ):
+                                raise ValueError(
+                                    "Pinned model LFS SHA-256 differs from registered expected hash"
+                                )
+                            found[key].append(found_name)
                         except (ValueError, TypeError, httpx.HTTPError) as exc:
                             failures[repo + ":" + name] = str(exc)
             except (ValueError, TypeError, httpx.HTTPError) as exc:
