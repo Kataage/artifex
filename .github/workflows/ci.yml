@@ -38,6 +38,14 @@ jobs:
       - run: uv run artifex render-node socket-audit --help
       - run: uv run pytest -q tests/test_windows_task_safety.py
       - run: uv run pytest -q tests/test_windows_task_native_integration.py
+      - run: uv run pytest -q tests/test_windows_task_lifecycle_probe.py
+      - run: uv run artifex startup lifecycle-probe --json
+      # These operate ONLY on uniquely named temporary mock tasks in this CI runner.
+      # Record observations, not production child-survival qualification.
+      - run: uv run artifex startup lifecycle-probe --apply --mode baseline --report-dir data/qualification/scheduler-probe --json
+        timeout-minutes: 3
+      - run: uv run artifex startup lifecycle-probe --apply --mode protected --report-dir data/qualification/scheduler-probe --json
+        timeout-minutes: 3
       - run: uv run artifex startup audit --help
       - run: uv run pytest -q tests/test_supervisor_lease.py
       - run: uv run pytest -q tests/test_renderer_socket_audit.py tests/test_comfy_reattachment.py
@@ -76,3 +84,12 @@ jobs:
       - run: uv run artifex onboard model-sources-remove --help
       - run: uv run artifex startup status --role controller --json
       - run: uv run artifex research status --json
+
+      - name: Archive isolated Task Scheduler evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-scheduler-lifecycle
+          path: data/qualification/scheduler-probe/**/report.json
+          if-no-files-found: warn
+          retention-days: 7
