@@ -22,6 +22,9 @@ class RendererSetupResult(BaseModel):
     asset_paths: dict[str, str]
     lora_roots: tuple[str, ...]
     token_env: str
+    comfyui_managed: bool
+    comfyui_executable: Path | None
+    comfyui_working_directory: Path | None
 
 
 def configure_renderer(
@@ -35,6 +38,10 @@ def configure_renderer(
     asset_paths: Mapping[str, Path] | None = None,
     lora_roots: tuple[Path, ...] | None = None,
     token_env: str | None = None,
+    comfy_executable: Path | None = None,
+    comfy_working_directory: Path | None = None,
+    comfy_arguments: tuple[str, ...] | None = None,
+    disable_comfy_management: bool = False,
     update: bool = False,
     force: bool = False,
 ) -> RendererSetupResult:
@@ -61,6 +68,22 @@ def configure_renderer(
         if lora_roots is not None
         else settings.render_agent.lora_roots
     )
+    process_options: dict[str, object] = {}
+    if disable_comfy_management and comfy_executable is not None:
+        raise ValueError("--disable-comfy-management conflicts with --comfy-exe")
+    if comfy_executable is not None:
+        process_options["enabled"] = True
+        process_options["executable"] = str(
+            comfy_executable.expanduser().resolve(strict=False)
+        )
+    if comfy_working_directory is not None:
+        process_options["working_directory"] = str(
+            comfy_working_directory.expanduser().resolve(strict=False)
+        )
+    if comfy_arguments is not None:
+        process_options["arguments"] = list(comfy_arguments)
+    if disable_comfy_management:
+        process_options["enabled"] = False
     payload: dict[str, object] = {
         "render_agent": {
             "node_id": selected_node,
@@ -68,6 +91,7 @@ def configure_renderer(
             "port": selected_port,
             "require_token": True,
             "token_env": selected_token_env,
+            **({"comfyui_process": process_options} if process_options else {}),
             **({"asset_paths": changed_assets} if changed_assets else {}),
             **(
                 {
@@ -98,4 +122,9 @@ def configure_renderer(
             str(root) for root in configured.render_agent.lora_roots
         ),
         token_env=configured.render_agent.token_env or selected_token_env,
+        comfyui_managed=configured.render_agent.comfyui_process.enabled,
+        comfyui_executable=configured.render_agent.comfyui_process.executable,
+        comfyui_working_directory=(
+            configured.render_agent.comfyui_process.working_directory
+        ),
     )
