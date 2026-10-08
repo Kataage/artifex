@@ -115,6 +115,19 @@ Register-ScheduledTask -TaskName {_literal(name)} -TaskPath '\\' -Action $action
 """
 
 
+def _task_runtime_status(name: str, marker: str, execute: str, arguments: str) -> dict[str, Any]:
+    """Read Scheduler state and LastTaskResult without changing anything."""
+    script = _script_task_check(name, marker, execute, arguments) + f"""
+$info = Get-ScheduledTaskInfo -TaskName {_literal(name)} -TaskPath '\\' -ErrorAction Stop
+[pscustomobject]@{{
+  state=[string]$task.State
+  last_task_result=[int64]$info.LastTaskResult
+  last_run_time=[string]$info.LastRunTime
+}} | ConvertTo-Json -Compress
+"""
+    return json.loads(_run_powershell(script))
+
+
 def _identity(pid: int, nonce: str) -> dict[str, Any] | None:
     """Inspect real CIM identity: PID alone is never trustworthy evidence."""
     from artifex.render_node.process_identity import windows_process_identity
@@ -261,6 +274,13 @@ def run_lifecycle_probe(
     except (OSError, RuntimeError, ValueError, TypeError, TimeoutError) as exc:
         report["status"] = "blocked"
         report["error"] = f"{type(exc).__name__}: {exc}"
+        if registered:
+            try:
+                report["task_runtime"] = _task_runtime_status(
+                    name, marker, executable, args,
+                )
+            except (OSError, RuntimeError, ValueError, TypeError) as diag_exc:
+                report["task_runtime_error"] = f"{type(diag_exc).__name__}: {diag_exc}"
     finally:
         # Both mock processes voluntarily exit when release is created; the
         # scheduled task's unique marker+action is rechecked before cleanup.
