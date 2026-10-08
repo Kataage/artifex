@@ -394,8 +394,9 @@ class QualificationService:
         original_configuration = json.loads(json.dumps(session.configuration))
         current_configuration = self._configuration_snapshot()
         for snapshot in (original_configuration, current_configuration):
-            if isinstance(snapshot.get("loras"), dict):
-                snapshot["loras"].pop("production_count", None)
+            lora_section = snapshot.get("loras")
+            if isinstance(lora_section, dict):
+                lora_section.pop("production_count", None)
         if original_configuration != current_configuration:
             issues.append("production configuration changed during qualification")
 
