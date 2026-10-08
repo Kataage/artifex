@@ -521,6 +521,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         core.loras,
         settings.characters,
         settings.loras,
+        settings.render_nodes,
     )
     prompts = PromptCompiler(
         core.characters,
