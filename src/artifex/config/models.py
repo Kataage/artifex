@@ -696,6 +696,9 @@ class QualificationConfig(StrictModel):
     require_lora_validation_evidence: bool = True
     require_stable_asset_hashes: bool = True
     require_stable_workflow_snapshot: bool = True
+    # Only applies when a primary PC-B render node is configured; strict
+    # snapshot gating does NOT replace the 14 real-machine stage validators.
+    require_renderer_owner_observation: bool = True
 
 
 class ArtifexSettings(StrictModel):
