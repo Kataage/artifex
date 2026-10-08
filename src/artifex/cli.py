@@ -317,6 +317,39 @@ def startup_audit(
         raise typer.Exit(code=1) from exc
 
 
+@startup_app.command("lifecycle-probe")
+def startup_lifecycle_probe(
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Register/stop only an isolated, random mock task."),
+    ] = False,
+    mode: Annotated[
+        str, typer.Option("--mode", help="protected or baseline (temporary task only)."),
+    ] = "protected",
+    report_dir: Annotated[
+        Path,
+        typer.Option("--report-dir", help="Evidence output directory; never production assets."),
+    ] = Path("data/qualification/scheduler-probe"),
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Observe Windows scheduler/child shutdown behavior using disposable mock processes."""
+    from artifex.windows_task_lifecycle_probe import ProbeMode, run_lifecycle_probe
+
+    if mode not in {"protected", "baseline"}:
+        typer.echo("startup lifecycle-probe error: mode must be protected or baseline", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = run_lifecycle_probe(
+            apply=apply, mode=cast(ProbeMode, mode), report_dir=report_dir,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"startup lifecycle-probe error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_payload(result, as_json=json_output)
+    if result["status"] == "blocked":
+        raise typer.Exit(code=1)
+
+
 @startup_app.command("uninstall")
 def startup_uninstall(
     role: Annotated[str, typer.Option("--role")] = "controller",
