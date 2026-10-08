@@ -17,6 +17,7 @@ from artifex.render_node.process_identity import (
     ComfyReceiptStore,
     expected_receipt,
     matches_owned_process,
+    verified_launcher_child,
     windows_process_identity,
 )
 from artifex.render_node.socket_audit import audit_renderer_sockets
@@ -143,8 +144,8 @@ class ManagedComfyUI:
                     f"ComfyUI exited during startup; see {config.log_path}"
                 )
             if self._healthy():
-                self._verify_owned_listener()
                 self._record_owned_process()
+                self._verify_owned_listener()
                 return
             stop.wait(min(1.0, max(0.01, deadline - monotonic())))
         if stop.is_set():
@@ -169,6 +170,17 @@ class ManagedComfyUI:
     def _verify_owned_listener(self) -> None:
         if not self.settings.render_agent.gateway.enabled:
             return
+        receipt = self._current_receipt
+        if receipt is not None:
+            observed = windows_process_identity(receipt.identity.pid)
+            if observed is None or not matches_owned_process(
+                self.settings, receipt, observed,
+            ):
+                raise RuntimeError(
+                    "Protected ComfyUI execution PID/identity drifted; refusing ownership"
+                )
+            self._verify_listener_for(receipt.identity.pid)
+            return
         process = self.process
         if process is None or process.poll() is not None:
             raise RuntimeError("Protected ComfyUI child is no longer alive")
@@ -190,12 +202,47 @@ class ManagedComfyUI:
         process = self.process
         if process is None or process.poll() is not None:
             raise RuntimeError("Cannot record an exited ComfyUI process")
-        identity = windows_process_identity(process.pid)
-        if identity is None:
-            raise RuntimeError("Cannot prove ComfyUI process start time")
-        receipt = expected_receipt(self.settings, identity)
-        if not matches_owned_process(self.settings, receipt, identity):
+        launcher = windows_process_identity(process.pid)
+        if launcher is None:
+            raise RuntimeError("Cannot prove ComfyUI launcher identity/start time")
+        direct = expected_receipt(self.settings, launcher)
+        if not matches_owned_process(self.settings, direct, launcher):
             raise RuntimeError("Launched ComfyUI executable/command line mismatch")
+
+        # Try exact Popen PID first. A Windows venv python.exe can act as a
+        # wrapper and spawn the real Python listener as its direct child.
+        snapshot = audit_renderer_sockets(
+            self.settings, owned_pid=launcher.pid, gateway_pid=os.getpid(),
+        )
+        if snapshot.status == "owned_loopback_observed":
+            receipt = direct
+        else:
+            # A TCP port alone is NEVER proof of ownership. Verify the
+            # original launch identity and CIM direct-parent relation.
+            candidate = audit_renderer_sockets(
+                self.settings, gateway_pid=os.getpid(),
+            )
+            if candidate.status != "owner_unverified" or len(candidate.listener_pids) != 1:
+                raise RuntimeError(
+                    "Protected ComfyUI socket ownership is not proven: "
+                    f"{candidate.status}; refusing unverified launcher child"
+                )
+            identity = windows_process_identity(candidate.listener_pids[0])
+            if identity is None or not verified_launcher_child(
+                self.settings, launcher, identity,
+            ):
+                raise RuntimeError(
+                    "ComfyUI listener is not a verified child of the launched Python "
+                    "venv shim; refusing to claim a foreign or drifted process"
+                )
+            receipt = expected_receipt(
+                self.settings, identity, launcher_identity=launcher,
+            )
+            if not matches_owned_process(self.settings, receipt, identity):
+                raise RuntimeError("Verified ComfyUI launcher child identity changed")
+        # Prove the exact listener PID in a second socket inventory so a port
+        # owner change between CIM and receipt creation fails closed.
+        self._verify_listener_for(receipt.identity.pid)
         self._receipts.save(receipt)
         self._current_receipt = receipt
 
@@ -371,6 +418,35 @@ class ManagedComfyUI:
                         "Adopted ComfyUI still alive but unhealthy; refusing "
                         "unsafe GPU interruption"
                     )
+                continue
+            if self.settings.render_agent.gateway.enabled and self._current_receipt:
+                receipt = self._current_receipt
+                observed = windows_process_identity(receipt.identity.pid)
+                if observed is not None:
+                    if not matches_owned_process(self.settings, receipt, observed):
+                        raise RuntimeError(
+                            "Recorded ComfyUI process identity drifted or PID was reused"
+                        )
+                    self._verify_listener_for(receipt.identity.pid)
+                    if self._receipts.load() != receipt:
+                        raise RuntimeError("ComfyUI ownership receipt changed")
+                    if healthy:
+                        failures = 0
+                        continue
+                    failures += 1
+                    if failures >= 3:
+                        raise RuntimeError(
+                            "Verified ComfyUI listener is alive but unhealthy; "
+                            "refusing an unsafe GPU restart"
+                        )
+                    continue
+                if healthy:
+                    raise RuntimeError(
+                        "Recorded ComfyUI execution PID exited but a server responds; "
+                        "refusing unowned takeover"
+                    )
+                failures = 0
+                self._restart_after_natural_exit(stop)
                 continue
             process = self.process
             if process is None:
