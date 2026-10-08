@@ -62,10 +62,14 @@ class DependencyDraft(BaseModel):
     unverifiable_model_choices: tuple[str, ...]
     unresolved_node_types: tuple[str, ...]
     notes: tuple[str, ...] = (
-        "License identifiers are GitHub's classifications of committed license "
-        "files, not legal approval; check upstream terms before --accept-licenses.",
-        "Only unambiguous registered node providers are drafted. "
-        "No arbitrary third-party code is installed or executed.",
+        (
+            "License identifiers are GitHub's classifications of committed license "
+            "files, not legal approval; check upstream terms before --accept-licenses."
+        ),
+        (
+            "Only unambiguous registered node providers are drafted. "
+            "No arbitrary third-party code is installed or executed."
+        ),
         "Missing checkpoint/VAE/upscale files are not inferred from filename alone.",
     )
 
@@ -118,7 +122,7 @@ def _license_at_commit(
     data = _get_json(http, api + "/license?ref=" + commit)
     license_info = data.get("license")
     if not isinstance(license_info, dict):
-        raise ValueError("Pinned commit has no GitHub-recognized license")
+        raise TypeError("Pinned commit has no GitHub-recognized license")
     spdx = license_info.get("spdx_id")
     if (
         not isinstance(spdx, str)
