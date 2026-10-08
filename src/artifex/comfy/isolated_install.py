@@ -190,70 +190,80 @@ def install_isolated_comfy(
             project = extracted / "ComfyUI"
             project.mkdir(parents=True)
             _unpack_source(downloaded, project)
-            python_executable: Path | None = None
-            if install_dependencies:
-                if platform.system() != "Windows":
-                    raise RuntimeError("Managed dependency installation requires native Windows")
-                uv_exe = shutil.which("uv")
-                if uv_exe is None:
-                    raise FileNotFoundError("uv is required on PATH to install dependencies")
-                interpreter = (python or Path(sys.executable)).expanduser().resolve(
-                    strict=True
-                )
-                if not interpreter.is_file():
-                    raise FileNotFoundError(f"Python interpreter not found: {interpreter}")
-                virtual = project / ".venv"
-                assert torch_backend is not None
-                _run_uv(
-                    [uv_exe, "venv", "--python", str(interpreter), str(virtual)],
-                    cwd=project,
-                )
-                python_executable = virtual / "Scripts" / "python.exe"
-                if not python_executable.is_file():
-                    raise RuntimeError("uv did not create the isolated ComfyUI Python")
-                _run_uv(
-                    [
-                        uv_exe, "pip", "install", "--python", str(python_executable),
-                        "--index-url", _TORCH_INDEX[torch_backend],
-                        "torch", "torchvision", "torchaudio",
-                    ],
-                    cwd=project,
-                )
-                _run_uv(
-                    [
-                        uv_exe, "pip", "install", "--python", str(python_executable),
-                        "-r", str(project / "requirements.txt"),
-                    ],
-                    cwd=project,
-                )
-
-            receipt: dict[str, Any] = {
-                "source": "Comfy-Org/ComfyUI",
-                "commit": commit,
-                "archive_sha256": archive_sha,
-                "main_py_sha256": _hash(project / "main.py"),
-                "dependencies_installed": install_dependencies,
-                "torch_backend": torch_backend,
-            }
-            (extracted / ".artifex-comfy-install.json").write_text(
-                json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8"
-            )
+            # Promote verified source before creating a venv: uv-generated Windows
+            # console scripts contain absolute interpreter paths and may break if
+            # their environment is moved after installation.
             if destination.exists() or destination.is_symlink():
                 raise FileExistsError("Isolated ComfyUI destination appeared during setup")
             extracted.rename(destination)
-            return ComfyInstallResult(
-                commit=commit,
-                directory=destination,
-                comfy_directory=destination / "ComfyUI",
-                archive_sha256=archive_sha,
-                dependencies_installed=install_dependencies,
-                python_executable=(
-                    destination / "ComfyUI" / ".venv" / "Scripts" / "python.exe"
-                    if install_dependencies else None
-                ),
-                torch_backend=torch_backend,
-                installed=True,
-            )
+            project = destination / "ComfyUI"
+            try:
+                python_executable: Path | None = None
+                if install_dependencies:
+                    if platform.system() != "Windows":
+                        raise RuntimeError("Managed dependency installation requires native Windows")
+                    uv_exe = shutil.which("uv")
+                    if uv_exe is None:
+                        raise FileNotFoundError("uv is required on PATH to install dependencies")
+                    interpreter = (python or Path(sys.executable)).expanduser().resolve(
+                        strict=True
+                    )
+                    if not interpreter.is_file():
+                        raise FileNotFoundError(f"Python interpreter not found: {interpreter}")
+                    virtual = project / ".venv"
+                    assert torch_backend is not None
+                    _run_uv(
+                        [uv_exe, "venv", "--python", str(interpreter), str(virtual)],
+                        cwd=project,
+                    )
+                    python_executable = virtual / "Scripts" / "python.exe"
+                    if not python_executable.is_file():
+                        raise RuntimeError("uv did not create the isolated ComfyUI Python")
+                    _run_uv(
+                        [
+                            uv_exe, "pip", "install", "--python", str(python_executable),
+                            "--index-url", _TORCH_INDEX[torch_backend],
+                            "torch", "torchvision", "torchaudio",
+                        ],
+                        cwd=project,
+                    )
+                    _run_uv(
+                        [
+                            uv_exe, "pip", "install", "--python", str(python_executable),
+                            "-r", str(project / "requirements.txt"),
+                        ],
+                        cwd=project,
+                    )
+
+                receipt: dict[str, Any] = {
+                    "source": "Comfy-Org/ComfyUI",
+                    "commit": commit,
+                    "archive_sha256": archive_sha,
+                    "main_py_sha256": _hash(project / "main.py"),
+                    "dependencies_installed": install_dependencies,
+                    "torch_backend": torch_backend,
+                }
+                (destination / ".artifex-comfy-install.json").write_text(
+                    json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8"
+                )
+                return ComfyInstallResult(
+                    commit=commit,
+                    directory=destination,
+                    comfy_directory=destination / "ComfyUI",
+                    archive_sha256=archive_sha,
+                    dependencies_installed=install_dependencies,
+                    python_executable=(
+                        destination / "ComfyUI" / ".venv" / "Scripts" / "python.exe"
+                        if install_dependencies else None
+                    ),
+                    torch_backend=torch_backend,
+                    installed=True,
+                )
+            except BaseException:
+                # Delete only the new directory Artifex created, never the
+                # user's preexisting ComfyUI or another target.
+                shutil.rmtree(destination)
+                raise
     finally:
         if owns:
             http.close()
