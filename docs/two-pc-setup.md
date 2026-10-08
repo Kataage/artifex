@@ -148,6 +148,70 @@ weight downloads still require explicit reviewed installation into
 an Artifex-created isolated ComfyUI environment; the existing
 `deps-install` safeguards and offline model hashing are unchanged.
 
+## Integrated two-PC readiness evidence (read-only, no image queue)
+
+After completing initial per-host setup, verify **PC-B locally** and then
+validate the evidence **from PC-A against the actual authenticated running
+renderer**. This avoids mistaking a passing local mock or a report from a
+different machine for two-host production readiness.
+
+**PC-B** (renderer with ComfyUI and the GPU): ensure ComfyUI and the
+authenticated Artifex render-node attestation service are already running.
+From the Artifex repo on PC-B, run:
+
+```powershell
+uv run artifex deployment pair-export `
+  --config .\\config\\render-node.yaml `
+  --comfy-root "D:/AI/ComfyUI_windows_portable" `
+  --output .\\data\\pair\\pc-b-evidence.json
+```
+
+The command checks native Windows, uv, NVIDIA GPU, selected ComfyUI
+Python, actual `torch.cuda.is_available()`, configured production assets,
+LoRA inventory, ComfyUI `/system_stats`, PC-B bind address and token
+presence. It saves a small JSON report containing node ID, host,
+GPU count, snapshot time, model SHA-256/size and both diagnostic results.
+A GPU/asset inventory may take time because the existing render-node
+attestation computes checksums. The report has no bearer-token values.
+If some check fails, the file is still written but the exit code is nonzero,
+so you can inspect the failure; an existing report is NEVER overwritten.
+
+Copy the generated PC-B JSON report to **PC-A** (the LLM/controller PC)
+using your preferred trusted file transfer. On PC-A, with ComfyUI's
+LAN address and authenticated attestation URL set in
+`config/local.yaml` and the bearer-token environment available, run:
+
+```powershell
+uv run artifex deployment pair-check `
+  --config .\\config\\local.yaml `
+  --renderer-report .\\data\\pair\\pc-b-evidence.json `
+  --max-age-minutes 60
+```
+
+This combines the PC-A native Python/uv/LLM binary/GGUF inspection,
+existing PC-A live `deployment verify` (ComfyUI REST, LLM health,
+authenticated remote attestation and both actual workflow template
+requirements) with a **fresh extra authenticated render-node request**.
+It cross-checks that the physical host differs from PC-A, the
+PC-B report is recent, node identity/host/OS and GPU count agree,
+and model **SHA-256 and exact sizes** match the live renderer for the
+production checkpoint, refiner, VAE and upscaler. It compares LoRA
+counts and any remote inventory errors and requires an actual Torch/CUDA
+probe in PC-B evidence. Mismatches and missing prerequisites appear as
+separate JSON checks with concrete `next_action` suggestions and a
+nonzero exit code. The report's timestamp is checked against both
+staleness and clock skew. No model installation, daemon control,
+configuration changes, or rendered image request occurs.
+
+**Caveat:** this is a *preflight readiness* report only. It does **not**
+prove that ComfyUI can actually generate the configured illustration or
+that the two machines will remain stable unattended. Only the separate
+explicit `artifex deployment verify --role controller --render-smoke`
+(and the full issue #40 qualification ladder and endurance test) can
+progress toward production qualification. A saved PC-B report can be
+edited by its holder; therefore PC-A does not trust it alone but
+independently obtains authenticated current renderer state.
+
 ## Draft missing checkpoint/VAE/upscaler/LoRA models from trusted Hub publishers
 
 Artifex can prepare **checksum-pinned model manifests** for missing model
