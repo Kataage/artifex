@@ -748,11 +748,14 @@ class QualificationService:
         if header.config_sha256 != expected_config:
             raise ValueError("overnight_soak observed a different configuration")
         for asset in session.assets:
-            if asset.source == "render_node" and asset.node_id == header.renderer_id:
-                if first.asset_sha256.get(asset.label) != asset.sha256:
-                    raise ValueError(
-                        f"overnight_soak {asset.label} hash differs from session baseline"
-                    )
+            if (
+                asset.source == "render_node"
+                and asset.node_id == header.renderer_id
+                and first.asset_sha256.get(asset.label) != asset.sha256
+            ):
+                raise ValueError(
+                    f"overnight_soak {asset.label} hash differs from session baseline"
+                )
 
         snapshot = report.model_dump(mode="json")
         if "observed_metrics" in details and details["observed_metrics"] != snapshot:
