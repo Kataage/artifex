@@ -11,6 +11,8 @@ from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.characters import HololiveCatalog
+from artifex.comfy.isolated_install import install_isolated_comfy
+from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
 from artifex.configuration_edit import write_override
@@ -394,6 +396,64 @@ def onboard_renderer(
     except (FileExistsError, OSError, ValueError, TypeError) as exc:
         typer.echo(f"onboard renderer error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("comfy-install")
+def onboard_comfy_install(
+    commit: Annotated[
+        str, typer.Option("--commit", help="Exact 40-character Comfy-Org/ComfyUI commit SHA."),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Root for a new isolated ComfyUI folder."),
+    ] = Path("tools/ComfyUI"),
+    install_deps: Annotated[
+        bool, typer.Option("--install-deps", help="Create a private venv and install torch/requirements."),
+    ] = False,
+    torch_backend: Annotated[
+        str | None,
+        typer.Option("--torch-backend", help="With --install-deps: cpu, cu126, cu128, cu130."),
+    ] = None,
+    python: Annotated[
+        Path | None, typer.Option("--python", help="Existing Python executable for the isolated venv."),
+    ] = None,
+    archive_sha256: Annotated[
+        str | None,
+        typer.Option("--archive-sha256", help="Optional independent expected source ZIP SHA-256."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Install exact official ComfyUI source into a new directory without overwriting."""
+    try:
+        result = install_isolated_comfy(
+            commit, output_dir, install_dependencies=install_deps,
+            torch_backend=torch_backend, python=python,
+            expected_archive_sha256=archive_sha256,
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard comfy-install error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("workflow-audit")
+def onboard_workflow_audit(
+    config: ConfigOption = None,
+    custom_nodes_root: Annotated[
+        Path | None, typer.Option("--custom-nodes-root", help="Optional local folder name inventory."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read-only ComfyUI /object_info audit for all configured production workflows."""
+    try:
+        report = asyncio.run(
+            audit_workflows(_settings(config), custom_nodes_root=custom_nodes_root)
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, RuntimeError, KeyError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard workflow-audit error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @onboard_app.command("dependencies")
