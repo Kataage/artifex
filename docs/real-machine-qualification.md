@@ -107,7 +107,17 @@ use manually entered elapsed time or resource values; these are no
 longer accepted as stage evidence. Without `--session-id`, a standalone
 observer trace is diagnostic only and cannot qualify a session.
 
-When Discord is enabled, verify status, pause, resume, approve, reject and retry against the real guild/channel. If Discord is disabled, only this stage may be skipped automatically.
+When Discord is enabled, **manually claiming that six commands worked is not sufficient**. Configure the real `discord.guild_id`, `discord.channel_id` and allowed operator user/roles before starting the qualification session. From that authorized operator account, run `status`, `pause`, `resume`, `approve`, `reject`, and `retry` as **real Discord slash commands or review buttons** in the configured guild/channel. `pause` and `resume` must actually change the scheduler state; no-op "already paused/running" responses are not counted. Review actions must genuinely succeed on review items. Each command must produce a successful Discord response after the session started.
+
+The bot records a durable `discord.interaction_completed` event **only after the Discord API response has been sent**, recording the Discord interaction ID, operator, channel, guild and command, without recording command arguments or review content. To register the stage, run:
+
+```powershell
+uv run artifex qualify record <SESSION> discord_controls --status pass --config .\\config\\local.yaml
+```
+
+The qualification service independently reads SQLite and verifies six **distinct**, authorized, successfully delivered interaction IDs against the current configuration and session start time. It persists the actual event IDs and rechecks them on `qualify verify`. Hand-entered `--detail verified_commands=...` values, events from a different guild/channel, denied interactions, duplicate IDs and events recorded before the session **cannot** satisfy the gate. If Discord is disabled, this stage alone is skipped automatically.
+
+**Outstanding qualification hardening:** the archive-reproduction gate below still relies on operator-reported `reproduction_verified` and `hash_match` in addition to archive consistency. Treat its PASS as provisional until a real independent reproduction witness is implemented and tested on the target setup.
 
 Archive reproduction requires a finalized Pack whose manifest SHA still matches both SQLite payload and checkpoint provenance. Re-run the archived provenance against the pinned assets/workflow, compare the selected reproduction, then record:
 
