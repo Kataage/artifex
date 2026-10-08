@@ -180,3 +180,44 @@ def test_renderer_configure_cli_supports_later_port_and_folder_changes(
     assert saved["render_agent"]["lora_roots"] == [
         str((tmp_path / "lora-b").resolve())
     ]
+
+
+def test_controller_setup_cli_updates_without_reentering_saved_ip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "artifex.setup._probe_comfyui",
+        lambda _url, *, client: ("0.9.0", ("RTX 3060",)),
+    )
+    output = tmp_path / "local.yaml"
+    runner = CliRunner()
+    first = runner.invoke(
+        app,
+        [
+            "setup", "--output", str(output),
+            "--comfy-url", "http://192.168.1.20:8188",
+            "--render-node-id", "render-b",
+            "--skip-llm-download",
+        ],
+    )
+    assert first.exit_code == 0, first.output
+    changed = runner.invoke(
+        app,
+        [
+            "setup", "--output", str(output),
+            "--production-checkpoint", "my-local-model.safetensors",
+            "--render-cache-dir", str(tmp_path / "new-cache"),
+            "--skip-llm-download", "--update",
+        ],
+    )
+    assert changed.exit_code == 0, changed.output
+    payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert payload["render_nodes"]["primary"] == "render-b"
+    assert payload["render_nodes"]["nodes"]["render-b"]["base_url"] == (
+        "http://192.168.1.20:8188"
+    )
+    assert payload["production"]["checkpoint"] == "my-local-model.safetensors"
+    assert payload["render_nodes"]["nodes"]["render-b"]["download_dir"] == str(
+        (tmp_path / "new-cache").resolve()
+    )
