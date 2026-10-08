@@ -79,13 +79,13 @@ def check_render_node(
             response.raise_for_status()
             payload: Any = response.json()
             if not isinstance(payload, dict):
-                raise ValueError("ComfyUI returned a non-object response")
+                raise TypeError("ComfyUI returned a non-object response")
             system = payload.get("system")
             if isinstance(system, dict):
                 raw_version = system.get("comfyui_version")
                 if raw_version is not None:
                     version = str(raw_version)
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
             issues.append(f"local ComfyUI /system_stats is unavailable: {exc}")
     finally:
         if owns_client:
