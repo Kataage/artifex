@@ -5,6 +5,7 @@ import ntpath
 import os
 import socket
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ _PROCESS_SCRIPT = (
     "ProcessId=[int]$entry.ProcessId; "
     "CreationDate=$entry.CreationDate.ToUniversalTime().ToString('o'); "
     "ExecutablePath=[string]$entry.ExecutablePath; "
+    "ParentProcessId=[int]$entry.ParentProcessId; "
     "CommandLine=[string]$entry.CommandLine"
     "}}; ConvertTo-Json -InputObject $identity -Compress "
     "}}"
@@ -36,6 +38,7 @@ class WindowsProcessIdentity(BaseModel):
     started_utc: str = Field(alias="CreationDate", min_length=15)
     executable: str = Field(alias="ExecutablePath", min_length=1)
     command_line: str = Field(alias="CommandLine", min_length=1)
+    parent_pid: int | None = Field(default=None, alias="ParentProcessId", ge=0)
 
 
 class ComfyOwnershipReceipt(BaseModel):
@@ -51,6 +54,9 @@ class ComfyOwnershipReceipt(BaseModel):
     working_directory: str = Field(min_length=1)
     expected_command_line: str = Field(min_length=1)
     identity: WindowsProcessIdentity
+    # Schema 2 only: immutable proof that a verified Windows venv launcher
+    # directly spawned the process actually listening on the ComfyUI port.
+    launcher_identity: WindowsProcessIdentity | None = None
 
 
 def windows_process_identity(pid: int) -> WindowsProcessIdentity | None:
@@ -134,6 +140,8 @@ class ComfyReceiptStore:
 def expected_receipt(
     settings: ArtifexSettings,
     identity: WindowsProcessIdentity,
+    *,
+    launcher_identity: WindowsProcessIdentity | None = None,
 ) -> ComfyOwnershipReceipt:
     config = settings.render_agent.comfyui_process
     if config.executable is None or config.working_directory is None:
@@ -154,6 +162,49 @@ def expected_receipt(
         working_directory=workdir,
         expected_command_line=command,
         identity=identity,
+        schema_version=2 if launcher_identity is not None else 1,
+        launcher_identity=launcher_identity,
+    )
+
+
+def _started_not_before(process: WindowsProcessIdentity, launcher: WindowsProcessIdentity) -> bool:
+    try:
+        child_time = datetime.fromisoformat(process.started_utc.replace("Z", "+00:00"))
+        launch_time = datetime.fromisoformat(launcher.started_utc.replace("Z", "+00:00"))
+        return child_time >= launch_time
+    except ValueError:
+        return False
+
+
+def verified_launcher_child(
+    settings: ArtifexSettings,
+    launcher: WindowsProcessIdentity,
+    child: WindowsProcessIdentity,
+) -> bool:
+    """Require direct Windows ancestry and exact launch argv, not merely a port."""
+    config = settings.render_agent.comfyui_process
+    if config.executable is None or not config.arguments:
+        return False
+    try:
+        executable = str(config.executable.expanduser().resolve(strict=True))
+    except (OSError, ValueError):
+        return False
+    expected_command = subprocess.list2cmdline([executable, *config.arguments])
+    # Only Python venv shims may redirect to another Python executable.
+    if ntpath.basename(executable).casefold() not in {"python.exe", "pythonw.exe"}:
+        return False
+    if not _same_windows_path(launcher.executable, executable):
+        return False
+    if launcher.command_line != expected_command:
+        return False
+    if child.pid == launcher.pid or child.parent_pid != launcher.pid:
+        return False
+    if ntpath.basename(child.executable).casefold() != ntpath.basename(executable).casefold():
+        return False
+    expected_tail = " " + subprocess.list2cmdline(config.arguments)
+    return (
+        child.command_line.endswith(expected_tail)
+        and _started_not_before(child, launcher)
     )
 
 
@@ -164,11 +215,26 @@ def matches_owned_process(
 ) -> bool:
     """Every value must agree. PID equality alone is not sufficient."""
     try:
-        expected = expected_receipt(settings, process)
+        expected = expected_receipt(
+            settings, process, launcher_identity=receipt.launcher_identity,
+        )
     except (ValueError, OSError):
         return False
+    if receipt.schema_version not in {1, 2}:
+        return False
+    if receipt.schema_version == 1:
+        execution_verified = (
+            receipt.launcher_identity is None
+            and _same_windows_path(process.executable, expected.executable)
+            and process.command_line == expected.expected_command_line
+        )
+    else:
+        execution_verified = (
+            receipt.launcher_identity is not None
+            and verified_launcher_child(settings, receipt.launcher_identity, process)
+        )
     return (
-        receipt.schema_version == 1
+        execution_verified
         and receipt.host == expected.host
         and receipt.node_id == expected.node_id
         and receipt.port == expected.port
@@ -176,6 +242,4 @@ def matches_owned_process(
         and _same_windows_path(receipt.working_directory, expected.working_directory)
         and receipt.expected_command_line == expected.expected_command_line
         and receipt.identity == process
-        and _same_windows_path(process.executable, expected.executable)
-        and process.command_line == expected.expected_command_line
     )
