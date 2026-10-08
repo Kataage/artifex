@@ -10,6 +10,7 @@ import pytest
 from artifex.characters import CharacterRegistry
 from artifex.config.models import (
     ArtifexSettings,
+    DiscordConfig,
     QualificationConfig,
     RenderNodeConfig,
     RenderNodesConfig,
@@ -17,6 +18,9 @@ from artifex.config.models import (
 )
 from artifex.db import Database
 from artifex.db.models import AgentEventRow, GenerationAttemptRow, PackRow, SceneRow
+from artifex.discord.audit import DiscordQualificationAudit
+from artifex.discord.models import CommandResponse, OperatorContext
+from artifex.telemetry import TelemetryRepository
 from artifex.domain import (
     CharacterProfile,
     LoRAPolicy,
@@ -747,6 +751,123 @@ def test_archive_stage_rejects_tampered_manifest(tmp_path: Path) -> None:
                 "reproduction_verified": True,
                 "hash_match": True,
             },
+        )
+    database.dispose()
+
+
+def test_discord_qualification_requires_real_delivered_interactions(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    settings.discord = DiscordConfig(
+        enabled=True, guild_id=123, channel_id=456, allowed_user_ids=(789,),
+    )
+    session = service.start(_doctor())
+    audit = DiscordQualificationAudit(settings.discord, TelemetryRepository(database))
+
+    # Supplying historical manual assertions is never proof.
+    with pytest.raises(ValueError, match="manually supplied claims"):
+        service.record(
+            session.session_id,
+            QualificationStage.DISCORD_CONTROLS,
+            status=QualificationStatus.PASS,
+            details={"verified_commands": ["status", "pause", "resume", "approve", "reject", "retry"], "fake": True},
+        )
+    with pytest.raises(ValueError, match="lacks delivered authorized interactions"):
+        service.record(
+            session.session_id,
+            QualificationStage.DISCORD_CONTROLS,
+            status=QualificationStatus.PASS,
+        )
+
+    commands = ("status", "pause", "resume", "approve", "reject", "retry")
+    for index, command in enumerate(commands, start=1):
+        message = (
+            "Artifex paused." if command == "pause" else
+            "Artifex resumed." if command == "resume" else "Operation succeeded."
+        )
+        assert audit.record_completed(
+            command=command,
+            response=CommandResponse(ok=True, message=message),
+            operator=OperatorContext(user_id=789),
+            interaction_id=1000 + index,
+            guild_id=123, channel_id=456,
+        )
+    recorded = service.record(
+        session.session_id,
+        QualificationStage.DISCORD_CONTROLS,
+        status=QualificationStatus.PASS,
+    )
+    evidence = recorded.stage(QualificationStage.DISCORD_CONTROLS)
+    assert evidence.details["verified_commands"] == sorted(commands)
+    assert len(evidence.details["observed_interactions"]) == 6
+    assert len({x["event_id"] for x in evidence.details["observed_interactions"]}) == 6
+
+    # Revalidation re-queries the DB, not the supplied command strings.
+    command_record = evidence.details["observed_interactions"][0]
+    with database.session() as db_session:
+        row = db_session.get(AgentEventRow, command_record["event_id"])
+        assert row is not None
+        row.payload_json = {**row.payload_json, "channel_id": 999}
+    verified = service.verify(session.session_id)
+    assert not verified["ready"]
+    assert any("discord_controls" in item for item in verified["issues"])
+    database.dispose()
+
+
+def test_discord_qualification_filters_invalid_or_reused_interactions(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    settings.discord = DiscordConfig(
+        enabled=True, guild_id=123, channel_id=456,
+        allowed_user_ids=(789,), allowed_role_ids=(222,),
+    )
+    session = service.start(_doctor())
+    audit = DiscordQualificationAudit(settings.discord, TelemetryRepository(database))
+
+    assert not audit.record_completed(
+        command="pause", response=CommandResponse(ok=True, message="Artifex is already paused."),
+        operator=OperatorContext(user_id=789), interaction_id=1,
+        guild_id=123, channel_id=456,
+    )
+    assert not audit.record_completed(
+        command="pause", response=CommandResponse(ok=False, message="Failed"),
+        operator=OperatorContext(user_id=789), interaction_id=2,
+        guild_id=123, channel_id=456,
+    )
+    assert not audit.record_completed(
+        command="status", response=CommandResponse(ok=True, message="OK"),
+        operator=OperatorContext(user_id=789), interaction_id=3,
+        guild_id=123, channel_id=999,
+    )
+    assert not audit.record_completed(
+        command="status", response=CommandResponse(ok=True, message="OK"),
+        operator=OperatorContext(user_id=999), interaction_id=4,
+        guild_id=123, channel_id=456,
+    )
+    assert audit.record_completed(
+        command="status", response=CommandResponse(ok=True, message="OK"),
+        operator=OperatorContext(user_id=999, role_ids=(222,)), interaction_id=5,
+        guild_id=123, channel_id=456,
+    )
+    # Reusing the same Discord interaction is not six distinct controls.
+    for command in ("pause", "resume", "approve", "reject", "retry"):
+        assert audit.record_completed(
+            command=command,
+            response=CommandResponse(
+                ok=True,
+                message=("Artifex paused." if command == "pause" else
+                         "Artifex resumed." if command == "resume" else "OK"),
+            ),
+            operator=OperatorContext(user_id=789), interaction_id=5,
+            guild_id=123, channel_id=456,
+        )
+    with pytest.raises(ValueError, match="lacks delivered authorized interactions"):
+        service.record(
+            session.session_id,
+            QualificationStage.DISCORD_CONTROLS,
+            status=QualificationStatus.PASS,
         )
     database.dispose()
 
