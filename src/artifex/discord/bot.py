@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 
 from artifex.config.models import DiscordConfig
+from artifex.discord.audit import DiscordQualificationAudit
 from artifex.discord.models import (
     CommandResponse,
     Notification,
@@ -35,10 +36,12 @@ class ReviewView(discord.ui.View):
         self,
         router: DiscordCommandRouter,
         review_id: str,
+        audit: DiscordQualificationAudit | None = None,
     ) -> None:
         super().__init__(timeout=None)
         self._router = router
         self._review_id = review_id
+        self._audit = audit
 
     @staticmethod
     def _context(interaction: discord.Interaction) -> OperatorContext:
@@ -53,12 +56,22 @@ class ReviewView(discord.ui.View):
         interaction: discord.Interaction,
         command: str,
     ) -> None:
+        operator = self._context(interaction)
         response = self._router.route(
-            self._context(interaction),
+            operator,
             command,
             (self._review_id,),
         )
         await _respond(interaction, response)
+        if self._audit is not None:
+            self._audit.record_completed(
+                command=command,
+                response=response,
+                operator=operator,
+                interaction_id=interaction.id,
+                guild_id=interaction.guild_id,
+                channel_id=interaction.channel_id,
+            )
 
     @discord.ui.button(
         label="Approve",
@@ -146,6 +159,7 @@ class ArtifexDiscordClient(discord.Client):
         config: DiscordConfig,
         router: DiscordCommandRouter,
         summary: DailySummaryBuilder,
+        audit: DiscordQualificationAudit | None = None,
     ) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
@@ -153,6 +167,7 @@ class ArtifexDiscordClient(discord.Client):
         self._config = config
         self._router = router
         self._summary = summary
+        self._audit = audit
         self._notifications = NotificationPolicy(config)
         self._last_summary_date: str | None = None
         self._summary_task: asyncio.Task[None] | None = None
@@ -195,7 +210,7 @@ class ArtifexDiscordClient(discord.Client):
             notification.kind is NotificationKind.REVIEW
             and notification.review_id is not None
         ):
-            view = ReviewView(self._router, notification.review_id)
+            view = ReviewView(self._router, notification.review_id, self._audit)
         if view is None:
             await channel.send(message)
         else:
@@ -225,8 +240,18 @@ class ArtifexDiscordClient(discord.Client):
         name: str,
         *args: str,
     ) -> None:
-        response = self._router.route(self._context(interaction), name, tuple(args))
+        operator = self._context(interaction)
+        response = self._router.route(operator, name, tuple(args))
         await _respond(interaction, response)
+        if self._audit is not None:
+            self._audit.record_completed(
+                command=name,
+                response=response,
+                operator=operator,
+                interaction_id=interaction.id,
+                guild_id=interaction.guild_id,
+                channel_id=interaction.channel_id,
+            )
 
     def _register_commands(self) -> None:
         @self._group.command(name="status", description="Show daemon and inventory status.")
