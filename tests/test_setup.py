@@ -50,6 +50,31 @@ def test_configure_two_pc_probes_comfy_and_writes_minimal_overrides(
     client.close()
 
 
+def test_configure_two_pc_retry_reuses_identical_config(tmp_path: Path) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"system": {}, "devices": []})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    output = tmp_path / "local.yaml"
+    settings = ArtifexSettings()
+    first = configure_two_pc(
+        settings,
+        comfyui_base_url="http://render.test:8188",
+        output_path=output,
+        client=client,
+    )
+    initial_bytes = output.read_bytes()
+    second = configure_two_pc(
+        settings,
+        comfyui_base_url="http://render.test:8188",
+        output_path=output,
+        client=client,
+    )
+    assert first == second
+    assert output.read_bytes() == initial_bytes
+    client.close()
+
+
 def test_configure_two_pc_refuses_to_replace_config_without_force(
     tmp_path: Path,
 ) -> None:
