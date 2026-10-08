@@ -24,6 +24,7 @@ from artifex.comfy.models import (
     WorkflowRequirements,
     WorkflowRequirementStatus,
 )
+from artifex.comfy.admission import ComfySubmissionFence
 from artifex.comfy.templates import WorkflowTemplateLike
 from artifex.config.models import ComfyUiConfig
 
@@ -36,6 +37,7 @@ class ComfyUIClient:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._config = config
+        self._submission_fence = ComfySubmissionFence(config.submission_fence_path)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             base_url=config.base_url.rstrip("/"),
@@ -78,7 +80,10 @@ class ComfyUIClient:
         if client_id is not None:
             payload["client_id"] = client_id
 
-        body = await self._request_json("POST", "/prompt", json=payload)
+        # The lock covers the COMPLETE submit, including HTTP retries. An
+        # administrator's seal cannot overtake an already-started /prompt.
+        async with self._submission_fence.admit():
+            body = await self._request_json("POST", "/prompt", json=payload)
 
         raw_error = body.get("error")
         node_errors = body.get("node_errors")
