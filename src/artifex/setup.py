@@ -145,11 +145,11 @@ def configure_two_pc(
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(target.suffix + ".tmp")
         temporary.write_text(
-        yaml.safe_dump(
-            payload,
-            allow_unicode=True,
-            sort_keys=False,
-            default_flow_style=False,
+            yaml.safe_dump(
+                payload,
+                allow_unicode=True,
+                sort_keys=False,
+                default_flow_style=False,
             ),
             encoding="utf-8",
         )
