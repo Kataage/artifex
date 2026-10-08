@@ -78,6 +78,7 @@ from artifex.qualification.archive_reproduction import (
     file_sha256,
     reproduce_archived_attempt,
 )
+from artifex.qualification.collector import QualificationEvidenceCollector
 from artifex.qualification.soak_observer import (
     SoakSample,
     observe_soak,
@@ -2195,6 +2196,39 @@ def qualify_stages(
         return
     for index, stage in enumerate(values, start=1):
         typer.echo(f"{index}. {stage}")
+
+
+@qualify_app.command("collect")
+def qualify_collect(
+    session_id: Annotated[
+        str, typer.Argument(help="Existing, ready qualification session ID."),
+    ],
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply",
+            help="Write only verified stage PASS records; default is read-only preview.",
+        ),
+    ] = False,
+    max_packs: Annotated[
+        int, typer.Option("--max-packs", min=1, max=1000),
+    ] = 250,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Collect post-session completed Packs and real Discord proof; no GPU work."""
+    core = build_core(_settings(config))
+    try:
+        service = _qualification_service(core)
+        report = QualificationEvidenceCollector(
+            service, core.database
+        ).collect(session_id, apply=apply, max_packs=max_packs)
+        _print_payload(report, as_json=json_output)
+    except (KeyError, OSError, TypeError, ValueError, RuntimeError) as exc:
+        typer.echo(f"qualify collect error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
 
 
 @qualify_app.command("record")
