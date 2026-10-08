@@ -56,9 +56,31 @@ def _mock_supervisor(folder: Path, nonce: str, lifetime: float) -> None:
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         shell=False,
     )
+    # On Windows a venv python.exe can be a launcher which spawns another
+    # python.exe. Popen.pid may therefore identify the launcher, not the
+    # process executing our child code. Record the PID the child itself emits.
+    ready_deadline = time.monotonic() + min(12.0, lifetime)
+    actual_child_pid: int | None = None
+    while time.monotonic() < ready_deadline:
+        heartbeat = _read_json(folder / "heartbeat.json")
+        if (
+            heartbeat is not None and heartbeat.get("nonce") == nonce
+            and isinstance(heartbeat.get("pid"), int)
+            and heartbeat["pid"] > 0
+        ):
+            actual_child_pid = heartbeat["pid"]
+            break
+        if child.poll() is not None:
+            raise RuntimeError("Mock child launcher exited before reporting its PID")
+        time.sleep(0.1)
+    if actual_child_pid is None:
+        raise TimeoutError("Mock child did not report its execution PID")
     _atomic_json(
         folder / "supervisor.json",
-        {"nonce": nonce, "supervisor_pid": os.getpid(), "child_pid": child.pid},
+        {
+            "nonce": nonce, "supervisor_pid": os.getpid(),
+            "child_pid": actual_child_pid, "child_launcher_pid": child.pid,
+        },
     )
     deadline = time.monotonic() + lifetime
     while time.monotonic() < deadline and not (folder / "release").exists():
