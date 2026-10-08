@@ -15,6 +15,7 @@ from artifex.comfy.dependency_drafter import draft_missing_node_manifest
 from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
 from artifex.comfy.isolated_install import install_isolated_comfy
+from artifex.comfy.model_drafter import draft_hf_models
 from artifex.comfy.workflow_audit import audit_workflows
 from artifex.config import load_settings
 from artifex.config.models import ArtifexSettings
@@ -535,6 +536,42 @@ def onboard_deps_draft(
             raise typer.Exit(code=1)
     except (FileExistsError, OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
         typer.echo(f"onboard deps-draft error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@onboard_app.command("models-draft")
+def onboard_models_draft(
+    config: ConfigOption = None,
+    repository: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--repo", help="Trusted Hugging Face owner/repository (repeatable; no file-name guessing).",
+        ),
+    ] = None,
+    output: Annotated[
+        Path, typer.Option("--output", help="Create new SHA-256-pinned model manifest JSON."),
+    ] = Path("config/generated-models.json"),
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Check exact missing model names against shortlisted HF source repositories."""
+    if output.exists() or output.is_symlink():
+        typer.echo(f"onboard models-draft error: refusing to overwrite {output}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        audit = asyncio.run(audit_workflows(_settings(config)))
+        draft = draft_hf_models(audit, repositories=tuple(repository or ()))
+        payload = draft.model_dump(mode="json")
+        payload["output"] = None
+        if draft.manifest.artifacts:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with output.open("x", encoding="utf-8") as handle:
+                handle.write(draft.manifest.model_dump_json(indent=2) + "\n")
+            payload["output"] = str(output)
+        _print_payload(payload, as_json=json_output)
+        if not draft.manifest.artifacts:
+            raise typer.Exit(code=1)
+    except (FileExistsError, OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard models-draft error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
