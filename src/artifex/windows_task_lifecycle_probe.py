@@ -13,7 +13,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from artifex.windows_tasks import _literal, _require_windows, _run_powershell
 
@@ -125,7 +125,7 @@ $info = Get-ScheduledTaskInfo -TaskName {_literal(name)} -TaskPath '\\' -ErrorAc
   last_run_time=[string]$info.LastRunTime
 }} | ConvertTo-Json -Compress
 """
-    return json.loads(_run_powershell(script))
+    return cast(dict[str, Any], json.loads(_run_powershell(script)))
 
 
 def _identity(pid: int, nonce: str) -> dict[str, Any] | None:
