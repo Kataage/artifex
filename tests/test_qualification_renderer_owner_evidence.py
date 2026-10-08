@@ -313,3 +313,43 @@ def test_qualification_service_persists_owner_snapshot_without_stage_pass(
     ) is None
     service.collect_renderer_owner_observation("trial-01")
     assert len(service.load("trial-01").renderer_owner_observations) == 2
+
+
+
+def test_owner_endpoint_requires_token_even_when_public_attestation_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = ArtifexSettings()
+    settings.render_agent.node_id = "gpu-b"
+    settings.render_agent.bind_host = "127.0.0.1"
+    settings.render_agent.require_token = False
+    settings.render_agent.token_env = None
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        settings.render_agent.port = sock.getsockname()[1]
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=serve_attestation,
+        args=(settings,),
+        kwargs={"stop_event": stop},
+        daemon=True,
+    )
+    thread.start()
+    base = f"http://127.0.0.1:{settings.render_agent.port}"
+    try:
+        with httpx.Client(trust_env=False, timeout=3) as http:
+            for _ in range(30):
+                try:
+                    if http.get(base + "/health").status_code == 200:
+                        break
+                except httpx.ConnectError:
+                    time.sleep(0.1)
+            else:
+                pytest.fail("Test attestation did not start")
+            public = http.get(base + "/v1/attestation")
+            assert public.status_code == 200
+            protected = http.get(base + "/v1/owner-audit")
+            assert protected.status_code == 401
+    finally:
+        stop.set()
+        thread.join(timeout=4)
