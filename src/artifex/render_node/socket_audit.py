@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -17,7 +16,7 @@ _CONNECTION_SCRIPT = (
     "$ErrorActionPreference='Stop'; "
     "$c=@(Get-NetTCPConnection -ErrorAction Stop | "
     "Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,"
-    "State,OwningProcess); "
+    "OwningProcess,@{Name='State';Expression={$_.State.ToString()}}); "
     "ConvertTo-Json -InputObject $c -Compress -Depth 3"
 )
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
