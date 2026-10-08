@@ -47,6 +47,11 @@ def write_override(
     if update and force:
         raise ValueError("--update and --force are mutually exclusive")
     target = path.expanduser().resolve(strict=False)
+    if update and not target.is_file():
+        raise FileNotFoundError(
+            f"cannot update a missing configuration: {target}; "
+            "run without --update to create it"
+        )
     payload = dict(changes)
     if target.exists():
         existing = read_override(target)
