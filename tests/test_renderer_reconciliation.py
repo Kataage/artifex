@@ -19,7 +19,7 @@ from artifex.comfy.workflow_audit import (
     WorkflowAudit,
     WorkflowAuditEntry,
 )
-from artifex.config.models import ArtifexSettings
+from artifex.config.models import ArtifexSettings, RenderNodeConfig
 
 
 class FakeComfy:
@@ -185,10 +185,9 @@ async def test_renderer_reconciliation_rejects_mismatched_host_and_invalid_polli
     bad = ArtifexSettings()
     bad.render_nodes.primary = "remote"
     bad.render_nodes.nodes = {
-        "remote": {
-            "type": "comfyui", "enabled": True,
-            "base_url": "http://pc-b.example:8188",
-        }
+        "remote": RenderNodeConfig(
+            base_url="http://pc-b.example:8188",
+        )
     }
     with pytest.raises(ValueError, match="one renderer-local"):
         await reconcile_renderer(bad, client=FakeComfy([]))
