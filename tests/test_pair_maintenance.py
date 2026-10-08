@@ -362,9 +362,11 @@ def test_pair_cli_help_and_missing_config_fail_closed(tmp_path: Path) -> None:
     runner = CliRunner()
     help_result = runner.invoke(app, ["maintenance", "pair", "--help"])
     assert help_result.exit_code == 0, help_result.output
-    assert "--release" in help_result.output
+    # Rich's Windows ANSI/help wrapping is not a stable text contract.
+    # Prove --release is actually parsed using the expected fail-closed path.
     missing = runner.invoke(
-        app, ["maintenance", "pair", "--config", str(tmp_path / "no.yaml")],
+        app,
+        ["maintenance", "pair", "--release", "--config", str(tmp_path / "no.yaml")],
     )
     assert missing.exit_code == 1
     assert "existing non-symlink config" in missing.output
