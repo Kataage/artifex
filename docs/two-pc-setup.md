@@ -81,6 +81,60 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Atomic Artifex ComfyUI submission fence on PC-A
+
+Artifex's controller now shares a durable **admission lock** across all
+`ComfyUIClient.submit()` invocations. Its default SQLite barrier lives at
+`data/comfy-submission-fence.sqlite3`, and can be moved by setting
+`comfyui.submission_fence_path` in the controller's YAML. The daemon, CLI
+commands and any other Artifex controller processes **must use the same
+filesystem path** (including working directory) or they will not share this
+barrier. The file is separate from the main state database, so a slow ComfyUI
+submission does not lock unrelated Artifex DB updates.
+
+After the current Pack completes, use this PC-A command for the **actual
+atomic** Artifex admission change:
+
+```powershell
+# Read-only inspection; does not pause or change anything
+uv run artifex maintenance fence --config .\\config\\local.yaml
+
+# Pause controller production, observe DB + ComfyUI queue, double-check both
+# under the same lock as every Artifex /prompt, then persist a closed fence
+uv run artifex maintenance fence --config .\\config\\local.yaml `
+  --apply --wait-seconds 600 --poll-seconds 5
+```
+
+The final check happens **after all previously started Artifex /prompt HTTP
+requests finish**, while no *new Artifex requests* can pass the fence's
+cross-process SQLite write lock. The sealed state persists over controller
+restarts, so future submissions fail before any network POST. An active Pack,
+nonterminal attempt, missing queue schema, offline ComfyUI or a late-appearing
+prompt prevents sealing. A failed seal leaves the existing operator pause in
+effect and reports why. It never cancels a GPU job.
+
+Once the **actual** renderer and model/workflow checks succeed after any
+maintenance, reopen admissions explicitly:
+
+```powershell
+uv run artifex maintenance fence --config .\\config\\local.yaml `
+  --apply --release
+uv run artifex resume --config .\\config\\local.yaml
+```
+
+Releasing admission does **not** resume the controller automatically and
+requires a paused state; always verify renderer recovery before executing
+either command.
+
+**Not an external network firewall:** the fence protects Artifex clients
+sharing its PC-A database path, not independent applications or personal
+ComfyUI clients that POST directly to PC-B. Consequently
+`external_comfyui_clients_fenced=false` and `restart_authorized=false`
+remain hard-coded regardless of observed idle state. Never use this tool as
+authorization to kill/restart an unowned or externally accessible ComfyUI.
+Full automatic zero-interruption restart requires routing or blocking all
+other writers to PC-B, plus owning the renderer child process.
+
 ## Controller-side maintenance drain — no interrupted GPU jobs
 
 A future coordinated restart must first stop new Artifex production, let the
