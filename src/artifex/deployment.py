@@ -146,8 +146,12 @@ async def _render_smoke(
     """
     if not settings.production.checkpoint:
         raise ValueError("production checkpoint must be configured for render smoke")
-    if settings.comfyui.output_mode != "api":
-        raise ValueError("two-PC render smoke requires comfyui.output_mode=api")
+    primary = settings.render_nodes.primary_node()
+    output_mode = (
+        primary[1].output_mode if primary is not None else settings.comfyui.output_mode
+    )
+    if output_mode != "api":
+        raise ValueError("two-PC render smoke requires API image transport")
 
     template_id = settings.comfyui.default_template
     template = WorkflowTemplateRegistry.with_packaged_templates().require(template_id)
