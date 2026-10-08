@@ -78,6 +78,17 @@ llm:
         revision: f01809e437fb3046ae9afd31d684556f9ae5dd46
         filename: Spark-X2.5-4B-Heretic-jp-Q8_0.gguf
         sha256: null
+  # Enable after choosing your local llama-server binary. External endpoints stay unmanaged.
+  server:
+    enabled: false
+    executable: llama-server
+    gpu_layers: auto
+    device: null
+    startup_timeout_seconds: 120
+    poll_seconds: 15
+    restart_limit: 3
+    restart_backoff_seconds: 5
+    log_path: data/logs/llama-server.log
   structured_output: json_schema
   temperature: 0.9
   timeout_seconds: 180
