@@ -457,7 +457,7 @@ class QualificationService:
                                 raise ValueError(
                                     f"render node is no longer configured: {asset.node_id}"
                                 )
-                            attestation = fetch_render_attestation(asset.node_id, node)
+                            attestation = fetch_render_attestation(asset.node_id, node, fresh=True)
                             remote_cache[asset.node_id] = attestation
                         candidates = {
                             item.label: item for item in attestation.assets
@@ -961,7 +961,7 @@ class QualificationService:
                 try:
                     attestation = remote_cache.get(node_id)
                     if attestation is None:
-                        attestation = fetch_render_attestation(node_id, primary[1])
+                        attestation = fetch_render_attestation(node_id, primary[1], fresh=True)
                         remote_cache[node_id] = attestation
                     if attestation.inventory_errors:
                         raise ValueError("render node inventory is incomplete")
@@ -1009,7 +1009,7 @@ class QualificationService:
             )
             return {}, errors
         try:
-            attestation = fetch_render_attestation(primary_id, primary_config)
+            attestation = fetch_render_attestation(primary_id, primary_config, fresh=True)
         except Exception as exc:  # noqa: BLE001
             errors[f"render_node:{primary_id}"] = str(exc)
             return {}, errors
