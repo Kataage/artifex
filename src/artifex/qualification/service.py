@@ -396,8 +396,17 @@ class QualificationService:
         self._write(updated)
         return updated
 
+    def require_collection_candidate(self, session: QualificationSession) -> None:
+        """Refuse to search/register on a stale, foreign or unready baseline."""
+        self._require_live_baseline(session)
+
     def require_soak_candidate(self, session: QualificationSession) -> None:
         """Reject invalid or stale baselines before starting an 8-hour run."""
+        self._require_live_baseline(session)
+        if session.stage(QualificationStage.OVERNIGHT_SOAK).status is QualificationStatus.PASS:
+            raise ValueError("overnight_soak already passed in this session")
+
+    def _require_live_baseline(self, session: QualificationSession) -> None:
         if not session.doctor_ready:
             raise ValueError("soak qualification requires a ready doctor baseline")
         if session.hostname != socket.gethostname():
@@ -407,8 +416,6 @@ class QualificationService:
             value is True for value in requirements.values()
         ):
             raise ValueError("soak qualification native requirements are not satisfied")
-        if session.stage(QualificationStage.OVERNIGHT_SOAK).status is QualificationStatus.PASS:
-            raise ValueError("overnight_soak already passed in this session")
         original = json.loads(json.dumps(session.configuration))
         current = self._configuration_snapshot()
         for snapshot in (original, current):
@@ -417,6 +424,23 @@ class QualificationService:
                 loras.pop("production_count", None)
         if original != current:
             raise ValueError("production configuration changed since qualification start")
+
+    def inspect_pack(self, pack_id: str) -> dict[str, object]:
+        """Read a finalized Pack, including verified manifest and attempt evidence."""
+        return self._pack_evidence(pack_id)
+
+    def validate_candidate(
+        self,
+        session: QualificationSession,
+        stage: QualificationStage,
+        pack_ids: tuple[str, ...],
+    ) -> None:
+        """Run the authoritative stage validator without persisting anything."""
+        if stage is QualificationStage.DOCTOR:
+            raise ValueError("doctor stage belongs to qualification start")
+        self._verify_stage(
+            stage, pack_ids, {}, since=session.created_at, session=session
+        )
 
     def verify(self, session_id: str) -> dict[str, object]:
         session = self.load(session_id)
