@@ -26,7 +26,6 @@ _FULL_SHA = re.compile(r"[0-9a-fA-F]{40}")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 _SPDX = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]{0,99}")
 _MAX_REPOS = 12
-_MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 _LICENSE_LIMIT = 1024 * 1024
 
 
@@ -142,7 +141,7 @@ def _license_at_commit(
     if not isinstance(content, str) or len(content) > (_LICENSE_LIMIT * 2):
         raise ValueError("GitHub license file is missing or oversized")
     try:
-        decoded = base64.b64decode(content, validate=False)
+        decoded = base64.b64decode("".join(content.split()), validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ValueError("GitHub license file content is not base64") from exc
     if not decoded or len(decoded) > _LICENSE_LIMIT:
@@ -183,6 +182,8 @@ def _archive_hash_and_verify(
     license_file = folder.joinpath(*PurePosixPath(expected_license_path).parts)
     if not license_file.is_file() or license_file.is_symlink():
         raise ValueError("GitHub-identified license is absent from pinned source ZIP")
+    if license_file.stat().st_size > _LICENSE_LIMIT:
+        raise ValueError("License in pinned archive exceeds maximum size")
     license_bytes = license_file.read_bytes()
     if license_bytes != expected_license_bytes:
         raise ValueError("License bytes differ between GitHub API and pinned ZIP")
