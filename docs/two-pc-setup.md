@@ -81,6 +81,38 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## PC-B exclusive supervisor process lease (Task Scheduler overlap safety)
+
+With the protected managed gateway enabled, the renderer supervisor now
+acquires an **OS-maintained nonblocking interprocess lock** before inspecting
+or starting ComfyUI. It keeps the lock through orphan reattachment and the
+entire monitoring lifecycle. A second Task Scheduler or manually started
+supervisor using the **same configured ownership receipt path** refuses
+startup rather than trying to adopt or launch another renderer.
+
+The lease file is created alongside
+`render_agent.comfyui_process.ownership_receipt_path` with the suffix
+`.supervisor.lock`. The file is **not** deleted on supervisor shutdown;
+its existence does not mean it is currently locked. Windows automatically
+releases the actual file lock when the owning supervisor process exits or
+crashes. The surviving original GPU child is not terminated, and a subsequent
+supervisor can acquire the lock and attempt the receipt-verified reattachment
+path. These rules do not require Docker, a paid service or an always-running
+lock server.
+
+**Configuration constraint:** all launch entries managing the same ComfyUI
+must resolve this receipt/lease path to the exact same local filesystem
+location. Do not configure separate working directories or receipt paths
+for simultaneous Task Scheduler and manual runs. Do **not** delete the lock
+file to "unlock" it; investigate the existing supervisor process instead.
+
+The lease protects only against competing Artifex supervisors. It cannot
+control other PC-B-local clients reaching `127.0.0.1:8188`, and it does
+not guarantee that Windows Task Scheduler itself leaves descendants running.
+That latter behavior, including stop/retry and Windows Job Objects, must be
+tested on the real two-PC Windows deployment; automatic live-child
+termination remains prohibited.
+
 ## Windows PC-B socket provenance and non-destructive supervision
 
 The PC-B render-node can inspect the **actual Windows TCP listener owner
