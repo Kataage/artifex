@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from artifex.application import CoreServices, build_application, build_core, build_doctor
 from artifex.characters import HololiveCatalog
+from artifex.comfy.dependency_drafter import draft_missing_node_manifest
 from artifex.comfy.dependency_installer import install_manifest, read_manifest
 from artifex.comfy.dependency_resolver import resolve_missing_dependencies
 from artifex.comfy.isolated_install import install_isolated_comfy
@@ -488,6 +489,53 @@ def onboard_deps_resolve(
         raise typer.Exit(code=1) from exc
     if not audit.ready:
         raise typer.Exit(code=1)
+
+
+@onboard_app.command("deps-draft")
+def onboard_deps_draft(
+    config: ConfigOption = None,
+    output: Annotated[
+        Path, typer.Option("--output", help="New output path for fully pinned node manifest."),
+    ] = Path("config/generated-dependencies.json"),
+    manager_commit: Annotated[
+        str | None,
+        typer.Option("--manager-commit", help="Optional full pinned ComfyUI-Manager commit."),
+    ] = None,
+    max_repositories: Annotated[
+        int, typer.Option("--max-repositories", min=1, max=12),
+    ] = 3,
+    max_archive_mib: Annotated[
+        int, typer.Option("--max-archive-mib", min=1, max=512),
+    ] = 128,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Audit, find unique providers, verify pinned ZIP/license, write install draft."""
+    if output.exists() or output.is_symlink():
+        typer.echo(f"onboard deps-draft error: refusing to overwrite {output}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        audit = asyncio.run(audit_workflows(_settings(config)))
+        resolution = resolve_missing_dependencies(
+            audit, manager_commit=manager_commit
+        )
+        draft = draft_missing_node_manifest(
+            resolution,
+            max_repositories=max_repositories,
+            max_archive_mib=max_archive_mib,
+        )
+        payload = draft.model_dump(mode="json")
+        payload["output"] = None
+        if draft.manifest.artifacts:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with output.open("x", encoding="utf-8") as handle:
+                handle.write(draft.manifest.model_dump_json(indent=2) + "\n")
+            payload["output"] = str(output)
+        _print_payload(payload, as_json=json_output)
+        if not draft.manifest.artifacts:
+            raise typer.Exit(code=1)
+    except (FileExistsError, OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(f"onboard deps-draft error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @onboard_app.command("deps-install")

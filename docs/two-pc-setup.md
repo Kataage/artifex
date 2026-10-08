@@ -81,6 +81,52 @@ ComfyUI tree can break custom nodes. Use an existing ComfyUI root with
 `onboard renderer` for now, rather than installing into or modifying
 the operator's current ComfyUI directory.
 
+## Automatically prepare a verified custom-node manifest draft
+
+Artifex can now turn **unambiguous missing custom-node provider candidates**
+into a prepared, checksum-pinned manifest without you collecting individual
+GitHub commit hashes or ZIP checksums by hand:
+
+```powershell
+uv run artifex onboard deps-draft `
+  --config .\\config\\local.yaml `
+  --output .\\config\\generated-dependencies.json `
+  --max-repositories 3 --json
+```
+
+This performs a read-only ComfyUI workflow audit, obtains ComfyUI-Manager's
+node-provider candidates from one immutable manager commit, and looks up
+each uniquely mapped provider's *actual GitHub default-branch commit*.
+It then checks GitHub's license at that exact commit, downloads its
+commit-pinned source ZIP **to a temporary folder** (never executing it),
+validates archive structure and safe paths, and verifies that the license
+file bytes in the archive match the pinned GitHub license response.
+It records the ZIP's actual SHA-256, byte size, fixed commit, SPDX license
+classification and immutable license URL in a manifest compatible with
+`onboard deps-install`. No source code is installed by this command.
+
+Candidates without a reliably recognized license identifier, matching
+license bytes, safe Python node archive or unambiguous owner are
+**excluded with a reason**. The command will not generate a misleading
+empty manifest when no safe candidate is available. Existing output
+files are not overwritten. Use `--manager-commit FULL_SHA` to pin a
+specific ComfyUI-Manager index. Limits on repository count and archive
+size bound network and disk usage.
+
+The generated manifest is an **installation proposal**, *not*
+automatic legal or security clearance. GitHub's SPDX classification
+does not replace reviewing the actual license conditions, and a
+published Python package can still contain malicious or incompatible
+code. The final installation still requires
+`onboard deps-install --apply --accept-licenses --allow-custom-code`
+on an Artifex-owned isolated ComfyUI environment and must be followed
+by a real ComfyUI restart and `workflow-audit`.
+
+Model weights are intentionally separate: Artifex cannot safely infer
+an authoritative checkpoint/VAE/LoRA download URL from a filename
+alone. Unknown models remain in the draft's unresolved report rather
+than causing automatic downloads from unverified third-party links.
+
 ## Resolve missing node packages, then install reviewed pinned dependencies
 
 `workflow-audit` identifies what the running ComfyUI is missing.
