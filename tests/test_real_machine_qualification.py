@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import shutil
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -34,14 +34,14 @@ from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorCheck, DoctorReport
 from artifex.operations.health import ComponentHealth, ComponentState, HealthReport
 from artifex.production import GeneratedBatch
-from artifex.qualification.archive_reproduction import (
-    file_sha256,
-    reproduce_archived_attempt,
-)
 from artifex.qualification import (
     QualificationService,
     QualificationStage,
     QualificationStatus,
+)
+from artifex.qualification.archive_reproduction import (
+    file_sha256,
+    reproduce_archived_attempt,
 )
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
