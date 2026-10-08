@@ -68,6 +68,10 @@ from artifex.performance import (
     load_manual_performance,
 )
 from artifex.policy import PolicyDecisionRepository
+from artifex.qualification.archive_reproduction import (
+    file_sha256,
+    reproduce_archived_attempt,
+)
 from artifex.qualification import (
     REQUIRED_STAGES,
     QualificationService,
@@ -1830,6 +1834,92 @@ def _qualification_details(values: list[str] | None) -> dict[str, object]:
             value = raw_value
         result[key] = value
     return result
+
+
+@qualify_app.command("archive-reproduce")
+def qualify_archive_reproduce(
+    session_id: Annotated[str, typer.Argument(help="Existing qualification session ID.")],
+    pack_id: Annotated[str, typer.Argument(help="Finalized archived Pack to replay.")],
+    config: ConfigOption = None,
+    confirm_render: Annotated[
+        bool,
+        typer.Option("--confirm-render", help="Explicit authorization for one real GPU replay."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Re-run one archived selected attempt and qualify only exact output bytes."""
+    if not confirm_render:
+        typer.echo("qualify archive-reproduce requires --confirm-render", err=True)
+        raise typer.Exit(code=1)
+    config = config or Path("config/local.yaml")
+    if not config.is_file():
+        typer.echo(f"qualify archive-reproduce missing config: {config}", err=True)
+        raise typer.Exit(code=1)
+    core = build_core(_settings(config))
+    try:
+        service = _qualification_service(core)
+        session = service.load(session_id)
+        if not session.doctor_ready or session.hostname != socket.gethostname():
+            raise ValueError("archive replay needs a ready local qualification session")
+        if session.stage(QualificationStage.ARCHIVE_REPRODUCTION).status is QualificationStatus.PASS:
+            raise ValueError("archive reproduction already passed for this session")
+        original_configuration = dict(session.configuration)
+        current_configuration = service._configuration_snapshot()
+        for snapshot in (original_configuration, current_configuration):
+            loras = snapshot.get("loras")
+            if isinstance(loras, dict):
+                loras = dict(loras)
+                loras.pop("production_count", None)
+                snapshot["loras"] = loras
+        if original_configuration != current_configuration:
+            raise ValueError("production configuration changed since qualification began")
+
+        from artifex.comfy import WorkflowTemplateRegistry
+        from artifex.production import ComfyGenerationBackend
+
+        backend = ComfyGenerationBackend(
+            core.comfy, WorkflowTemplateRegistry.with_packaged_templates(),
+            core.settings.production, core.settings.comfyui,
+        )
+        evidence, proof = asyncio.run(
+            reproduce_archived_attempt(
+                core.settings, core.database, backend,
+                session_id=session_id, pack_id=pack_id,
+                output_root=core.settings.qualification.evidence_dir.expanduser().resolve(),
+            )
+        )
+        payload: dict[str, object] = {
+            "session_id": session_id, "pack_id": pack_id,
+            "proof_path": str(evidence),
+            "exact_match": proof.exact_match,
+            "original_sha256": proof.original_sha256,
+            "reproduced_sha256": proof.reproduced_sha256,
+            "replay_prompt_id": proof.replay_prompt_id,
+            "archive_reproduction": "fail",
+            "production_qualified": False,
+        }
+        if proof.exact_match:
+            service.record(
+                session_id, QualificationStage.ARCHIVE_REPRODUCTION,
+                status=QualificationStatus.PASS,
+                pack_ids=(pack_id,),
+                details={
+                    "evidence_path": str(evidence),
+                    "evidence_sha256": file_sha256(evidence),
+                },
+            )
+            payload["archive_reproduction"] = "pass"
+        _print_payload(payload, as_json=json_output)
+        if not proof.exact_match:
+            raise typer.Exit(code=1)
+    except (OSError, ValueError, KeyError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(
+            f"qualify archive-reproduce error: {exc} (session={session_id}, pack={pack_id})",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(core.close())
 
 
 @qualify_app.command("soak-run")
