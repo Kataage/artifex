@@ -35,6 +35,8 @@ jobs:
       - run: uv run python -c "import artifex; print('Artifex import OK')"
       - run: uv run artifex --help
       - run: uv run artifex startup --help
+      - run: uv run artifex render-node socket-audit --help
+      - run: uv run pytest -q tests/test_renderer_socket_audit.py
       - run: uv run artifex render-node serve --help
       - run: uv run pytest -q tests/test_renderer_gateway.py tests/test_submission_fence.py tests/test_comfy_client.py
       - run: uv run artifex maintenance pair --help
