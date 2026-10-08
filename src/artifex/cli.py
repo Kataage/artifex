@@ -68,15 +68,15 @@ from artifex.performance import (
     load_manual_performance,
 )
 from artifex.policy import PolicyDecisionRepository
-from artifex.qualification.archive_reproduction import (
-    file_sha256,
-    reproduce_archived_attempt,
-)
 from artifex.qualification import (
     REQUIRED_STAGES,
     QualificationService,
     QualificationStage,
     QualificationStatus,
+)
+from artifex.qualification.archive_reproduction import (
+    file_sha256,
+    reproduce_archived_attempt,
 )
 from artifex.qualification.soak_observer import (
     SoakSample,
