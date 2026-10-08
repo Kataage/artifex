@@ -141,9 +141,11 @@ def test_huggingface_checksum_receipt_prevents_corrupt_reuse(tmp_path: Path) -> 
         reused = bootstrap_llm(config, client=client)
     assert reused.downloaded is False
     (tmp_path / "model.gguf").write_bytes(b"tampered")
-    with httpx.Client(transport=httpx.MockTransport(unexpected)) as client:
-        with pytest.raises(ValueError, match="SHA-256"):
-            bootstrap_llm(config, client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(unexpected)) as client,
+        pytest.raises(ValueError, match="SHA-256"),
+    ):
+        bootstrap_llm(config, client=client)
 
 
 def test_url_download_must_have_pinned_checksum(tmp_path: Path) -> None:
