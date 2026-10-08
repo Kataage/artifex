@@ -12,6 +12,13 @@ import httpx
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.attestation import serve_attestation
 from artifex.render_node.gateway import make_gateway_server, serve_gateway
+from artifex.render_node.process_identity import (
+    ComfyOwnershipReceipt,
+    ComfyReceiptStore,
+    expected_receipt,
+    matches_owned_process,
+    windows_process_identity,
+)
 from artifex.render_node.socket_audit import audit_renderer_sockets
 
 
@@ -57,6 +64,11 @@ class ManagedComfyUI:
         self._log: IO[bytes] | None = None
         self._external = False
         self._restarts = 0
+        self._adopted: ComfyOwnershipReceipt | None = None
+        self._current_receipt: ComfyOwnershipReceipt | None = None
+        self._receipts = ComfyReceiptStore(
+            settings.render_agent.comfyui_process.ownership_receipt_path
+        )
 
     def _healthy(self) -> bool:
         owns_client = self._client is None
@@ -128,6 +140,7 @@ class ManagedComfyUI:
                 )
             if self._healthy():
                 self._verify_owned_listener()
+                self._record_owned_process()
                 return
             stop.wait(min(1.0, max(0.01, deadline - monotonic())))
         if stop.is_set():
@@ -137,18 +150,9 @@ class ManagedComfyUI:
             f"inspect {config.log_path}"
         )
 
-    def _verify_owned_listener(self) -> None:
-        if not self.settings.render_agent.gateway.enabled:
-            return
-        process = self.process
-        if process is None or process.poll() is not None:
-            raise RuntimeError("Protected ComfyUI child is no longer alive")
-        # The matching Popen.pid is evidence of the actual Windows TCP
-        # listener owner, not merely a checked --listen command line.
+    def _verify_listener_for(self, pid: int) -> None:
         report = audit_renderer_sockets(
-            self.settings,
-            owned_pid=process.pid,
-            gateway_pid=os.getpid(),
+            self.settings, owned_pid=pid, gateway_pid=os.getpid(),
         )
         if report.status != "owned_loopback_observed":
             raise RuntimeError(
@@ -157,6 +161,80 @@ class ManagedComfyUI:
                 f"direct_clients={report.unexpected_client_pids}; "
                 "refusing automatic process shutdown or restart"
             )
+
+    def _verify_owned_listener(self) -> None:
+        if not self.settings.render_agent.gateway.enabled:
+            return
+        process = self.process
+        if process is None or process.poll() is not None:
+            raise RuntimeError("Protected ComfyUI child is no longer alive")
+        self._verify_listener_for(process.pid)
+
+    def _require_free_upstream(self) -> None:
+        # An unresponsive foreign process can still hold the port. Checking
+        # only HTTP health does not establish that it is free for a new child.
+        audit = audit_renderer_sockets(self.settings)
+        if audit.status != "missing_listener":
+            raise RuntimeError(
+                "Protected ComfyUI upstream is not demonstrably unoccupied: "
+                f"{audit.status}; refusing a competing child"
+            )
+
+    def _record_owned_process(self) -> None:
+        if not self.settings.render_agent.gateway.enabled:
+            return
+        process = self.process
+        if process is None or process.poll() is not None:
+            raise RuntimeError("Cannot record an exited ComfyUI process")
+        identity = windows_process_identity(process.pid)
+        if identity is None:
+            raise RuntimeError("Cannot prove ComfyUI process start time")
+        receipt = expected_receipt(self.settings, identity)
+        if not matches_owned_process(self.settings, receipt, identity):
+            raise RuntimeError("Launched ComfyUI executable/command line mismatch")
+        self._receipts.save(receipt)
+        self._current_receipt = receipt
+
+    def _try_reattach(self) -> bool:
+        """Adopt only the same Windows child that a past Artifex launched."""
+        receipt = self._receipts.load()
+        if receipt is None:
+            return False
+        observed = windows_process_identity(receipt.identity.pid)
+        if observed is None:
+            # Natural child death, with the TCP port demonstrably free, lets
+            # the new supervisor safely launch a replacement.
+            if self._healthy():
+                raise RuntimeError("Foreign ComfyUI owns the old upstream port")
+            self._require_free_upstream()
+            self._receipts.retire(receipt)
+            return False
+        if not matches_owned_process(self.settings, receipt, observed):
+            raise RuntimeError(
+                "ComfyUI ownership receipt no longer matches the process; "
+                "PID reuse, launch changes or foreign ownership suspected"
+            )
+        self._verify_listener_for(receipt.identity.pid)
+        if not self._healthy():
+            raise RuntimeError(
+                "Verified original ComfyUI child remains alive but unhealthy; "
+                "refusing to interrupt GPU work"
+            )
+        self._adopted = receipt
+        self._current_receipt = receipt
+        return True
+
+    def _retire_exited_receipt(self) -> None:
+        receipt = self._current_receipt
+        if not self.settings.render_agent.gateway.enabled or receipt is None:
+            return
+        if windows_process_identity(receipt.identity.pid) is not None:
+            raise RuntimeError(
+                "Prior ComfyUI PID is still in use; refusing automatic replacement"
+            )
+        self._require_free_upstream()
+        self._receipts.retire(receipt)
+        self._current_receipt = None
 
     def start(self, stop: threading.Event) -> None:
         if not self.settings.render_agent.comfyui_process.enabled:
@@ -188,12 +266,16 @@ class ManagedComfyUI:
                     "Gateway-managed ComfyUI requires exactly one '--port PORT' "
                     "matching the local upstream URL"
                 )
-        if self._healthy():
-            if self.settings.render_agent.gateway.enabled:
+        if self.settings.render_agent.gateway.enabled:
+            if self._try_reattach():
+                return
+            if self._healthy():
                 raise RuntimeError(
-                    "Gateway refuses already-running external ComfyUI; "
-                    "Artifex cannot verify exclusive process ownership"
+                    "Gateway refuses already-running ComfyUI without a "
+                    "matching verified ownership receipt"
                 )
+            self._require_free_upstream()
+        elif self._healthy():
             self._external = True
             return
         try:
