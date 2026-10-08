@@ -4,7 +4,6 @@ import os
 import subprocess
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from typing import IO
 from urllib.parse import urlsplit
 
@@ -222,7 +221,7 @@ def serve_managed_renderer(settings: ArtifexSettings) -> None:
     def supervise() -> None:
         try:
             manager.watch(stop)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - relay monitor failure to main thread
             errors.append(exc)
             stop.set()
 
