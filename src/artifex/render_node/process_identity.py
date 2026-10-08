@@ -169,8 +169,8 @@ def expected_receipt(
 
 def _started_not_before(process: WindowsProcessIdentity, launcher: WindowsProcessIdentity) -> bool:
     try:
-        child_time = datetime.fromisoformat(process.started_utc.replace("Z", "+00:00"))
-        launch_time = datetime.fromisoformat(launcher.started_utc.replace("Z", "+00:00"))
+        child_time = datetime.fromisoformat(process.started_utc)
+        launch_time = datetime.fromisoformat(launcher.started_utc)
         return child_time >= launch_time
     except ValueError:
         return False
