@@ -1842,6 +1842,10 @@ def qualify_soak_observe(
     sample_seconds: Annotated[
         float, typer.Option("--sample-seconds", min=10, max=3600),
     ] = 300,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Bind observed evidence to a qualification session."),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
     """PC-A: observe live autonomous production and PC-B for hours, read-only."""
@@ -1853,9 +1857,21 @@ def qualify_soak_observe(
         typer.echo(f"qualify soak-observe error: refusing to overwrite {output}", err=True)
         raise typer.Exit(code=1)
     try:
+        settings = _settings(config)
+        if session_id is not None:
+            core = build_core(settings)
+            try:
+                session = _qualification_service(core).load(session_id)
+                if not session.doctor_ready:
+                    raise ValueError("qualification session has no ready doctor baseline")
+                if session.hostname != socket.gethostname():
+                    raise ValueError("qualification session is for a different controller")
+            finally:
+                asyncio.run(core.close())
         result = observe_soak(
-            _settings(config), output=output,
+            settings, output=output,
             duration_hours=hours, interval_seconds=sample_seconds,
+            qualification_session_id=session_id,
         )
         _print_payload(
             {"evidence_path": str(output), **result.model_dump(mode="json")},
