@@ -54,11 +54,11 @@ def _source(
 def _audit(*, second: bool = False, unknown: bool = False) -> WorkflowAudit:
     first = MissingWorkflowAsset(
         label="checkpoint", node_class="CheckpointLoaderSimple",
-        input_name="ckpt_name", requested="example.safetensors",
+        input_name="ckpt_name", requested="example.safetensors", available=(),
     )
     another = MissingWorkflowAsset(
         label="vae", node_class="VAELoader",
-        input_name="vae_name", requested="other.safetensors",
+        input_name="vae_name", requested="other.safetensors", available=(),
     )
     return WorkflowAudit(
         ready=False, comfyui_url="http://comfy.test:8188",
