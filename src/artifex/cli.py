@@ -67,6 +67,7 @@ from artifex.onboarding import (
     discover_renderer,
 )
 from artifex.operations.fence import manage_submission_fence
+from artifex.operations.pair_maintenance import RendererGatewayAPI, coordinate_pair_maintenance
 from artifex.operations.quiescence import quiesce_controller
 from artifex.pair_render_proof import run_pair_render_proof
 from artifex.performance import (
@@ -289,6 +290,69 @@ def startup_uninstall(
     except (OSError, RuntimeError, ValueError) as exc:
         typer.echo(f"startup uninstall error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+@maintenance_app.command("pair")
+def maintenance_pair(
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool, typer.Option("--apply", help="Explicitly seal both PC-A and PC-B admissions."),
+    ] = False,
+    release: Annotated[
+        bool,
+        typer.Option(
+            "--release",
+            help="With --apply, verify real renderer workflows before releasing both fences.",
+        ),
+    ] = False,
+    wait_seconds: Annotated[
+        float, typer.Option("--wait-seconds", min=0, max=600),
+    ] = 90,
+    poll_seconds: Annotated[
+        float, typer.Option("--poll-seconds", min=0.1, max=60),
+    ] = 5,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: preview/coordinate two admission seals; never restart ComfyUI."""
+    target = config or Path("config/local.yaml")
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"maintenance pair error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    settings = _settings(target)
+    # Validate gateway configuration before any controller database change.
+    try:
+        gateway = RendererGatewayAPI(settings)
+    except (OSError, TypeError, ValueError) as exc:
+        typer.echo(f"maintenance pair error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    try:
+        core = build_core(settings)
+    except Exception:
+        asyncio.run(gateway.aclose())
+        raise
+    try:
+        report = asyncio.run(
+            coordinate_pair_maintenance(
+                settings, core.database, core.runtime, core.comfy,
+                ComfySubmissionFence(settings.comfyui.submission_fence_path),
+                gateway=gateway, apply=apply, release=release,
+                wait_seconds=wait_seconds, poll_seconds=poll_seconds,
+            )
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"maintenance pair error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        asyncio.run(gateway.aclose())
+        asyncio.run(core.close())
+    if report.status in {"gateway_unreachable", "blocked", "partial", "runtime_unready"}:
+        raise typer.Exit(code=1)
+    if apply and not report.completed:
+        raise typer.Exit(code=1)
 
 
 @maintenance_app.command("fence")
