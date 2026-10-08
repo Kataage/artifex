@@ -62,7 +62,7 @@ def _parse_connections(value: str) -> tuple[WindowsTcpSocket, ...]:
     """Reject a partial/ambiguous TCP inventory rather than assuming isolation."""
     payload: Any = json.loads(value.lstrip("\ufeff"))
     if not isinstance(payload, list):
-        raise ValueError("Windows TCP probe must return a JSON array")
+        raise TypeError("Windows TCP probe must return a JSON array")
     return tuple(WindowsTcpSocket.model_validate(item) for item in payload)
 
 
