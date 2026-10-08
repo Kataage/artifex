@@ -116,7 +116,12 @@ async def run_pair_render_proof(
     image: RenderSmokeEvidence | None = None
     attempted = False
     stable = False
-    primary = settings.render_nodes.primary_node()
+    try:
+        primary = settings.render_nodes.primary_node()
+    except (KeyError, ValueError):
+        # A runtime-edited primary must not bypass the preflight gate or crash
+        # before writing the failed evidence file.
+        primary = None
     if not preflight.preflight_ready:
         failures.append("Two-PC readiness preflight did not pass; GPU render not started")
     elif primary is None or primary[0] != evidence.node_id:
