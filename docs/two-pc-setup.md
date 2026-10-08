@@ -66,6 +66,72 @@ comfyui:
   base_url: http://127.0.0.1:8188
 ```
 
+### Optional: manage ComfyUI itself on PC-B
+
+PC-B's `render-node serve` can now start and supervise the **real ComfyUI
+application**, rather than requiring you to open it manually after login.
+This mode is **off by default**, so existing external ComfyUI installations
+are not disrupted. Run the following example on PC-B after replacing the paths:
+
+```powershell
+uv run artifex render-node configure `
+  --output .\\config\\render-node.yaml `
+  --comfy-exe "E:/ComfyUI/.venv/Scripts/python.exe" `
+  --comfy-workdir "E:/ComfyUI" `
+  --comfy-arg=main.py `
+  --comfy-arg=--listen `
+  --comfy-arg=0.0.0.0 `
+  --comfy-arg=--port `
+  --comfy-arg=8188 `
+  --update
+```
+
+For the Windows portable ComfyUI distribution, instead point `--comfy-exe`
+to its embedded Python executable and `--comfy-workdir` to the corresponding
+ComfyUI working directory; adjust arguments to match that distribution.
+The CLI accepts any number of `--comfy-arg=VALUE` arguments. No drive letter,
+Python path, ComfyUI version, checkpoint or GPU device is hard-coded.
+The `comfyui.base_url` in the PC-B YAML should refer to the **local**
+`http://127.0.0.1:8188` endpoint; PC-A separately uses PC-B's LAN IP,
+for example `http://192.168.1.50:8188`. Keep ComfyUI reachable on the
+trusted LAN by setting its `--listen` appropriately and restricting access
+with Windows Firewall.
+
+After configuration, the usual command is unchanged:
+
+```powershell
+uv run artifex render-node serve --config .\\config\\render-node.yaml
+```
+
+When managed mode is enabled, the command first checks whether ComfyUI is
+already healthy. If so, it uses that instance **without killing it**. Otherwise
+it starts the configured executable and waits for `/system_stats` readiness.
+It monitors only the child it owns, applies a bounded restart policy after
+crashes/sustained failures, writes logs to `data/logs/comfyui.log`, and
+stops its owned child when the render-node service shuts down normally.
+A fatal supervisor error also shuts down the attestation endpoint so Windows
+Task Scheduler can retry the entire task within its own bounded restart policy.
+If ComfyUI is externally owned and stops responding, Artifex fails with a
+diagnostic instead of killing/replacing that external process.
+
+`render-node preflight` checks **running** ComfyUI. On first-time managed
+installations, start `render-node serve` before running preflight in a second
+terminal. If management is disabled, start ComfyUI yourself first.
+
+To turn managed mode back off without replacing the other settings:
+
+```powershell
+uv run artifex render-node configure `
+  --output .\\config\\render-node.yaml `
+  --disable-comfy-management --update
+```
+
+The Windows `startup install --role renderer` task created previously still
+launches `render-node serve` and therefore now starts managed ComfyUI
+automatically **on user logon**, with no task re-registration needed when
+only the YAML content changes. The configured executable and arguments are
+operator-owned; Artifex does not install Python or ComfyUI binaries for you.
+
 Set the same strong token on PC-A and PC-B through the `ARTIFEX_RENDER_NODE_TOKEN` environment variable. Do not put the token in YAML.
 
 Before starting the agent, run the **read-only native-Windows preflight** on PC-B.
@@ -359,10 +425,10 @@ secret/environment mechanism, and restrict access accordingly. PC-A and PC-B
 must each have their required credentials available to the scheduled process.
 The CLI refuses to overwrite or remove unrelated tasks with the same name.
 
-This feature supervises Artifex's controller process and PC-B's lightweight
-render-node attestation endpoint. It does **not** yet start the separate
-ComfyUI application on PC-B; configure ComfyUI's own startup independently,
-including its LAN binding, before expecting unattended image generation.
+The controller task supervises PC-A's Artifex daemon; the renderer task
+runs the render-node attestation endpoint and, **when explicitly configured**,
+also launches and supervises ComfyUI itself using `render_agent.comfyui_process`.
+When managed ComfyUI is disabled, configure its own startup separately.
 This logon-triggered configuration also does not guarantee execution
 before anyone signs in; a pre-login service deployment has different Windows
 account/GPU-session and secret-handling requirements.
