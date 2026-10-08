@@ -1868,7 +1868,7 @@ def qualify_soak_run(
     trace: Path | None = output
     try:
         settings = _settings(config)
-        minimum = settings.qualification.minimum_soak_hours
+        minimum = max(8.0, settings.qualification.minimum_soak_hours)
         if hours is not None and hours < minimum:
             raise ValueError(
                 f"soak-run requires at least {minimum:g} hours; "
@@ -1920,7 +1920,7 @@ def qualify_soak_run(
         report = observe_soak(
             settings,
             output=trace,
-            duration_hours=hours,
+            duration_hours=hours if hours is not None else minimum,
             interval_seconds=sample_seconds,
             qualification_session_id=active_id,
             on_sample=show_sample,
