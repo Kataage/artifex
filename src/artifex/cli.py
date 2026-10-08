@@ -2512,6 +2512,7 @@ def qualify_soak_run(
                     f"soak sample: elapsed={observed.elapsed_seconds / 3600:.2f}h "
                     f"llm={observed.llm_ok} comfyui={observed.comfyui_ok} "
                     f"renderer={observed.renderer_ok} "
+                    f"owner={observed.owner_observation.status if observed.owner_observation else 'missing'} "
                     f"packs_total={observed.finalized_packs} "
                     f"errors={len(observed.errors)}",
                     err=True,
@@ -2651,7 +2652,12 @@ def qualify_soak_check(
     try:
         settings = _settings(config)
         result = verify_soak_evidence(
-            evidence, minimum_hours=settings.qualification.minimum_soak_hours
+            evidence,
+            minimum_hours=settings.qualification.minimum_soak_hours,
+            require_owner_observation=(
+                settings.qualification.require_renderer_owner_observation
+                and settings.render_nodes.primary_node() is not None
+            ),
         )
         _print_payload(result.model_dump(mode="json"), as_json=json_output)
     except (OSError, ValueError, RuntimeError) as exc:
