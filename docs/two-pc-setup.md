@@ -34,7 +34,17 @@ comfyui:
 
 Set the same strong token on PC-A and PC-B through the `ARTIFEX_RENDER_NODE_TOKEN` environment variable. Do not put the token in YAML.
 
-Inspect the local evidence once:
+Before starting the agent, run the **read-only native-Windows preflight** on PC-B.
+It checks NVIDIA GPU detection, required checkpoint/refiner/VAE/upscaler hashes,
+LoRA inventory completeness, the bearer-token environment variable,
+LAN binding and the locally running ComfyUI endpoint. Failures produce
+`ready: false` with a nonzero exit code:
+
+```powershell
+uv run artifex render-node preflight --config .\\config\\render-node.yaml --json
+```
+
+Inspect the full local evidence when troubleshooting:
 
 ```powershell
 uv run artifex render-node attest --config .\config\render-node.yaml --json
@@ -168,6 +178,12 @@ render_nodes:
 Current production dispatch uses the configured primary node. The node model deliberately leaves room for later scheduling/failover across multiple renderers without changing Pack, workflow or provenance formats.
 
 ## Qualification
+
+Complete the PC-B preflight first; then on PC-A run `artifex setup`,
+configure the explicit production checkpoint and controller-local semantic
+assets, start the local LLM server and run `artifex doctor`. PC-B preflight
+does not prove network reachability from PC-A; the controller must check LAN
+connectivity and the remote token separately.
 
 For the split topology, qualification records controller-local hashes and primary-renderer attestations in one session. Final verification re-fetches the remote attestation and rejects model drift.
 
