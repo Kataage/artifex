@@ -26,6 +26,10 @@ from artifex.db.models import (
 from artifex.domain import LoRAState, PackState
 from artifex.loras import LoRARegistry
 from artifex.operations.doctor import DoctorReport
+from artifex.qualification.archive_reproduction import (
+    ArchiveReproductionProof,
+    file_sha256,
+)
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     AssetDigest,
@@ -666,19 +670,142 @@ class QualificationService:
         elif stage is QualificationStage.DISCORD_CONTROLS:
             self._verify_discord_controls(details, since=since)
         elif stage is QualificationStage.ARCHIVE_REPRODUCTION:
-            if details.get("reproduction_verified") is not True:
-                raise ValueError(
-                    "archive_reproduction requires reproduction_verified=true"
-                )
-            if details.get("hash_match") is not True:
-                raise ValueError(
-                    "archive_reproduction requires hash_match=true"
-                )
-            if not all(pack.get("archive_manifest_verified") is True for pack in packs):
-                raise ValueError(
-                    "archive_reproduction requires intact archived manifest provenance"
-                )
+            if session is None:
+                raise ValueError("archive_reproduction requires qualification session")
+            self._verify_archive_reproduction(session, packs, details)
         return packs
+
+    def _verify_archive_reproduction(
+        self,
+        session: QualificationSession,
+        packs: list[dict[str, object]],
+        details: dict[str, object],
+    ) -> None:
+        """Revalidate independent physical output bytes and a live replay event."""
+        allowed = {
+            "evidence_path", "evidence_sha256", "verified_proof", "verified_packs",
+        }
+        if set(details) - allowed:
+            raise ValueError("archive_reproduction rejects manually supplied claims")
+        if "verified_packs" in details and details["verified_packs"] != packs:
+            raise ValueError("archive_reproduction saved Pack evidence changed")
+        raw = details.get("evidence_path")
+        digest = details.get("evidence_sha256")
+        if not isinstance(raw, str) or not raw:
+            raise ValueError("archive_reproduction requires reproduction proof evidence_path")
+        if (
+            not isinstance(digest, str) or len(digest) != 64
+            or any(c not in "0123456789abcdef" for c in digest)
+        ):
+            raise ValueError("archive_reproduction requires evidence_sha256")
+        path = Path(raw).expanduser()
+        if path.is_symlink():
+            raise ValueError("archive_reproduction proof symlink is forbidden")
+        path = path.resolve()
+        if (
+            not path.is_relative_to(self._root)
+            or not path.is_file()
+            or path.stat().st_size > 65536
+        ):
+            raise ValueError("archive_reproduction proof must be a small regular file under evidence_dir")
+        if file_sha256(path) != digest:
+            raise ValueError("archive_reproduction evidence SHA-256 mismatch")
+        proof = ArchiveReproductionProof.model_validate_json(path.read_bytes())
+        if proof.session_id != session.session_id:
+            raise ValueError("archive_reproduction proof belongs to another qualification session")
+        if len(packs) != 1 or proof.pack_id != packs[0]["pack_id"]:
+            raise ValueError("archive_reproduction proof references another Pack")
+        if proof.manifest_sha256 != packs[0]["manifest_sha256"]:
+            raise ValueError("archive_reproduction archive manifest hash drift")
+        now = _utcnow()
+        if not session.created_at <= proof.reproduced_at <= now + timedelta(minutes=2):
+            raise ValueError("archive_reproduction proof is outside qualification interval")
+        if not proof.exact_match or proof.original_sha256 != proof.reproduced_sha256:
+            raise ValueError("archive_reproduction real output hash mismatch")
+        if (
+            proof.original_prompt_id == proof.replay_prompt_id
+            or not proof.original_prompt_id or not proof.replay_prompt_id
+        ):
+            raise ValueError("archive_reproduction requires a distinct replay prompt")
+        archive_path = Path(proof.original_path).expanduser()
+        copied_path = Path(proof.reproduced_path).expanduser()
+        if archive_path.is_symlink() or copied_path.is_symlink():
+            raise ValueError("archive_reproduction image symlink is forbidden")
+        archive_path = archive_path.resolve()
+        copied_path = copied_path.resolve()
+        if (
+            not copied_path.is_relative_to(path.parent)
+            or not copied_path.is_file() or not archive_path.is_file()
+            or copied_path == archive_path
+        ):
+            raise ValueError("archive_reproduction image files are unavailable or aliased")
+        if file_sha256(archive_path) != proof.original_sha256:
+            raise ValueError("archive_reproduction original image hash changed")
+        if file_sha256(copied_path) != proof.reproduced_sha256:
+            raise ValueError("archive_reproduction replayed image hash changed")
+        with self._database.session() as db_session:
+            selected_scene = db_session.get(SceneRow, proof.scene_id)
+            selected_attempt = db_session.get(GenerationAttemptRow, proof.selected_attempt_id)
+            if (
+                selected_scene is None or selected_scene.pack_id != proof.pack_id
+                or selected_scene.selected_attempt_id != proof.selected_attempt_id
+                or selected_attempt is None
+                or selected_attempt.scene_id != proof.scene_id
+                or selected_attempt.backend_status != "completed"
+                or selected_attempt.seed != proof.seed
+                or selected_attempt.provenance_json.get("comfy_prompt_id")
+                != proof.original_prompt_id
+                or selected_attempt.provenance_json.get("workflow_template")
+                != proof.workflow_template
+            ):
+                raise ValueError("archive_reproduction selected attempt no longer matches SQLite")
+            source = selected_attempt.provenance_json
+            for key, expected in (
+                ("compiled_prompt", proof.compiled_prompt_sha256),
+                ("lora_plan", proof.lora_plan_sha256),
+            ):
+                value = source.get(key)
+                if not isinstance(value, dict) or hashlib.sha256(
+                    json.dumps(
+                        value, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+                    ).encode()
+                ).hexdigest() != expected:
+                    raise ValueError(f"archive_reproduction {key} hash changed")
+            manifest_path = Path(str(packs[0]["manifest_path"]))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not any(
+                isinstance(row, dict)
+                and row.get("selected") is True
+                and row.get("scene_id") == proof.scene_id
+                and row.get("attempt_id") == proof.selected_attempt_id
+                and row.get("archived_path") == str(archive_path)
+                for row in manifest.get("archived_outputs", [])
+            ):
+                raise ValueError("archive_reproduction original is not a selected archived output")
+            events = db_session.scalars(
+                select(AgentEventRow)
+                .where(
+                    AgentEventRow.event_type == "qualification.archive_replayed",
+                    AgentEventRow.created_at >= session.created_at,
+                    AgentEventRow.created_at <= now,
+                )
+                .order_by(AgentEventRow.id.desc())
+                .limit(5000)
+            ).all()
+            if not any(
+                event.payload_json.get("session_id") == session.session_id
+                and event.payload_json.get("pack_id") == proof.pack_id
+                and event.payload_json.get("proof_path") == str(path)
+                and event.payload_json.get("proof_sha256") == digest
+                and event.payload_json.get("replay_prompt_id") == proof.replay_prompt_id
+                for event in events
+            ):
+                raise ValueError("archive_reproduction lacks matching persisted replay event")
+        snapshot = proof.model_dump(mode="json")
+        if "verified_proof" in details and details["verified_proof"] != snapshot:
+            raise ValueError("archive_reproduction verified proof was modified")
+        details["evidence_path"] = str(path)
+        details["verified_proof"] = snapshot
 
     def _verify_discord_controls(
         self,

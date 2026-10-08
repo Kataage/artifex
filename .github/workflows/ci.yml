@@ -39,6 +39,7 @@ jobs:
       - run: uv run artifex deployment pair-export --help
       - run: uv run artifex deployment pair-check --help
       - run: uv run artifex deployment pair-smoke --help
+      - run: uv run artifex qualify archive-reproduce --help
       - run: uv run artifex qualify soak-run --help
       - run: uv run artifex qualify soak-observe --help
       - run: uv run artifex qualify soak-check --help
