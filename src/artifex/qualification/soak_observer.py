@@ -19,9 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import make_url
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node import fetch_render_attestation
 from artifex.render_node.client import fetch_renderer_owner_audit
-from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 
 _MAX_BYTES = 12 * 1024 * 1024
 _MAX_SAMPLES = 5000
