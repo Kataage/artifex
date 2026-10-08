@@ -10,7 +10,6 @@ from artifex.db import Database
 from artifex.db.models import PackRow
 from artifex.domain import PackState
 from artifex.qualification.models import (
-    QualificationSession,
     QualificationStage,
     QualificationStatus,
 )
