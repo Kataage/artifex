@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import platform
 import re
 import shutil
@@ -71,7 +70,7 @@ def _unpack_source(zip_path: Path, project: Path) -> None:
             parts = path.parts
             if (
                 path.is_absolute() or not parts or len(parts) > 40
-                or ".." in parts or ":" in parts[0]
+                or ".." in parts or any(":" in part for part in parts)
             ):
                 raise ValueError(f"Unsafe ComfyUI archive path: {entry.filename}")
             if prefix is None:
