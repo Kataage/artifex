@@ -1478,9 +1478,15 @@ class QualificationService:
                         "output_mode": node.output_mode,
                         "download_dir": str(node.download_dir),
                         "attestation_url": node.attestation_url,
+                        "attestation_token_env": node.attestation_token_env,
                     }
                     for node_id, node in sorted(settings.render_nodes.nodes.items())
                 },
+            },
+            "renderer_owner_policy": {
+                "require_renderer_owner_observation": (
+                    settings.qualification.require_renderer_owner_observation
+                ),
             },
             "comfyui": {
                 "base_url": settings.comfyui.base_url,
