@@ -2,6 +2,21 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## Durable, atomic controller-only submission fencing
+
+On PC-A, `uv run artifex maintenance fence --config
+.\\config\\local.yaml --apply --wait-seconds 600` pauses scheduling,
+waits for persisted in-flight Packs/attempts and the actual PC-B ComfyUI
+queue, and makes a second check under a SQLite transactional lock shared
+by all Artifex `/prompt` submissions. If safe within **Artifex's scope**,
+the closed fence is durable across PC-A restarts; it refuses future Artifex
+POSTs rather than interrupting existing renders. Preview and release are
+explicit. The controller's `comfyui.submission_fence_path` must be identical
+for all Artifex processes on PC-A. The operation **cannot** stop third-party
+clients from sending prompts directly to PC-B, so it reports
+`restart_authorized=false`. A successful seal is not a 14-stage production
+qualification or permission to restart arbitrary ComfyUI processes.
+
 ## Controller maintenance pause and non-destructive in-flight drain
 
 On PC-A, `uv run artifex maintenance drain --config .\\config\\local.yaml
