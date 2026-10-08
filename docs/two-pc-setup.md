@@ -112,11 +112,32 @@ HTTP health probes, Artifex will not terminate/kill it to auto-restart. A
 live child may be executing a GPU job. Exited children can still be
 restarted under the configured retry budget. When the supervisor shuts
 down/crashes, it detaches a surviving ComfyUI child rather than killing it;
-the child may consequently remain running, and a restarted protected
-supervisor will refuse to take ownership of that already-running process.
-This requires an explicit safe maintenance procedure; do not assume the
-Task Scheduler relaunch can seize or kill it. See the Windows socket
-report before resolving such a case.
+the child may consequently remain running. With protected gateway mode enabled,
+Artifex now writes a Windows-only ownership receipt to the configurable
+`render_agent.comfyui_process.ownership_receipt_path` (default:
+`data/render/comfy-owner-receipt.json`). On the next supervisor launch it
+checks the **actual** Windows process PID, creation timestamp, executable,
+full command line and ComfyUI socket owner against that receipt and the
+current configured launch. Only a perfect match is safely reattached as an
+observed survivor. This reattachment does not kill or respawn the live GPU
+child; the authenticated gateway/attestation can be served again.
+
+When that same orphan naturally exits, the supervisor permits a replacement
+only if the Windows TCP listener port is also demonstrably unused. PID
+reuse, missing or malformed receipt, changed launch config, mismatching
+host, foreign socket owners or an unhealthy-but-live child fail closed;
+the software never assumes a stale receipt is permission to terminate
+a process. Existing deployments with a live pre-receipt ComfyUI must
+manually migrate during a safe maintenance window: the new supervisor
+cannot infer ownership after the fact.
+
+The receipt is historical identity evidence, **not an authentication
+credential or a process-kill permit**. Keep it in a local non-shared
+directory with normal restricted Windows file permissions; never copy
+between machines or generate one manually. Windows Task Scheduler may
+apply its own process-tree termination policy, which still requires
+real-host qualification. This feature doesn't certify that policy or
+prove that direct loopback clients are excluded.
 
 Even an owner-verified idle TCP snapshot does NOT exclude a future local
 process opening a new `/prompt` connection. It is **diagnostic evidence**,
