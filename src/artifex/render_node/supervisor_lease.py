@@ -56,7 +56,7 @@ class RendererSupervisorLease:
                 import msvcrt
 
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined] - Windows-only API
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
             else:
                 import fcntl
 
