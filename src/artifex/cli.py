@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import socket
 from pathlib import Path
@@ -1979,6 +1980,13 @@ def qualify_record(
         ),
     ] = None,
     note: Annotated[str | None, typer.Option("--note")] = None,
+    soak_evidence: Annotated[
+        Path | None,
+        typer.Option(
+            "--soak-evidence",
+            help="Automatically hash and bind a soak JSONL to overnight_soak PASS.",
+        ),
+    ] = None,
     config: ConfigOption = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
@@ -1991,13 +1999,34 @@ def qualify_record(
             parsed_status = QualificationStatus(status.casefold())
             if parsed_status is QualificationStatus.PENDING:
                 raise ValueError("record status cannot be pending")
+            recorded_details = _qualification_details(details)
+            if soak_evidence is not None:
+                if (
+                    parsed_stage is not QualificationStage.OVERNIGHT_SOAK
+                    or parsed_status is not QualificationStatus.PASS
+                ):
+                    raise ValueError("--soak-evidence is only valid for overnight_soak PASS")
+                if recorded_details:
+                    raise ValueError("--soak-evidence cannot be combined with --detail")
+                if (
+                    soak_evidence.is_symlink()
+                    or not soak_evidence.is_file()
+                    or soak_evidence.stat().st_size > 12 * 1024 * 1024
+                ):
+                    raise ValueError("--soak-evidence requires a regular JSONL <= 12 MiB")
+                recorded_details = {
+                    "evidence_path": str(soak_evidence),
+                    "evidence_sha256": hashlib.sha256(
+                        soak_evidence.read_bytes()
+                    ).hexdigest(),
+                }
             session = service.record(
                 session_id,
                 parsed_stage,
                 status=parsed_status,
                 pack_ids=tuple(pack_ids or ()),
                 note=note,
-                details=_qualification_details(details),
+                details=recorded_details,
             )
         except (KeyError, OSError, ValueError) as exc:
             typer.echo(f"qualification record error: {exc}", err=True)
