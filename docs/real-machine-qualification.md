@@ -24,6 +24,47 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## Recheck the safe actions and update the readiness plan
+
+After generating or saving a readiness snapshot, PC-A can refresh only its
+**known read-only diagnostic probes** and reconcile the actual current
+results with the earlier snapshot:
+
+```powershell
+# Current PC-A/PC-B state; probes run once, no previous-state comparison
+uv run artifex qualify recheck --config .\config\local.yaml --json
+
+# Compare the saved diagnostic to a fresh live observation and update the plan
+uv run artifex qualify recheck --config .\config\local.yaml --from-report .\readiness-report.json --json
+
+# Optional immutable comparison report
+uv run artifex qualify recheck --config .\config\local.yaml --from-report .\readiness-report.json --output .\readiness-recheck.json --json
+```
+
+Unlike `qualify plan --from-report` (offline, no probing), this
+`qualify recheck` command **always checks the currently configured
+PC-A and authenticated PC-B services**. The only active probes are the existing
+in-process controller preflight and the authenticated, read-only PC-B owner
+audit; no subprocess command from a plan or saved JSON is ever executed. The
+output contains a status-change list (improved, regressed, newly observed or
+unavailable), an updated **fresh** action plan, and an itemized check-execution
+ledger. Previous JSON can supply historical comparison only; it cannot make a
+failed *current* check PASS. A missing or unreachable PC-B remains unknown
+or blocked, never successful.
+
+Some instructions in a plan point at native commands on PC-B. In particular,
+`render-node preflight` on PC-B is **not** run by a controller-only
+session: the ledger explicitly marks `requires_local_pc_b` even when
+the remote asset attestation succeeds. Unknown future plan steps are likewise
+never run automatically. Use the separate PC-B CLI in a safe maintenance
+window for the remaining direct checks. The report always says
+`arbitrary_plan_commands_executed=false`,
+`mutated_services=false`,
+`production_qualified=false` and
+`gpu_soak_qualified=false`. Real GPU operations, process
+restarts, model downloads, Task Scheduler updates and all 14 actual machine
+qualification stages remain outside this command.
+
 ## From a readiness diagnostic to a safe PC-by-PC action plan
 
 Run on PC-A, using your existing real two-PC configuration:
