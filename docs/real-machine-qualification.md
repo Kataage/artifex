@@ -24,6 +24,49 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## Prepare PC-A from a live authenticated PC-B with minimal typing
+
+When the actual Windows PC-B render agent and its protected ComfyUI gateway
+are already running, PC-A can derive its node ID, LAN render URL, and exact
+configured production checkpoint **without guessing a model from a directory**.
+Provide only the PC-B attestation URL (and change the gateway port if not 8191):
+
+```powershell
+# On PC-A, configure the *existing* shared token environment variable.
+# Never paste the secret into a CLI argument, issue or JSON report.
+uv run artifex onboard pair-sync --attestation-url http://192.168.1.20:8190 --json
+
+# Explicit opt-in: create config/local.yaml (never overwrite an existing file).
+uv run artifex onboard pair-sync --attestation-url http://192.168.1.20:8190 --apply --json
+
+# Explicit opt-in: merge into existing config/local.yaml, retaining unrelated settings.
+uv run artifex onboard pair-sync --attestation-url http://192.168.1.20:8190 --apply --update --json
+```
+
+The command uses the existing `ARTIFEX_RENDER_NODE_TOKEN` value from
+PC-A's environment, retrieves a fresh authenticated PC-B
+`GET /v1/attestation?fresh=1` snapshot, and verifies the
+**authenticated** gateway at the *same PC-B LAN host* (by default port 8191)
+via read-only `GET /system_stats`. It ignores PC-B's upstream
+`comfyui_base_url` (usually loopback on the renderer) for
+PC-A transport and **does not fall back to directly exposing ComfyUI**.
+Node IDs, checkpoint names, SHA-256 fields, timestamps and remote URL shapes
+are bounded and validated; no HTTP redirects are followed. Gateway and
+attestation endpoints must already be configured and reachable.
+Native Windows PC-B ownership and eight-hour soak **are not proved** by
+this setup command; use `qualify readiness` followed by real
+qualification.
+
+Preview is the default and performs no filesystem write. Only `--apply`
+creates the PC-A YAML; `--update` requires `--apply`
+and preserves unrelated controller settings. The command never downloads
+models, modifies PC-B, starts or restarts any process, or submits GPU work.
+Tokens never enter emitted reports or written config values.
+If PC-B is not running a protected gateway, the setup fails closed rather
+than silently picking an unprotected port. Because default HTTP on a LAN
+does not encrypt credentials, use a trusted private LAN or a secure tunnel;
+do not publish these ports on the Internet.
+
 ## Recheck the safe actions and update the readiness plan
 
 After generating or saving a readiness snapshot, PC-A can refresh only its
