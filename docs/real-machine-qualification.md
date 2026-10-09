@@ -254,19 +254,23 @@ interval, sample count and diagnostic sample state, **not** passwords,
 task command lines or ComfyUI ownership tokens.
 
 `GET /v1/installation-audit` reads that local heartbeat (never
-performs an observation). A new `observer_heartbeat` field shows
-`fresh`, `missing`, `stale`, `unsafe` or `unavailable`.
-`safe_for_passive_observation` now requires a *fresh* heartbeat as
+performs an observation). A new `observer_heartbeat` field shows `fresh`, `blocked`,
+`unsupported`, `missing`, `stale`, `unsafe` or `unavailable`.
+**Only `fresh` means a recent sample with `last_sample_state=verified`.**
+A recent `blocked` or `unsupported` sample is not healthy, even when
+Task Scheduler reports `Running`. Unexpected/missing sample states are
+`unsafe`; stale samples stay `stale` regardless of the previous verdict.
+`safe_for_passive_observation` requires a fresh *verified* heartbeat as
 well as both correctly configured Running tasks. PC-A
 `qualify pair-install-audit` reports
-`pc_b_observer_heartbeat_<status>` when heartbeat is not fresh.
+`pc_b_observer_heartbeat_<status>` for all non-healthy heartbeat states.
 The existing per-PC remediation plan gives only observational advice,
 not a renderer restart.
 
 For a 15-second sampling interval, evidence becomes stale after 90
 seconds. For customized longer intervals, the threshold is 3 times
-the configured interval (maximum 900 seconds). Freshness is only
-evidence that a local watcher sampled recently: a JSON file or a PID
+the configured interval (maximum 900 seconds). Even a fresh verified heartbeat is only
+evidence that a local watcher passed its latest read-only checks: a JSON file or a PID
 does **not** establish physical process identity, authentic historical
 survival, production qualification, or any of the 14 GPU stages.
 
@@ -274,7 +278,9 @@ This feature neither starts nor terminates ComfyUI and does not enroll
 a Task Scheduler job. Operators must still explicitly enroll the
 independent observer using the existing `startup observer-enable
 --apply` workflow if needed. No actual operator-PC-B observation
-is claimed based on CI.
+is claimed based on CI. Upgrade PC-A and PC-B together to recognize the
+additional non-healthy status values; older strict clients may reject them
+and must fail closed instead of assuming monitoring readiness.
 
 ## PC-A pair installation audit: safe, per-machine next steps
 

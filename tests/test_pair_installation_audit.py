@@ -22,7 +22,7 @@ from artifex.render_node.installation_audit import (
     inspect_renderer_installation,
     inspect_spool,
 )
-from artifex.render_node.observer_heartbeat import publish_observer_heartbeat
+from artifex.render_node.observer_heartbeat import SampleState, publish_observer_heartbeat
 from artifex.windows_tasks import StartupTaskStatus
 
 NOW = datetime(2026, 10, 10, tzinfo=UTC)
@@ -68,10 +68,11 @@ def _remote(
     renderer: str = "Running",
     observer: str = "Running",
     time: datetime = NOW,
+    sample_state: SampleState = "verified",
 ) -> RemoteRendererInstallationAudit:
     publish_observer_heartbeat(
         settings, observed_utc=time,
-        poll_seconds=15, sample_count=1, state="verified",
+        poll_seconds=15, sample_count=1, state=sample_state,
     )
     report = inspect_renderer_installation(
         settings, owner_config=config, native_windows=True, now=time,
@@ -135,6 +136,32 @@ def test_pc_b_readiness_uses_both_tasks_and_spool_without_gpu(
     assert "python.exe" not in yes.model_dump_json()
     assert "C:/private" not in yes.model_dump_json()
     assert inspect_spool(tmp_path / "spool") == "empty"
+
+
+@pytest.mark.parametrize("state", ["blocked", "unsupported"])
+def test_pc_a_rejects_fresh_failed_remote_watcher_sample(
+    tmp_path: Path, state: SampleState,
+) -> None:
+    settings = _settings(tmp_path)
+    local_cfg = tmp_path / "pc-a.yaml"
+    remote_cfg = tmp_path / "pc-b.yaml"
+    local_cfg.write_text("{}")
+    remote_cfg.write_text("{}")
+    remote = _remote(settings, remote_cfg, sample_state=state)
+    report = inspect_two_pc_installation(
+        settings, controller_config=local_cfg, now=NOW,
+        native_windows=True,
+        local_probe=lambda role: _task(role), local_verify=_local_ok,
+        remote_probe=lambda node, config: remote,
+    )
+    assert report.status == "pc_b_needs_setup"
+    assert "pc_b_observer_heartbeat_" + state in report.blockers
+    assert "pc_b_passive_observer_preconditions_unverified" in report.blockers
+    assert report.pc_b is not None
+    assert report.pc_b.audit.observer_heartbeat == state
+    assert report.gpu_jobs_submitted is False
+    assert report.remote_task_actions_executed is False
+    assert report.production_qualified is False
 
 
 def test_spool_rejects_symlink_and_excessive_inventory(

@@ -18,6 +18,7 @@ from artifex.config.models import ArtifexSettings
 
 _NAME = "observer-health.json"
 _MAX_SIZE = 4096
+SampleState = Literal["verified", "blocked", "unsupported"]
 
 
 class ObserverHeartbeat(BaseModel):
@@ -29,11 +30,15 @@ class ObserverHeartbeat(BaseModel):
     process_pid: int = Field(ge=1)
     poll_seconds: float = Field(ge=5, le=300)
     sample_count: int = Field(ge=1)
-    last_sample_state: str = Field(max_length=32)
+    last_sample_state: SampleState
     production_qualified: Literal[False] = False
 
 
-Status = Literal["fresh", "missing", "stale", "unsafe", "unavailable"]
+# "fresh" means recent AND verified; a recent failed observation is not healthy.
+Status = Literal[
+    "fresh", "blocked", "unsupported", "missing", "stale", "unsafe",
+    "unavailable",
+]
 
 
 def _root(settings: ArtifexSettings) -> Path:
@@ -49,7 +54,7 @@ def publish_observer_heartbeat(
     observed_utc: datetime,
     poll_seconds: float,
     sample_count: int,
-    state: str,
+    state: SampleState,
 ) -> None:
     """Replace one fixed spool status file atomically, never follow a symlink."""
     record = ObserverHeartbeat(
@@ -58,7 +63,7 @@ def publish_observer_heartbeat(
         process_pid=os.getpid(),
         poll_seconds=poll_seconds,
         sample_count=sample_count,
-        last_sample_state=state[:32],
+        last_sample_state=state,
     )
     if observed_utc.tzinfo is None:
         raise ValueError("Heartbeat timestamp must have a timezone")
@@ -120,7 +125,9 @@ def inspect_observer_heartbeat(
             or delta > timedelta(seconds=max(90, record.poll_seconds * 3))
         ):
             return "stale"
-        return "fresh"
+        # An active watcher can continuously report failed/unsupported owner
+        # checks. Such samples must never qualify passive monitoring.
+        return "fresh" if record.last_sample_state == "verified" else record.last_sample_state
     except (ValueError, TypeError, UnicodeError):
         return "unsafe"
     except OSError:
