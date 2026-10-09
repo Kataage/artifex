@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterator
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from artifex.db import Database
 from artifex.db.models import PackRow
@@ -44,35 +45,76 @@ class QualificationEvidenceCollector:
         *,
         apply: bool = False,
         max_packs: int = 250,
+        scan_limit: int = 10000,
     ) -> dict[str, object]:
         if not 1 <= max_packs <= 1000:
             raise ValueError("max_packs must be between 1 and 1000")
+        if not 1 <= scan_limit <= 100000:
+            raise ValueError("scan_limit must be between 1 and 100000")
         qualification = self._service.load(session_id)
         self._service.require_collection_candidate(qualification)
 
         # Only Packs CREATED after this qualification began can be selected.
-        # Completed before session creation, a Pack cannot prove this run.
-        with self._database.session() as db_session:
-            rows = db_session.scalars(
-                select(PackRow)
-                .where(
+        # Keyset pagination avoids silently starving newly finalized Packs
+        # after the first 250 rows. The scan is bounded and read-only.
+        evidence: dict[str, dict[str, object]] = {}
+        invalid: list[dict[str, str]] = []
+        cursor: tuple[datetime, str] | None = None
+        scanned = 0
+        pages = 0
+        truncated = False
+        while scanned < scan_limit:
+            remaining = scan_limit - scanned
+            with self._database.session() as db_session:
+                query = select(PackRow.id, PackRow.created_at).where(
                     PackRow.state == PackState.FINALIZED.value,
                     PackRow.created_at >= qualification.created_at,
                 )
-                .order_by(PackRow.created_at.asc(), PackRow.id.asc())
-                .limit(max_packs + 1)
-            ).all()
-            ids = [row.id for row in rows]
-        truncated = len(ids) > max_packs
-        ids = ids[:max_packs]
-
-        evidence: dict[str, dict[str, object]] = {}
-        invalid: list[dict[str, str]] = []
-        for pack_id in ids:
-            try:
-                evidence[pack_id] = self._service.inspect_pack(pack_id)
-            except (OSError, KeyError, TypeError, ValueError) as exc:
-                invalid.append({"pack_id": pack_id, "reason": str(exc)})
+                if cursor is not None:
+                    query = query.where(or_(
+                        PackRow.created_at > cursor[0],
+                        and_(PackRow.created_at == cursor[0], PackRow.id > cursor[1]),
+                    ))
+                batch = db_session.execute(
+                    query.order_by(PackRow.created_at.asc(), PackRow.id.asc())
+                    .limit(min(max_packs, remaining) + 1)
+                ).all()
+            count = min(max_packs, remaining, len(batch))
+            if not count:
+                break
+            for pack_id, created_at in batch[:count]:
+                try:
+                    evidence[pack_id] = self._service.inspect_pack(pack_id)
+                except (OSError, KeyError, TypeError, ValueError) as exc:
+                    invalid.append({"pack_id": pack_id, "reason": str(exc)})
+                cursor = (created_at, pack_id)
+            scanned += count
+            pages += 1
+            if count < len(batch) and scanned >= scan_limit:
+                truncated = True
+                break
+            if len(batch) <= count:
+                break
+        else:
+            # At the exact configured boundary, only a real extra row
+            # justifies the truncated flag. Never guess there are no more.
+            assert cursor is not None
+            with self._database.session() as db_session:
+                truncated = db_session.scalar(
+                    select(PackRow.id).where(
+                        PackRow.state == PackState.FINALIZED.value,
+                        PackRow.created_at >= qualification.created_at,
+                        or_(
+                            PackRow.created_at > cursor[0],
+                            and_(
+                                PackRow.created_at == cursor[0],
+                                PackRow.id > cursor[1],
+                            ),
+                        ),
+                    ).order_by(
+                        PackRow.created_at.asc(), PackRow.id.asc(),
+                    ).limit(1)
+                ) is not None
 
         # Select unattended candidates only from real continuous-daemon
         # completion events. Arbitrary finalized Pack triples cannot qualify.
@@ -157,10 +199,13 @@ class QualificationEvidenceCollector:
         return {
             "session_id": session_id,
             "mode": "apply" if apply else "preview",
-            "finalized_packs_scanned": len(ids),
+            "finalized_packs_scanned": scanned,
+            "scan_pages": pages,
+            "scan_limit": scan_limit,
             "valid_packs": len(evidence),
             "invalid_packs": invalid,
             "scan_truncated": truncated,
+            "scan_incomplete": truncated,
             "stages": statuses,
             "remaining_stages": [
                 evidence.stage.value for evidence in qualification.stages.values()
