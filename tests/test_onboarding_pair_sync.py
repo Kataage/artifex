@@ -175,12 +175,12 @@ def test_explicit_apply_merges_without_overwriting_or_rendering(
     assert TOKEN not in dest.read_text(encoding="utf-8")
     with pytest.raises(FileExistsError, match="--update"):
         apply_controller_pair(preview, settings, dest)
-    data["editorial"] = {"language": "en"}  # unrelated, must survive update
+    data["storage"] = {"database_url": "sqlite:///operator-owned.db"}  # unrelated
     dest.write_text(yaml.safe_dump(data), encoding="utf-8")
     second = apply_controller_pair(preview, settings, dest, update=True)
     assert second.configuration_written
     updated = yaml.safe_load(dest.read_text(encoding="utf-8"))
-    assert updated["editorial"] == {"language": "en"}
+    assert updated["storage"]["database_url"] == "sqlite:///operator-owned.db"
 
 
 def test_refuses_symlinked_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
