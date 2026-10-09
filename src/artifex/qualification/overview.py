@@ -77,6 +77,12 @@ class StageOverview(BaseModel):
     independently_revalidated: Literal[False] = False
 
 
+TriageState = Literal[
+    "observed_live", "unavailable", "requires_local_pc_b",
+    "not_executed", "operator_review", "real_machine_evidence",
+]
+
+
 class RemediationTriage(BaseModel):
     """Action-plan disposition after one live snapshot; no commands executed."""
 
@@ -84,10 +90,7 @@ class RemediationTriage(BaseModel):
 
     step_id: str
     role: Literal["pc_a", "pc_b"]
-    state: Literal[
-        "observed_live", "unavailable", "requires_local_pc_b",
-        "not_executed", "operator_review", "real_machine_evidence",
-    ]
+    state: TriageState
     blocked_checks: tuple[str, ...]
     next_action: str
     commands_executed: Literal[False] = False
@@ -97,6 +100,7 @@ def _triage_step(
     step: RemediationStep, report: QualificationReadiness, *,
     fresh: bool,
 ) -> RemediationTriage:
+    state: TriageState
     if step.safety == "read_only":
         sample = _observed(step, report)
         state = sample.state if fresh else "unavailable"
