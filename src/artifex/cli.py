@@ -3140,6 +3140,57 @@ def qualify_overview(
         raise typer.Exit(code=1) from exc
 
 
+@qualify_app.command("handoff")
+def qualify_handoff(
+    config: ConfigOption = None,
+    session_id: Annotated[
+        str | None,
+        typer.Option(
+            "--session-id", help="Optional existing session; latest saved is not assumed active.",
+        ),
+    ] = None,
+    renderer_config: Annotated[
+        Path, typer.Option(
+            "--renderer-config", help="PC-B YAML path for advisory instructions only.",
+        ),
+    ] = Path("config/render-node.yaml"),
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Optional new JSON handoff report; refuses overwriting.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """One read-only PC-A qualification handoff with live ComfyUI workflow checks."""
+    from artifex.qualification.handoff import inspect_qualification_handoff
+
+    chosen = config or Path("config/local.yaml")
+    try:
+        if chosen.is_symlink() or not chosen.is_file():
+            raise ValueError("Existing non-symlinked PC-A YAML is required")
+        report = asyncio.run(inspect_qualification_handoff(
+            _settings(chosen),
+            controller_config=chosen,
+            renderer_config=renderer_config,
+            session_id=session_id,
+        ))
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            target = output.expanduser().absolute()
+            if any(item.is_symlink() for item in (target, *target.parents)):
+                raise ValueError("Refusing symlinked handoff output destination")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
+        # Never echo remote error bodies, model URLs or Bearer token values.
+        typer.echo(f"qualification handoff error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.state == "blocked":
+        raise typer.Exit(code=1)
+
+
 @qualify_app.command("owner-observe")
 def qualify_owner_observe(
     session_id: Annotated[str, typer.Argument(help="Existing qualification session ID.")],
