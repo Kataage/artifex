@@ -156,7 +156,6 @@ def test_different_ipv4_ipv6_service_listeners_one_pid_are_coherent() -> None:
 @pytest.mark.parametrize("args", [
     ("main.py", "--listen", "127.0.0.1", "--listen", "0.0.0.0", "--port", "8188"),
     ("main.py", "--listen", "127.0.0.1", "--port", "8188", "--port", "9999"),
-    ("main.py", "--listen=127.0.0.1", "--port", "8188"),
     ("main.py", "--listen", "127.0.0.1", "--port", "8189"),
     ("main.py", "--listen", "127.0.0.1"),
 ])
@@ -175,6 +174,27 @@ def test_invalid_managed_command_line_is_not_protected(args: tuple[str, ...]) ->
     assert not report.config_protected
     assert report.status != "owned_observed"
     assert report.launch_authorized is False
+
+
+@pytest.mark.parametrize("args", [
+    ("main.py", "--listen=127.0.0.1", "--port", "8188"),
+    ("main.py", "--listen", "127.0.0.1", "--port=8188"),
+])
+def test_valid_equals_style_launch_args_match_actual_manager(args: tuple[str, ...]) -> None:
+    settings = _settings()
+    settings.render_agent.comfyui_process.arguments = args
+    sockets = (
+        _socket(8188),
+        _socket(8190, 102, "0.0.0.0"),
+        _socket(8191, 102, "0.0.0.0"),
+    )
+    report = inspect_renderer_startup(
+        settings, config_path=Path("render-node.yaml"),
+        windows=True, socket_probe=lambda: sockets, owner_probe=_audit,
+    )
+    assert report.config_protected
+    assert report.status == "owned_observed"
+    assert report.service_ports_coherent
 
 
 def test_windows_tcp_timeout_returns_blocked_json_not_uncaught_exception() -> None:
