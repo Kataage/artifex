@@ -242,6 +242,56 @@ current PC-B, handoff cannot recommend a qualification session start.
 While this release removes manual reconstruction of the report, securely
 transporting a trace from PC-B to PC-A is still required. Never stop a
 live ComfyUI task solely to create a survival trace.
+## Independent unattended Windows survival watcher (PC-B)
+
+The passive watcher has its own native Windows Task Scheduler registration
+named `Artifex-Survival-Observer`, **separate from** the protected
+`Artifex-Renderer` task and the ComfyUI process. It starts automatically
+at subsequent interactive logons once explicitly installed, and does not
+depend on the renderer supervisor being alive. A read-only command checks
+the registration without changing Windows tasks:
+
+```powershell
+uv run artifex startup observer-enable --config .\config\render-node.yaml --json
+```
+
+An operator can explicitly install/start ONLY the observer, once:
+
+```powershell
+uv run artifex startup observer-enable --config .\config\render-node.yaml --apply --json
+```
+
+The dry-run is the default. An existing foreign/unowned task is refused,
+and a drifted, active observer task cannot be replaced. The observer
+registration uses the existing current user's limited Task Scheduler
+principal, protected no-hard-terminate/IgnoreNew settings and unlimited
+execution time. It will NEVER modify/start/stop/re-register the renderer
+task or ComfyUI. No renderer task actions are issued on GET or sampling.
+
+For local supervised diagnostics (without installing a task):
+
+```powershell
+uv run artifex render-node survival-watch --config .\config\render-node.yaml --poll-seconds 15 --window-seconds 3600 --max-seconds 120 --json
+```
+
+With no `--max-seconds`, the watcher continues until the independent
+process exits; no restart is attempted on the actual ComfyUI. It only
+arms after an actual verified Running Task Scheduler supervisor, valid
+receipt, process identities and exclusive TCP. It periodically checks
+the original supervisor PIDs, retains samples across a natural exit,
+and saves strictly checked terminal/partial evidence into the PC-B
+`survival_evidence_dir` (read by authenticated `GET /v1/survival-evidence`).
+A healthy unchanged renderer yields no repeating JSON files. Natural
+exit is never artificially caused; observations remain inconclusive or
+blocked if identity changes, samples are missed or the real supervisor
+does not exit. Long monitoring windows rotate without ever claiming a
+success from a sample gap or a mere Task Scheduler Ready state.
+
+**Critical:** a logon-triggered task only starts after the task has
+been explicitly installed; this change does not remotely activate
+anything on the operator's physical PC-B. Windows CI tests use isolated
+simulations. Even a naturally observed trace does NOT authenticate
+historical events, qualify GPU production or close Issues #93/#40.
 ## Passive native PC-B supervisor-loss survival observation (Issue #93)
 
 Run on the **actual Windows PC-B** from an independent terminal while the
