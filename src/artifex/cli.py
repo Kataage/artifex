@@ -5,7 +5,7 @@ import hashlib
 import json
 import socket
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import uuid4
 
 import httpx
@@ -2712,6 +2712,68 @@ def qualify_start(
         _print_payload(payload, as_json=json_output)
     finally:
         asyncio.run(core.close())
+
+
+@qualify_app.command("plan")
+def qualify_plan(
+    config: ConfigOption = None,
+    renderer_config: Annotated[
+        Path,
+        typer.Option("--renderer-config", help="PC-B YAML path shown in the suggested PC-B commands."),
+    ] = Path("config/render-node.yaml"),
+    report_path: Annotated[
+        Path | None,
+        typer.Option("--from-report", help="Use a bounded saved readiness JSON instead of probing the two PCs."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional new plan JSON, never overwrite an existing file."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Group PC-A/PC-B setup repairs without executing any command or changing GPU state."""
+    from artifex.qualification.readiness_action_plan import (
+        compile_qualification_action_plan,
+    )
+    from artifex.qualification.readiness_diagnostics import (
+        QualificationReadiness,
+        diagnose_qualification_readiness,
+    )
+
+    chosen = config or Path("config/local.yaml")
+    source: Literal["live", "saved"]
+    try:
+        if report_path is None:
+            if chosen.is_symlink() or not chosen.is_file():
+                raise ValueError("Existing non-symlinked PC-A configuration is required")
+            readiness = diagnose_qualification_readiness(_settings(chosen))
+            source = "live"
+        else:
+            source_file = report_path.expanduser().absolute()
+            if any(item.is_symlink() for item in (source_file, *source_file.parents)):
+                raise ValueError("Refusing symlinked readiness evidence path")
+            if not source_file.is_file() or source_file.stat().st_size > 1024 * 1024:
+                raise ValueError("Saved readiness JSON is missing or too large")
+            readiness = QualificationReadiness.model_validate_json(source_file.read_bytes())
+            source = "saved"
+        plan = compile_qualification_action_plan(
+            readiness, source=source,
+            controller_config=chosen, renderer_config=renderer_config,
+        )
+        payload = plan.model_dump(mode="json")
+        if output is not None:
+            target = output.expanduser().absolute()
+            if any(item.is_symlink() for item in (target, *target.parents)):
+                raise ValueError("Refusing symlinked action plan destination")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("x", encoding="utf-8") as file:
+                file.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+        if not plan.environment_ready_observed:
+            raise typer.Exit(code=1)
+    except (OSError, TypeError, ValueError) as exc:
+        typer.echo(f"qualification plan error: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @qualify_app.command("readiness")
