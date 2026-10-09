@@ -22,6 +22,7 @@ from artifex.qualification.models import (
 )
 from artifex.qualification.readiness_action_plan import (
     QualificationActionPlan,
+    RemediationStep,
     compile_qualification_action_plan,
 )
 from artifex.qualification.readiness_diagnostics import (
@@ -29,6 +30,7 @@ from artifex.qualification.readiness_diagnostics import (
     _read_session,
     diagnose_qualification_readiness,
 )
+from artifex.qualification.readiness_recheck import _observed
 
 _SESSION_NAME = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
 # Do not scan an unbounded foreign / malformed directory tree.
@@ -75,6 +77,56 @@ class StageOverview(BaseModel):
     independently_revalidated: Literal[False] = False
 
 
+class RemediationTriage(BaseModel):
+    """Action-plan disposition after one live snapshot; no commands executed."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    step_id: str
+    role: Literal["pc_a", "pc_b"]
+    state: Literal[
+        "observed_live", "unavailable", "requires_local_pc_b",
+        "not_executed", "operator_review", "real_machine_evidence",
+    ]
+    blocked_checks: tuple[str, ...]
+    next_action: str
+    commands_executed: Literal[False] = False
+
+
+def _triage_step(
+    step: RemediationStep, report: QualificationReadiness, *,
+    fresh: bool,
+) -> RemediationTriage:
+    if step.safety == "read_only":
+        sample = _observed(step, report)
+        state = sample.state if fresh else "unavailable"
+        if state == "observed_live":
+            guidance = (
+                "Already sampled from PC-A in the current read-only diagnostic. "
+                "Check the FAIL/UNKNOWN values; observation is not resolution."
+            )
+        elif state == "requires_local_pc_b":
+            guidance = (
+                "Needs a native PC-B inspection during an appropriate safe window. "
+                "Never remotely execute the suggested PC-B command."
+            )
+        else:
+            guidance = (
+                "Read-only probe unavailable or not allowlisted. Check configuration "
+                "and connectivity; retry only through the fixed PC-A readiness path."
+            )
+    elif step.safety == "review_required":
+        state = "operator_review"
+        guidance = step.description
+    else:
+        state = "real_machine_evidence"
+        guidance = step.description
+    return RemediationTriage(
+        step_id=step.id, role=step.role, state=state,
+        blocked_checks=step.blocked_checks, next_action=guidance,
+    )
+
+
 class QualificationOverview(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -96,6 +148,11 @@ class QualificationOverview(BaseModel):
     stages: tuple[StageOverview, ...]
     next_priority: str
     next_safe_command: tuple[str, ...] | None
+    remediation_triage: tuple[RemediationTriage, ...]
+    already_sampled_read_only: tuple[str, ...]
+    unavailable_read_only: tuple[str, ...]
+    pc_b_local_checks_required: tuple[str, ...]
+    operator_review_required: tuple[str, ...]
     readiness: QualificationReadiness
     action_plan: QualificationActionPlan
 
@@ -178,17 +235,46 @@ def compile_qualification_overview(
             evidence_kind=kind,
             next_action=None if stored in ("pass", "skipped") else _GUIDANCE[kind],
         ))
-    safe = next(
-        (step for step in plan.steps
-         if step.safety == "read_only" and step.role == "pc_a" and step.argv is not None),
-        None,
+    triage = tuple(
+        _triage_step(step, report, fresh=plan.snapshot_fresh)
+        for step in plan.steps
+    )
+    already_sampled = tuple(
+        item.step_id for item in triage if item.state == "observed_live"
+    )
+    unavailable = tuple(
+        item.step_id for item in triage
+        if item.state in ("unavailable", "not_executed")
+    )
+    pc_b_local = tuple(
+        item.step_id for item in triage if item.state == "requires_local_pc_b"
+    )
+    review = tuple(
+        item.step_id for item in triage if item.state == "operator_review"
     )
     if not plan.environment_ready_observed:
-        priority = (
-            safe.description if safe is not None else
-            "Resolve the listed PC-A/PC-B review-required readiness blockers without restarting ComfyUI."
+        # PC-A already ran the fixed read-only probes exactly once. Repeating
+        # the same command immediately would not repair failed checks.
+        # Prefer local PC-A human/config review over requesting PC-B action.
+        manual_pc_a = next(
+            (item for item in triage
+             if item.role == "pc_a" and item.state == "operator_review"), None,
         )
-        command = safe.argv if safe is not None else None
+        manual_pc_b = next(
+            (item for item in triage
+             if item.state == "requires_local_pc_b"), None,
+        )
+        manual_other = next(
+            (item for item in triage if item.state == "operator_review"), None,
+        )
+        blocker = manual_pc_a or manual_pc_b or manual_other
+        priority = (
+            blocker.next_action if blocker is not None else
+            "PC-A has attempted the available read-only checks. Inspect the "
+            "reported FAIL/UNKNOWN results and restore access or prerequisites "
+            "before rechecking; never force a ComfyUI restart."
+        )
+        command = None
     elif selected is None:
         priority = (
             "Start a real PC-A qualification session explicitly after confirming the "
@@ -214,5 +300,10 @@ def compile_qualification_overview(
         recorded_pass_count=passed, recorded_skipped_count=skipped,
         unresolved_stage_count=unresolved, stages=tuple(stages),
         next_priority=priority, next_safe_command=command,
+        remediation_triage=triage,
+        already_sampled_read_only=already_sampled,
+        unavailable_read_only=unavailable,
+        pc_b_local_checks_required=pc_b_local,
+        operator_review_required=review,
         readiness=report, action_plan=plan,
     )
