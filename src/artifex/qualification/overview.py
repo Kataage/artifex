@@ -15,14 +15,14 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
-from artifex.qualification.owner_handoff import (
-    PCBOwnerCorrelation,
-    correlate_pc_b_owner_report,
-)
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     QualificationStage,
     QualificationStatus,
+)
+from artifex.qualification.owner_handoff import (
+    PCBOwnerCorrelation,
+    correlate_pc_b_owner_report,
 )
 from artifex.qualification.readiness_action_plan import (
     QualificationActionPlan,
