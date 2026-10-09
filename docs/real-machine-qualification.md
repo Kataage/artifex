@@ -242,6 +242,42 @@ current PC-B, handoff cannot recommend a qualification session start.
 While this release removes manual reconstruction of the report, securely
 transporting a trace from PC-B to PC-A is still required. Never stop a
 live ComfyUI task solely to create a survival trace.
+## PC-A + PC-B read-only installation audit (Issue #93 / #40)
+
+Use the ONE read-only PC-A command below to check whether the two real
+Windows installations have the prerequisites for passive monitoring:
+
+```powershell
+uv run artifex qualify pair-install-audit --config .\config\local.yaml --json
+```
+
+The local PC-A inspection verifies the **Artifex-Controller** Task Scheduler
+registration, current Python action/config ownership and state. PC-A also
+fetches the fresh PC-B `GET /v1/installation-audit` over the already configured
+Bearer-authenticated attestation URL. PC-B separately inspects the protected
+`Artifex-Renderer` and `Artifex-Survival-Observer` Task Scheduler actions,
+configured managed ComfyUI mode and passive evidence-spool metadata.
+
+Results include `ready_for_passive_monitoring`, `pc_a_needs_setup`,
+`pc_b_needs_setup`, `pc_b_unreachable`, `pc_b_unconfigured`, and
+`unsupported_platform`. Each check distinguishes missing registration,
+registered-but-not-running, unsafe/foreign/task-policy drift, or unavailable
+native inspection. A not-yet-created survival evidence directory is
+normal before any event; the report lists the missing evidence separately.
+
+**Security:** the PC-B endpoint requires Bearer authentication, accepts
+no query parameters or file paths, and returns only small typed status
+codes (not original Python arguments, task execution paths, receipt files,
+token variables or service credentials). PC-A rejects redirects,
+over-sized responses, wrong node IDs and stale remote snapshots. Offline
+PC-B is reported as unreachable; there is no attempt to start it.
+
+All output includes `production_qualified=false` and does not certify real
+GPU output, child survival, 8-hour soak or any of the 14 actual stages.
+No commands, GPU jobs, Task Scheduler changes, process starts/stops or
+automatic repairs occur. For a missing PC-B observer, run the **dry-run**
+`uv run artifex startup observer-enable --config config/render-node.yaml --json`
+directly on PC-B; only operator-requested `--apply` changes its own task.
 ## Independent unattended Windows survival watcher (PC-B)
 
 The passive watcher has its own native Windows Task Scheduler registration

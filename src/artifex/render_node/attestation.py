@@ -21,6 +21,7 @@ from artifex.loras.safetensors import (
     read_safetensors_metadata,
     sha256_file,
 )
+from artifex.render_node.installation_audit import inspect_renderer_installation
 from artifex.render_node.models import (
     RenderAssetDigest,
     RenderLoRAInventoryItem,
@@ -271,10 +272,12 @@ def serve_attestation(
             protected_path = url.path in {
                 "/v1/owner-audit", "/v1/renderer-safety",
                 "/v1/owner-readiness-evidence", "/v1/survival-evidence",
+                "/v1/installation-audit",
             }
             if url.path not in {
                 "/v1/attestation", "/v1/owner-audit", "/v1/renderer-safety",
                 "/v1/owner-readiness-evidence", "/v1/survival-evidence",
+                "/v1/installation-audit",
             }:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
@@ -285,6 +288,31 @@ def serve_attestation(
                 # /health and legacy attestation can be configured public,
                 # but owner and safety evidence always require a Bearer token.
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
+            if url.path == "/v1/installation-audit":
+                if (
+                    url.query or owner_config is None
+                    or owner_config.is_symlink() or not owner_config.is_file()
+                ):
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "installation_audit_unconfigured"},
+                    )
+                    return
+                try:
+                    result = inspect_renderer_installation(
+                        settings, owner_config=owner_config,
+                    )
+                except Exception:  # noqa: BLE001 - no paths or tokens in errors
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "installation_audit_failed"},
+                    )
+                    return
+                self._json(HTTPStatus.OK, {
+                    "node_id": settings.render_agent.node_id,
+                    "audit": result.model_dump(mode="json"),
+                })
                 return
             if url.path == "/v1/survival-evidence":
                 if url.query:
