@@ -173,10 +173,13 @@ def _observed(
                 f"pc_b:safety:{name}" in keys
                 for name in ("overall", "freshness", "three_ports", "pid_consistency")
             )
-        else:
+        elif step.id == "pc-a-preflight":
             visible = any(
-                key.startswith(("pc_a:preflight:", "pc_b:preflight:"))
-                for key in keys
+                key.startswith("pc_a:preflight:") for key in keys
+            ) and "pc_a:preflight:probe" not in keys
+        else:  # pc-b-connectivity: remote checks made through PC-A preflight
+            visible = any(
+                key.startswith("pc_b:preflight:") for key in keys
             ) and "pc_a:preflight:probe" not in keys
         return ReadOnlyObservation(
             step_id=step.id,

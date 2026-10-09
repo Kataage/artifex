@@ -147,9 +147,11 @@ def test_unready_pc_a_is_prioritized_before_saved_stage_evidence(
     )
     assert result.session_selection == "explicit"
     assert result.environment_ready is False
-    assert result.next_safe_command is not None
-    assert result.next_safe_command[3:5] == ("preflight", "--config")
-    assert result.next_safe_command[-2] == str(Path("C:/my config/controller.yaml"))
+    assert result.next_safe_command is None
+    assert result.already_sampled_read_only == ("pc-a-preflight",)
+    assert result.operator_review_required == ()
+    assert "already" not in result.next_priority.lower()
+    assert "read-only checks" in result.next_priority
     assert result.recorded_pass_count == 0
     assert result.production_qualified is False
     assert result.action_plan.steps[-1].safety == "real_machine_evidence"
@@ -233,6 +235,104 @@ def test_overview_cli_is_json_only_no_gpu_no_clobber(
     assert second.exit_code == 1
     assert json.loads(output.read_text(encoding="utf-8")) == payload
 
+
+
+
+def test_blocker_triage_avoids_false_remote_sampling_and_pc_b_command_execution(
+    tmp_path: Path,
+) -> None:
+    # An unrelated PC-A preflight check must not count as having sampled the
+    # PC-B LAN endpoint or protected renderer inspection.
+    root = tmp_path / "evidence"
+    ident = "20261009T120000Z-bbbbbbbb"
+    _session(root, ident)
+    statuses = {stage.value: "pending" for stage in REQUIRED_STAGES}
+    report = QualificationReadiness(
+        captured_utc=NOW, primary_node_id="gpu-b", environment_ready=False,
+        recorded_stages=statuses,
+        checks=(
+            ReadinessCheck(
+                target="pc_a", name="preflight:llm_lan", status="fail",
+                reason="No local endpoint",
+            ),
+            ReadinessCheck(
+                target="pc_b", name="owner:remote_probe", status="unknown",
+                reason="Missing authenticated endpoint",
+            ),
+            ReadinessCheck(
+                target="pc_b", name="preflight:render_inventory",
+                status="fail", reason="Inventory not proven",
+            ),
+            ReadinessCheck(
+                target="pc_b", name="safety:remote_probe",
+                status="unknown", reason="Unreachable service",
+            ),
+        ),
+    )
+    observed = compile_qualification_overview(
+        _settings(root), session_id=ident, readiness=report, now=NOW,
+    )
+    triage = {item.step_id: item for item in observed.remediation_triage}
+    assert triage["pc-a-preflight"].state == "observed_live"
+    assert "pc-b-connectivity" not in triage  # no LAN failure was reported
+    assert triage["pc-b-owner"].state == "unavailable"
+    assert triage["pc-a-remote-renderer-safety"].state == "unavailable"
+    assert triage["pc-b-inventory"].state == "requires_local_pc_b"
+    assert "pc-b-inventory" in observed.pc_b_local_checks_required
+    assert "pc-b-owner" in observed.unavailable_read_only
+    assert "pc-a-preflight" in observed.already_sampled_read_only
+    assert all(item.commands_executed is False for item in observed.remediation_triage)
+    assert observed.next_safe_command is None
+    assert not observed.production_qualified
+
+
+def test_triage_reports_manual_pc_a_repair_before_any_pc_b_work(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "evidence"
+    report = QualificationReadiness(
+        captured_utc=NOW, primary_node_id="gpu-b", environment_ready=False,
+        checks=(
+            ReadinessCheck(
+                target="pc_a", name="remote_owner_auth", status="fail",
+                reason="PC-A token missing",
+            ),
+            ReadinessCheck(
+                target="pc_b", name="preflight:render_inventory",
+                status="fail", reason="Not verified",
+            ),
+        ),
+    )
+    overview = compile_qualification_overview(
+        _settings(root), readiness=report, now=NOW,
+    )
+    assert "pc-a-config" in overview.operator_review_required
+    assert "pc-b-inventory" in overview.pc_b_local_checks_required
+    assert "token environment" in overview.next_priority
+    assert overview.next_safe_command is None
+    assert overview.commands_executed is False
+
+
+def test_stale_injected_readiness_never_claims_live_observation(
+    tmp_path: Path,
+) -> None:
+    old = QualificationReadiness(
+        captured_utc=NOW - timedelta(hours=2),
+        environment_ready=True, primary_node_id="gpu-b",
+        checks=(
+            ReadinessCheck(
+                target="pc_a", name="preflight:llm_lan",
+                status="fail", reason="Old report",
+            ),
+        ),
+    )
+    overview = compile_qualification_overview(
+        _settings(tmp_path / "evidence"), readiness=old, now=NOW,
+    )
+    assert overview.already_sampled_read_only == ()
+    assert "refresh-readiness" in overview.unavailable_read_only
+    assert overview.environment_ready is False
+    assert overview.production_qualified is False
 
 def test_explicit_session_absence_and_mismatching_injected_stage_are_errors(
     tmp_path: Path,
