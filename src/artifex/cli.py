@@ -3066,17 +3066,28 @@ def qualify_collect(
         ),
     ] = False,
     max_packs: Annotated[
-        int, typer.Option("--max-packs", min=1, max=1000),
+        int, typer.Option(
+            "--max-packs", min=1, max=1000,
+            help="Finalized Pack query page size (not total scan limit).",
+        ),
     ] = 250,
+    scan_limit: Annotated[
+        int, typer.Option(
+            "--scan-limit", min=1, max=100000,
+            help="Maximum post-session Packs scanned per invocation (default 10000).",
+        ),
+    ] = 10000,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
-    """Collect post-session completed Packs and real Discord proof; no GPU work."""
+    """Paginate verified post-session Packs and Discord proof; no GPU work."""
     core = build_core(_settings(config))
     try:
         service = _qualification_service(core)
         report = QualificationEvidenceCollector(
             service, core.database
-        ).collect(session_id, apply=apply, max_packs=max_packs)
+        ).collect(
+            session_id, apply=apply, max_packs=max_packs, scan_limit=scan_limit,
+        )
         _print_payload(report, as_json=json_output)
     except (KeyError, OSError, TypeError, ValueError, RuntimeError) as exc:
         typer.echo(f"qualify collect error: {exc}", err=True)
