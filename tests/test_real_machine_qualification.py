@@ -272,6 +272,30 @@ def _event(
         )
 
 
+def _daemon_completion_evidence(
+    database: Database,
+    pack_ids: tuple[str, ...],
+    *,
+    run_id: str = "a" * 32,
+    start_offset: int = 1,
+) -> None:
+    """Seed realistic persistent scheduler telemetry (not a qualification bypass)."""
+    _event(
+        database, "daemon.loop_started", {"run_id": run_id},
+        offset_seconds=start_offset,
+    )
+    for index, pack_id in enumerate(pack_ids, start=start_offset + 1):
+        _event(
+            database, "daemon.pack_finalized",
+            {"run_id": run_id, "pack_id": pack_id},
+            offset_seconds=index,
+        )
+    _event(
+        database, "daemon.loop_stopped", {"run_id": run_id},
+        offset_seconds=start_offset + len(pack_ids) + 2,
+    )
+
+
 def _bound_soak_trace(
     service: QualificationService,
     settings: ArtifexSettings,
@@ -504,6 +528,11 @@ def test_collect_qualifications_uses_only_new_finalized_packs_and_is_idempotent(
     assert by_stage["backend_recovery"]["state"] == "missing"
     assert service.load(session.session_id).stage(QualificationStage.SINGLE_CHARACTER).status is QualificationStatus.PENDING
 
+    # A finalized Pack triple alone is not evidence of autonomous dispatch.
+    assert by_stage["unattended_multi_pack"]["state"] == "missing"
+    _daemon_completion_evidence(
+        database, (new["single"], new["duo"], new["group"]),
+    )
     first = collector.collect(session.session_id, apply=True)
     done = {item["stage"]: item for item in first["stages"]}
     assert done["single_character"]["state"] == "recorded"
@@ -562,6 +591,57 @@ def test_collect_qualification_excludes_bad_manifests_and_rejects_stale_baseline
     with pytest.raises(ValueError, match="configuration changed"):
         collector.collect(session.session_id, apply=True)
     assert service.load(session.session_id).stage(QualificationStage.SINGLE_CHARACTER).status is QualificationStatus.PENDING
+    database.dispose()
+
+
+
+def test_unattended_stage_cannot_be_passed_by_three_manual_finalized_packs(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    ids = tuple(
+        _seed_pack(
+            database, tmp_path, f"manual-pack-{index}",
+            character_ids=("char-2",),
+        )
+        for index in range(3)
+    )
+    collector = QualificationEvidenceCollector(service, database)
+
+    initial = collector.collect(session.session_id, apply=True)
+    status = {x["stage"]: x for x in initial["stages"]}
+    assert status["unattended_multi_pack"]["state"] == "missing"
+    assert service.load(session.session_id).stage(
+        QualificationStage.UNATTENDED_MULTI_PACK,
+    ).status is QualificationStatus.PENDING
+    with pytest.raises(ValueError, match="continuous daemon"):
+        service.record(
+            session.session_id, QualificationStage.UNATTENDED_MULTI_PACK,
+            status=QualificationStatus.PASS, pack_ids=ids,
+        )
+
+    # Two different daemon runs cannot be pooled to fabricate three
+    # uninterrupted completed Packs.
+    _daemon_completion_evidence(database, ids[:2], run_id="b" * 32)
+    _daemon_completion_evidence(database, ids[2:], run_id="c" * 32, start_offset=8)
+    split = collector.collect(session.session_id)
+    status = {x["stage"]: x for x in split["stages"]}
+    assert status["unattended_multi_pack"]["state"] == "missing"
+
+    # Three archived Packs from a single full daemon loop can be recognized
+    # without asking the operator to supply Pack IDs.
+    _daemon_completion_evidence(database, ids, run_id="d" * 32, start_offset=13)
+    checked = collector.collect(session.session_id, apply=True)
+    stage = next(
+        x for x in checked["stages"] if x["stage"] == "unattended_multi_pack"
+    )
+    assert stage["state"] == "recorded"
+    assert stage["pack_ids"] == list(ids)
+    observed = service.load(session.session_id).stage(
+        QualificationStage.UNATTENDED_MULTI_PACK,
+    )
+    assert observed.details["daemon_run_id"] == "d" * 32
     database.dispose()
 
 
@@ -703,6 +783,8 @@ def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
             {"component": component, "state": state},
             offset_seconds=offset,
         )
+
+    _daemon_completion_evidence(database, (single, duo, group))
 
     reproduction_path, reproduction_proof = _reproduce_fixture(
         service, database, tmp_path, settings, session.session_id, single,
