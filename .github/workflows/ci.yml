@@ -53,6 +53,7 @@ jobs:
       - run: uv run pytest -q tests/test_real_machine_qualification.py -k "parallel_stage_writers or competing_pass_records or auto_collector_conflict"
       - run: uv run pytest -q tests/test_real_machine_qualification.py -k "automatic_collection"
       - run: uv run pytest -q tests/test_onboarding_pair_sync.py
+      - run: uv run pytest -q tests/test_first_run.py
       - run: uv run pytest -q tests/test_onboarding_renderer_auto.py
       - run: uv run pytest -q tests/test_renderer_startup_inspection.py
       - run: uv run pytest -q tests/test_renderer_startup_inspection.py -k 'service_pids or service_listeners or invalid_managed_command_line or windows_tcp_timeout'
