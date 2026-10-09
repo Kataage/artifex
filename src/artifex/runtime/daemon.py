@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from typing import Protocol
+from uuid import uuid4
 
 from artifex.config.models import AgentConfig
 from artifex.domain import AgentState
 from artifex.runtime.store import RuntimeStore
 from artifex.scheduler import Scheduler, SchedulerAction, SchedulerDecision
+from artifex.telemetry import EventSeverity, TelemetryRepository
 
 
 class RuntimeMaintenance(Protocol):
@@ -44,6 +46,7 @@ class RuntimeDaemon:
         *,
         maintenance: RuntimeMaintenance | None = None,
         idle_maintenance: RuntimeMaintenance | None = None,
+        telemetry: TelemetryRepository | None = None,
     ) -> None:
         self._runtime = runtime
         self._scheduler = scheduler
@@ -52,6 +55,10 @@ class RuntimeDaemon:
         self._maintenance = maintenance
         self._idle_maintenance = idle_maintenance
         self._stop_requested = False
+        self._telemetry = telemetry
+        # Present only for work scheduled inside a continuous daemon loop.
+        # Manual run_once calls never produce unattended production evidence.
+        self._continuous_run_id: str | None = None
 
     def start(self) -> AgentState:
         state = self._runtime.reconcile_process_start()
@@ -115,14 +122,35 @@ class RuntimeDaemon:
             if decision.pack_id is None:
                 raise RuntimeError("RUN_PACK decision missing pack_id")
             await self._handler.run_pack(decision.pack_id)
+            self._record_unattended_completion(decision.pack_id)
         elif decision.action is SchedulerAction.RECOVER_PACK:
             if decision.pack_id is None:
                 raise RuntimeError("RECOVER_PACK decision missing pack_id")
             await self._handler.recover_pack(decision.pack_id)
+            self._record_unattended_completion(decision.pack_id)
         return decision
+
+    def _record_unattended_completion(self, pack_id: str) -> None:
+        if (
+            self._telemetry is None
+            or self._continuous_run_id is None
+            or not self._scheduler.is_finalized_pack(pack_id)
+        ):
+            return
+        self._telemetry.record(
+            "daemon.pack_finalized", EventSeverity.INFO,
+            {"pack_id": pack_id, "run_id": self._continuous_run_id},
+        )
+
 
     async def run_forever(self) -> None:
         self.start()
+        run_id = uuid4().hex
+        self._continuous_run_id = run_id
+        if self._telemetry is not None:
+            self._telemetry.record(
+                "daemon.loop_started", EventSeverity.INFO, {"run_id": run_id},
+            )
         try:
             while not self._stop_requested:
                 if self._maintenance is not None:
@@ -135,6 +163,11 @@ class RuntimeDaemon:
                     await self._idle_maintenance.maintain()
                 await asyncio.sleep(self._config.poll_interval_seconds)
         finally:
+            self._continuous_run_id = None
+            if self._telemetry is not None:
+                self._telemetry.record(
+                    "daemon.loop_stopped", EventSeverity.INFO, {"run_id": run_id},
+                )
             current = self._runtime.get_agent_state()
             if current is not AgentState.STOPPED:
                 if current is not AgentState.STOPPING:
