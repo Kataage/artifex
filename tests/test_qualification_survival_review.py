@@ -261,5 +261,5 @@ def test_overview_and_handoff_cli_forward_optional_trace_only(
             "qualify", command, "--config", str(cfg),
             "--pc-b-survival-report", str(survival), "--json",
         ])
-        assert result.exit_code == 1, result.output
+        assert result.exit_code == (0 if command == "overview" else 1), result.output
     assert captured == [("overview", survival), ("handoff", survival)]
