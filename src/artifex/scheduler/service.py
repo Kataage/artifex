@@ -88,6 +88,20 @@ class Scheduler:
                 .limit(1)
             )
 
+    def is_finalized_pack(self, pack_id: str) -> bool:
+        """Check persisted archive completion before daemon emits proof.
+
+        A scheduler dispatch alone does not prove completed image work.
+        """
+        with self._database.session() as session:
+            pack = session.get(PackRow, pack_id)
+            return bool(
+                pack is not None
+                and pack.state == PackState.FINALIZED.value
+                and pack.checkpoint_json.get("archive_complete") is True
+                and pack.checkpoint_json.get("archive_manifest_sha256")
+            )
+
     def decide(self) -> SchedulerDecision:
         state = self._runtime.get_agent_state()
         if state is not AgentState.RUNNING:
