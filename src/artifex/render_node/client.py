@@ -6,6 +6,7 @@ import httpx
 
 from artifex.config.models import RenderNodeConfig
 from artifex.render_node.models import RemoteRendererOwnerAudit, RenderNodeAttestation
+from artifex.render_node.startup_inspection import RemoteRendererSafetyInspection
 
 
 def fetch_render_attestation(
@@ -86,3 +87,48 @@ def fetch_renderer_owner_audit(
     if observed.node_id != node_id:
         raise ValueError("remote owner audit node ID does not match configured node")
     return observed
+
+
+def fetch_renderer_safety_inspection(
+    node_id: str,
+    config: RenderNodeConfig,
+    *,
+    timeout_seconds: float = 90.0,
+    client: httpx.Client | None = None,
+) -> RemoteRendererSafetyInspection:
+    """Fetch uncached PC-B three-port safety over the existing Bearer channel.
+
+    This is strictly observational; even `owned_observed` never authorizes
+    startup, reattachment, GPU submission or production qualification.
+    """
+    if not config.attestation_url:
+        raise ValueError(f"render node {node_id} has no attestation_url configured")
+    if not config.attestation_token_env:
+        raise ValueError("remote safety requires a configured attestation token")
+    token = os.environ.get(config.attestation_token_env)
+    if not token:
+        raise ValueError("remote safety attestation token is missing")
+    url = config.attestation_url.rstrip("/") + "/v1/renderer-safety"
+    owns_client = client is None
+    http = client or httpx.Client(
+        timeout=httpx.Timeout(timeout_seconds),
+        follow_redirects=False,
+        trust_env=False,
+    )
+    try:
+        response = http.get(
+            url, headers={"Authorization": f"Bearer {token}"},
+            timeout=timeout_seconds, follow_redirects=False,
+        )
+        response.raise_for_status()
+        if len(response.content) > 64 * 1024:
+            raise ValueError("remote safety response exceeds size limit")
+        observation = RemoteRendererSafetyInspection.model_validate(response.json())
+    finally:
+        if owns_client:
+            http.close()
+    if observation.node_id != node_id:
+        raise ValueError("remote safety node ID mismatch")
+    if observation.inspection.renderer_node_id != node_id:
+        raise ValueError("remote safety inspection renderer ID mismatch")
+    return observation
