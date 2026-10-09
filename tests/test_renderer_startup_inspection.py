@@ -141,9 +141,11 @@ def test_foreign_or_exposed_listener_is_not_adopted(
 
 def test_audit_unknown_or_missing_check_cannot_fake_owned_listener() -> None:
     for remove in ["receipt", "tcp_ownership", "scheduler_policy"]:
-        def owner(settings: ArtifexSettings, *, config: Path) -> dict[str, Any]:
+        def owner(
+            settings: ArtifexSettings, *, config: Path, removed: str = remove,
+        ) -> dict[str, Any]:
             payload = _audit(settings, config=config)
-            del payload["checks"][remove]
+            del payload["checks"][removed]
             return payload
 
         result = inspect_renderer_startup(
