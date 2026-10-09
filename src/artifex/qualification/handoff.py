@@ -206,6 +206,7 @@ async def inspect_qualification_handoff(
     renderer_config: Path = Path("config/render-node.yaml"),
     pc_b_owner_live: bool = True,
     pc_b_survival_report: Path | None = None,
+    pc_b_survival_live: bool = False,
     overview_fn: Callable[..., QualificationOverview] = compile_qualification_overview,
     deployment_fn: Callable[..., Awaitable[DeploymentReport]] = verify_deployment,
 ) -> QualificationHandoff:
@@ -220,6 +221,7 @@ async def inspect_qualification_handoff(
         renderer_config=renderer_config,
         pc_b_owner_live=pc_b_owner_live,
         pc_b_survival_report=pc_b_survival_report,
+        pc_b_survival_live=pc_b_survival_live,
     )
     deployment = await deployment_fn(
         settings, role="controller", require_autostart=False, render_smoke=False,

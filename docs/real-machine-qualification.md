@@ -162,6 +162,50 @@ the file, ComfyUI child survival after supervisor loss, actual GPU
 performance, or Issue #93/#40 completion. `file_source_authenticated=false`,
 `stage_pass_registered=false`, `production_qualified=false`, and
 `renderer_restart_authorized=false` are hard-coded in the correlation.
+## Authenticated PC-B survival report pickup without file copying
+
+PC-B writes an immutable observer trace automatically to the configured
+`render_agent.survival_evidence_dir` (default `data/qualification/survival`)
+when `render-node survival-observe` is run WITHOUT `--output`. Existing
+`--output` remains available, but a custom path outside the spool cannot
+be picked up through this API. No supervisor exit is triggered by this command.
+
+```powershell
+uv run artifex render-node survival-observe --config .\config\render-node.yaml --duration-seconds 600 --interval-seconds 10 --json
+```
+
+When the PC-B attestation service is running, its Bearer-protected
+`GET /v1/survival-evidence` reads ONLY the newest correctly named report
+in the configured local spool (up to 512 candidates). The URL accepts
+NO filename, file path, query parameters, POST body, or remote commands.
+An absent, symlinked, malformed or oversize newest file fails closed:
+the service never searches backward for an older apparently good trace.
+Files survive the attestation service stopping and can be read once it
+returns. A temporarily offline service remains unavailable: there is
+no separate relay or hidden restart of the existing ComfyUI renderer.
+
+PC-A can request and verify that latest file with NO manual file copy:
+
+```powershell
+uv run artifex qualify overview --config .\config\local.yaml --pc-b-survival-live --json
+uv run artifex qualify handoff --config .\config\local.yaml --pc-b-survival-live --json
+```
+
+This is an explicit optional read-only review. Passing both
+`--pc-b-survival-live` and `--pc-b-survival-report` is rejected.
+The previous file-based evidence review is still supported.
+PC-A requires its configured node ID and Bearer token, refuses HTTP
+redirects, caps network bytes, verifies the SHA-256 of the exact
+saved UTF-8 payload, replays the complete trace, and cross-checks
+against the fresh owner audit/attestation if the service is available.
+
+**Bearer-authenticated transport is not independently signed evidence
+of what happened on PC-B.** A valid remote response can still carry
+tampered historical observations. Even `replayed_and_live_identity_matched`
+does not establish that a natural exit really occurred and never
+authorizes a restart, production GPU job, stage PASS or Issue #93/#40 closure.
+If there is no naturally observed exit, the newest report remains
+`inconclusive` and the reviewer must not silently use an older success.
 ## PC-A review of saved PC-B natural-exit evidence (Issue #93)
 
 PR #120 can record a passive survival trace on the real PC-B, even when its

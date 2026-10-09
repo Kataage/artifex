@@ -15,9 +15,14 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
-from artifex.render_node.client import fetch_render_attestation, fetch_renderer_owner_audit
+from artifex.render_node.client import (
+    fetch_remote_survival_trace,
+    fetch_render_attestation,
+    fetch_renderer_owner_audit,
+)
 from artifex.render_node.models import (
     RemoteRendererOwnerAudit,
+    RemoteSurvivalTrace,
     RenderNodeAttestation,
 )
 from artifex.render_node.supervisor_survival import (
@@ -36,7 +41,7 @@ _EXACT_CHECKS = {
 State = Literal[
     "replayed_and_live_identity_matched",
     "replayed_historical_identity", "replayed_live_unavailable",
-    "blocked", "mismatch",
+    "blocked", "mismatch", "remote_unavailable",
 ]
 
 
@@ -57,6 +62,8 @@ class PCBSurvivalEvidenceReview(BaseModel):
     historical_listener_pid: int | None = None
     current_listener_pid: int | None = None
     source_authenticated: Literal[False] = False
+    source_mode: Literal["transferred_file", "bearer_remote"] = "transferred_file"
+    remote_bearer_checked: bool = False
     historical_event_authenticated: Literal[False] = False
     independent_supervisor_survival_qualified: Literal[False] = False
     real_gpu_qualified: Literal[False] = False
@@ -77,9 +84,13 @@ def _recent(ts: datetime, now: datetime) -> bool:
 
 def review_pc_b_survival_evidence(
     settings: ArtifexSettings,
-    path: Path,
+    path: Path | None,
     *,
+    remote: bool = False,
     now: datetime | None = None,
+    remote_probe: Callable[[str, RenderNodeConfig], RemoteSurvivalTrace] = (
+        fetch_remote_survival_trace
+    ),
     owner_probe: Callable[[str, RenderNodeConfig], RemoteRendererOwnerAudit] = (
         fetch_renderer_owner_audit
     ),
@@ -97,10 +108,13 @@ def review_pc_b_survival_evidence(
     replayed = False
     live_host: str | None = None
     live_pid: int | None = None
+    remote_ok = False
 
     def result(status: State, reason: str) -> PCBSurvivalEvidenceReview:
         return PCBSurvivalEvidenceReview(
             reviewed_utc=current, status=status, reason=reason,
+            source_mode="bearer_remote" if remote else "transferred_file",
+            remote_bearer_checked=remote_ok,
             evidence_sha256=digest,
             claimed_event=recorded.status if recorded else None,
             trace_replayed=replayed,
@@ -115,22 +129,47 @@ def review_pc_b_survival_evidence(
             current_listener_pid=live_pid,
         )
 
-    source = path.expanduser().absolute()
-    try:
-        if any(entry.is_symlink() for entry in (source, *source.parents)):
-            return result("blocked", "evidence_path_is_symlinked")
-        if not source.is_file() or not 0 < source.stat().st_size <= _MAX_BYTES:
-            return result("blocked", "evidence_missing_empty_or_oversized")
-        raw = source.read_bytes()
-        if not 0 < len(raw) <= _MAX_BYTES:
-            return result("blocked", "evidence_oversized")
-        digest = hashlib.sha256(raw).hexdigest()
-        recorded = SurvivalAssessment.model_validate_json(raw)
-    except (OSError, ValueError, TypeError):
-        return result("blocked", "evidence_invalid_or_unreadable")
     if expected is None:
         return result("blocked", "pc_a_primary_renderer_not_configured")
     node, cfg = expected
+    if remote:
+        if path is not None:
+            return result("blocked", "survival_file_and_remote_are_mutually_exclusive")
+        try:
+            received = remote_probe(node, cfg)
+        except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError):
+            return result("remote_unavailable", "pc_b_saved_survival_trace_unavailable")
+        if received.node_id != node:
+            return result("blocked", "remote_survival_node_mismatch")
+        try:
+            raw = received.content.encode("utf-8")
+            if not 0 < len(raw) <= _MAX_BYTES:
+                return result("blocked", "remote_survival_content_size_invalid")
+            digest = hashlib.sha256(raw).hexdigest()
+            if digest != received.sha256:
+                return result("blocked", "remote_survival_sha256_mismatch")
+            remote_ok = True
+        except (ValueError, UnicodeError):
+            return result("blocked", "remote_survival_payload_invalid")
+    else:
+        if path is None:
+            return result("blocked", "survival_file_not_supplied")
+        source = path.expanduser().absolute()
+        try:
+            if any(entry.is_symlink() for entry in (source, *source.parents)):
+                return result("blocked", "evidence_path_is_symlinked")
+            if not source.is_file() or not 0 < source.stat().st_size <= _MAX_BYTES:
+                return result("blocked", "evidence_missing_empty_or_oversized")
+            raw = source.read_bytes()
+            if not 0 < len(raw) <= _MAX_BYTES:
+                return result("blocked", "evidence_oversized")
+            digest = hashlib.sha256(raw).hexdigest()
+        except (OSError, ValueError, TypeError):
+            return result("blocked", "evidence_invalid_or_unreadable")
+    try:
+        recorded = SurvivalAssessment.model_validate_json(raw)
+    except (ValueError, TypeError):
+        return result("blocked", "evidence_invalid_or_unreadable")
     if (
         len(recorded.samples) < 3 or len(recorded.samples) > _MAX_SAMPLES
         or recorded.host != recorded.samples[0].host
@@ -226,3 +265,12 @@ def review_pc_b_survival_evidence(
         "replayed_and_live_identity_matched",
         "copied_trace_replayed_and_current_pc_b_process_matches",
     )
+
+
+def review_live_pc_b_survival_evidence(
+    settings: ArtifexSettings,
+    *,
+    now: datetime | None = None,
+) -> PCBSurvivalEvidenceReview:
+    """Retrieve the latest immutable PC-B trace with no manual file transfer."""
+    return review_pc_b_survival_evidence(settings, None, remote=True, now=now)
