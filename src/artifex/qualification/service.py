@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -462,6 +463,50 @@ class QualificationService:
         """Read a finalized Pack, including verified manifest and attempt evidence."""
         return self._pack_evidence(pack_id)
 
+    def unattended_run_packs(self, *, since: datetime) -> dict[str, tuple[str, ...]]:
+        """Find finalized Pack dispatch evidence from a *single* real daemon loop.
+
+        Three arbitrary archived Packs are NOT unattended proof. The daemon
+        records a run ID only while run_forever drives the scheduler; manual
+        run_once calls and direct CLI execution cannot manufacture these
+        events. Pruned/absent/conflicting telemetry fails closed.
+        """
+        with self._database.session() as db_session:
+            events = db_session.scalars(
+                select(AgentEventRow).where(
+                    AgentEventRow.event_type.in_((
+                        "daemon.loop_started",
+                        "daemon.loop_stopped",
+                        "daemon.pack_finalized",
+                    )),
+                    AgentEventRow.created_at >= since,
+                ).order_by(AgentEventRow.created_at.asc(), AgentEventRow.id.asc())
+            ).all()
+        runs: dict[str, list[str]] = {}
+        active: set[str] = set()
+        invalidated: set[str] = set()
+        for row in events:
+            run_id = row.payload_json.get("run_id")
+            if not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None:
+                continue
+            if row.event_type == "daemon.loop_started":
+                if run_id in runs:
+                    invalidated.add(run_id)
+                    active.discard(run_id)
+                    continue
+                runs[run_id] = []
+                active.add(run_id)
+            elif row.event_type == "daemon.loop_stopped":
+                active.discard(run_id)
+            elif run_id in active and run_id not in invalidated:
+                pack_id = row.payload_json.get("pack_id")
+                if isinstance(pack_id, str) and pack_id and pack_id not in runs[run_id]:
+                    runs[run_id].append(pack_id)
+        return {
+            key: tuple(packs) for key, packs in sorted(runs.items())
+            if key not in invalidated
+        }
+
     def validate_candidate(
         self,
         session: QualificationSession,
@@ -727,10 +772,32 @@ class QualificationService:
                     for at, state in transitions
                 ]
         elif stage is QualificationStage.UNATTENDED_MULTI_PACK:
-            if len(packs) < 3:
+            if len(packs) < 3 or len(set(pack_ids)) != len(packs):
                 raise ValueError(
-                    "unattended_multi_pack requires at least three finalized Packs"
+                    "unattended_multi_pack requires three distinct finalized Packs"
                 )
+            with self._database.session() as db_session:
+                rows = db_session.scalars(
+                    select(PackRow).where(PackRow.id.in_(pack_ids))
+                ).all()
+                if len(rows) != len(pack_ids) or any(
+                    row.created_at < since for row in rows
+                ):
+                    raise ValueError(
+                        "unattended_multi_pack contains a pre-session or missing Pack"
+                    )
+            runs = self.unattended_run_packs(since=since)
+            matching = [
+                run_id for run_id, completed in runs.items()
+                if set(pack_ids).issubset(completed)
+            ]
+            if not matching:
+                raise ValueError(
+                    "unattended_multi_pack lacks three finalized Packs dispatched "
+                    "and completed during one continuous daemon run"
+                )
+            details["daemon_run_id"] = matching[0]
+            details["daemon_pack_ids"] = list(pack_ids)
         elif stage is QualificationStage.OVERNIGHT_SOAK:
             if session is None:
                 raise ValueError("overnight_soak requires its qualification session")
