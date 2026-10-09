@@ -42,6 +42,7 @@ jobs:
       - run: uv run pytest -q tests/test_renderer_owner_audit.py
       - run: uv run pytest -q tests/test_qualification_renderer_owner_evidence.py
       - run: uv run pytest -q tests/test_soak_owner_continuity.py
+      - run: uv run pytest -q tests/test_remote_renderer_safety.py
       - run: uv run pytest -q tests/test_qualification_readiness_diagnostics.py
       - run: uv run pytest -q tests/test_qualification_readiness_action_plan.py
       - run: uv run pytest -q tests/test_qualification_readiness_recheck.py

@@ -125,6 +125,43 @@ is busy. The audit reports `restart_authorized=false` and
 `child_survival_qualified=false`; the real two-PC qualification remains
 required.
 
+## PC-A: inspect live PC-B safety without touching the renderer
+
+After updating both PCs to this revision and configuring the existing
+authenticated PC-B attestation endpoint, run the following from **PC-A**:
+
+```powershell
+uv run artifex qualify readiness --config .\\config\\local.yaml --json
+uv run artifex qualify plan --config .\\config\\local.yaml --json
+```
+
+PC-A uses the configured primary renderer ID, attestation URL and existing
+Bearer token environment variable to make **two uncached, read-only** remote
+observations: `/v1/owner-audit` and `/v1/renderer-safety`. The second
+endpoint includes current native Windows TCP inventory for ComfyUI, protected
+attestation and gateway, plus the local process/scheduler/receipt audit.
+No extra PC-B command is needed for a routine remote observation while the
+attestation service is already running. Do not pass tokens as command-line
+arguments or paste them into saved reports.
+
+The readiness output now independently checks that both observations are
+fresh (within 120 seconds, with at most 30 seconds of future clock skew), the
+reported ComfyUI execution PIDs agree, both sample times are reasonably
+close, all required owner checks pass, and the protected service ports have
+coherent listener ownership. An unavailable/older PC-B endpoint, missing
+credentials, a changing PID, a missing gateway, or a blocked safety report
+leaves `environment_ready=false`. Re-run from PC-A first. The action plan
+gives read-only remediation instructions; it never executes them.
+
+**Limit:** this is topology and process identity observation, not
+authentication proof for the gateway and never launch, reattach, restart or
+production permission. A healthy readiness result cannot replace native
+14-stage real-machine validation or the eight-hour GPU soak. On an older
+PC-B version without `/v1/renderer-safety`, the remote check is reported as
+unavailable rather than silently bypassed. Updating the service should
+happen only in an appropriate maintenance window; do not stop live ComfyUI
+to force a green result.
+
 ## PC-B: inspect existing ComfyUI before any startup or reattachment
 
 After `onboard renderer-auto` has created a proposed PC-B configuration,

@@ -23,6 +23,10 @@ from artifex.qualification.readiness_diagnostics import (
     diagnose_qualification_readiness,
 )
 from artifex.render_node.models import RemoteRendererOwnerAudit
+from artifex.render_node.startup_inspection import (
+    RemoteRendererSafetyInspection,
+    RendererStartupInspection,
+)
 
 REQUIRED = (
     "native_windows", "protected_configuration", "scheduler_policy",
@@ -75,6 +79,30 @@ def _remote(
     })
 
 
+def _safety(
+    *, status: str = "owned_observed", pid: int = 404,
+    age_seconds: int = 0, service_coherent: bool = True,
+    checks_pass: bool = True,
+) -> RemoteRendererSafetyInspection:
+    return RemoteRendererSafetyInspection(
+        node_id="gpu-b",
+        inspection=RendererStartupInspection(
+            captured_utc=NOW - timedelta(seconds=age_seconds),
+            status=status, renderer_node_id="gpu-b",
+            configured_comfyui_port=8188, configured_attestation_port=8190,
+            configured_gateway_port=8191,
+            config_protected=True, windows_native=True,
+            snapshots_consistent=True,
+            service_ports_coherent=service_coherent,
+            owner_audit_status="observed_stable",
+            actual_owned_listener_pid=pid,
+            owner_checks={
+                name: "pass" if checks_pass else "unknown" for name in REQUIRED
+            },
+        ),
+    )
+
+
 def _preflight(_: ArtifexSettings) -> ControllerPreflight:
     return ControllerPreflight(
         ready=True, renderer_id="gpu-b",
@@ -107,6 +135,7 @@ def test_readiness_reports_device_and_never_claims_production(
 
     report = diagnose_qualification_readiness(
         config, now=NOW, controller_probe=_preflight, owner_probe=owner,
+        safety_probe=lambda node, cfg: _safety(),
     )
     assert report.environment_ready
     assert report.primary_node_id == "gpu-b"
@@ -155,6 +184,7 @@ def test_readiness_fails_closed_for_pc_b_evidence(
 
     report = diagnose_qualification_readiness(
         settings, now=NOW, controller_probe=preflight, owner_probe=owner,
+        safety_probe=lambda node, cfg: _safety(),
     )
     assert report.environment_ready is False
     check = next(x for x in report.checks if x.name == name)
@@ -163,6 +193,55 @@ def test_readiness_fails_closed_for_pc_b_evidence(
     assert check.next_action
     assert report.next_actions
     assert report.actual_machine_qualification_complete is False
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("missing_services", "safety:three_ports"),
+        ("not_owned", "safety:overall"),
+        ("unknown_owner_check", "safety:overall"),
+        ("changed_pid", "safety:pid_consistency"),
+        ("stale", "safety:freshness"),
+        ("future", "safety:freshness"),
+        ("remote_down", "safety:remote_probe"),
+        ("wrong_node", "safety:remote_probe"),
+    ],
+)
+def test_unsafe_remote_three_port_evidence_never_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mode: str, expected: str,
+) -> None:
+    _prepare(monkeypatch)
+
+    def safety_probe(
+        node_id: str, config: RenderNodeConfig,
+    ) -> RemoteRendererSafetyInspection:
+        if mode == "remote_down":
+            raise httpx.ConnectError("unreachable")
+        if mode == "wrong_node":
+            raise ValueError("remote safety node ID mismatch")
+        return _safety(
+            status="service_ports_blocked" if mode == "not_owned" else "owned_observed",
+            service_coherent=mode != "missing_services",
+            checks_pass=mode != "unknown_owner_check",
+            pid=405 if mode == "changed_pid" else 404,
+            age_seconds=200 if mode == "stale" else -120 if mode == "future" else 0,
+        )
+
+    report = diagnose_qualification_readiness(
+        _settings(tmp_path), now=NOW,
+        controller_probe=_preflight,
+        owner_probe=lambda *args: _remote(),
+        safety_probe=safety_probe,
+    )
+    assert report.environment_ready is False
+    bad_check = next(x for x in report.checks if x.name == expected)
+    assert bad_check.status in {"fail", "unknown"}
+    assert bad_check.next_action
+    assert report.actual_machine_qualification_complete is False
+    assert report.actual_gpu_soak_verified is False
+    assert report.mutated_services is False
 
 
 def test_absent_auth_never_calls_remote_owner(
@@ -178,6 +257,7 @@ def test_absent_auth_never_calls_remote_owner(
 
     report = diagnose_qualification_readiness(
         _settings(tmp_path), now=NOW, controller_probe=_preflight, owner_probe=owner,
+        safety_probe=lambda *args: pytest.fail("No credentials: safety probe must not run"),
     )
     assert not report.environment_ready
     assert not calls
@@ -194,6 +274,7 @@ def test_missing_primary_does_not_spoof_pc_b_results(
     report = diagnose_qualification_readiness(
         settings, now=NOW, controller_probe=_preflight,
         owner_probe=lambda *args: pytest.fail("No primary renderer"),
+        safety_probe=lambda *args: pytest.fail("No primary renderer safety"),
     )
     assert not report.environment_ready
     assert report.primary_node_id is None
@@ -225,6 +306,7 @@ def test_session_records_are_not_revalidated_or_marked_pass(
     report = diagnose_qualification_readiness(
         settings, session_id="trial-01", now=NOW,
         controller_probe=_preflight, owner_probe=lambda *args: _remote(),
+        safety_probe=lambda *args: _safety(),
     )
     assert report.environment_ready
     assert report.recorded_stages["doctor"] == "pass"

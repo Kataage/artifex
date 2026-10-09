@@ -76,6 +76,15 @@ class RendererStartupInspection(BaseModel):
     production_qualified: Literal[False] = False
 
 
+class RemoteRendererSafetyInspection(BaseModel):
+    """Authenticated PC-B observation, never a license to start or render."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str = Field(min_length=1)
+    inspection: RendererStartupInspection
+
+
 def _listeners(
     inventory: tuple[WindowsTcpSocket, ...],
     ports: dict[int, Literal["comfyui", "attestation", "gateway"]],

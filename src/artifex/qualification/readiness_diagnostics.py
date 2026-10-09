@@ -25,8 +25,12 @@ from artifex.qualification.models import (
     QualificationStatus,
 )
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
-from artifex.render_node.client import fetch_renderer_owner_audit
+from artifex.render_node.client import (
+    fetch_renderer_owner_audit,
+    fetch_renderer_safety_inspection,
+)
 from artifex.render_node.models import RemoteRendererOwnerAudit
+from artifex.render_node.startup_inspection import RemoteRendererSafetyInspection
 
 Target = Literal["pc_a", "pc_b", "qualification"]
 Status = Literal["pass", "fail", "unknown"]
@@ -128,6 +132,9 @@ def diagnose_qualification_readiness(
     owner_probe: Callable[
         [str, RenderNodeConfig], RemoteRendererOwnerAudit
     ] = fetch_renderer_owner_audit,
+    safety_probe: Callable[
+        [str, RenderNodeConfig], RemoteRendererSafetyInspection
+    ] = fetch_renderer_safety_inspection,
 ) -> QualificationReadiness:
     """Group non-destructive facts and safe next actions; never mark stage PASS."""
     current = now or datetime.now(UTC)
@@ -212,6 +219,8 @@ def diagnose_qualification_readiness(
             "Run 'artifex preflight --config <PC-A YAML> --json' for details.",
         ))
 
+    owner_pid: int | None = None
+    owner_captured: datetime | None = None
     if primary is not None:
         node, config = primary
         if config.attestation_url and config.attestation_token_env and os.environ.get(
@@ -220,6 +229,8 @@ def diagnose_qualification_readiness(
             try:
                 remote = owner_probe(node, config)
                 audit = remote.audit
+                owner_pid = audit.actual_listener_pid
+                owner_captured = audit.captured_utc
                 fresh = (
                     audit.captured_utc.tzinfo is not None
                     and current.tzinfo is not None
@@ -261,6 +272,87 @@ def diagnose_qualification_readiness(
                 "pc_b", "owner:remote_probe", "unknown",
                 "PC-A cannot authenticate to PC-B owner audit",
                 "Set PC-A PC-B attestation URL and token environment variable.",
+            ))
+
+    if primary is not None:
+        node, config = primary
+        if config.attestation_url and config.attestation_token_env and os.environ.get(
+            config.attestation_token_env
+        ):
+            try:
+                remote_safety = safety_probe(node, config)
+                safety = remote_safety.inspection
+                fresh_safety = (
+                    safety.captured_utc.tzinfo is not None
+                    and current.tzinfo is not None
+                    and -30 <= (current - safety.captured_utc).total_seconds() <= 120
+                )
+                checks.append(_check(
+                    "pc_b", "safety:freshness",
+                    "pass" if fresh_safety else "fail",
+                    "PC-B three-port safety snapshot is current" if fresh_safety
+                    else "PC-B safety snapshot is stale or clock-skewed",
+                    "Check Windows clocks and re-run PC-A 'qualify readiness'.",
+                ))
+                topology_ok = (
+                    safety.windows_native and safety.config_protected
+                    and safety.snapshots_consistent and safety.service_ports_coherent
+                )
+                checks.append(_check(
+                    "pc_b", "safety:three_ports",
+                    "pass" if topology_ok else "fail",
+                    "PC-B managed ComfyUI, attestation and gateway ports are coherent"
+                    if topology_ok else
+                    "PC-B managed listener configuration or three-port ownership is not proven",
+                    "Inspect PC-B 'onboard renderer-safety' read-only; do not restart live ComfyUI.",
+                ))
+                safety_owner_ok = (
+                    safety.status == "owned_observed"
+                    and safety.owner_audit_status == "observed_stable"
+                    and not safety.blockers
+                    and _REQUIRED_CHECKS.issubset(safety.owner_checks)
+                    and all(
+                        safety.owner_checks[key] == "pass"
+                        for key in _REQUIRED_CHECKS
+                    )
+                )
+                checks.append(_check(
+                    "pc_b", "safety:overall",
+                    "pass" if safety_owner_ok else "fail",
+                    f"PC-B read-only three-port safety status: {safety.status}",
+                    "Inspect PC-B live port/PID and ownership evidence without launching services.",
+                ))
+                consistent_pid = (
+                    owner_pid is not None
+                    and safety.actual_owned_listener_pid is not None
+                    and owner_pid == safety.actual_owned_listener_pid
+                    and owner_captured is not None
+                    and owner_captured.tzinfo is not None
+                    and safety.captured_utc.tzinfo is not None
+                    and abs(
+                        (safety.captured_utc - owner_captured).total_seconds()
+                    ) <= 120
+                )
+                checks.append(_check(
+                    "pc_b", "safety:pid_consistency",
+                    "pass" if consistent_pid else
+                    "unknown" if owner_pid is None else "fail",
+                    "Remote owner audit and three-port inspection agree on original PID"
+                    if consistent_pid else
+                    "Remote owner and safety observations lack matching recent PID evidence",
+                    "Repeat PC-A 'qualify readiness'; inspect changing PIDs on PC-B without reattachment.",
+                ))
+            except (OSError, RuntimeError, ValueError, TypeError, httpx.HTTPError) as exc:
+                checks.append(_check(
+                    "pc_b", "safety:remote_probe", "unknown",
+                    f"Authenticated PC-B three-port safety unavailable: {type(exc).__name__}",
+                    "Verify updated PC-B attestation service and shared token; never restart ComfyUI just to diagnose.",
+                ))
+        else:
+            checks.append(_check(
+                "pc_b", "safety:remote_probe", "unknown",
+                "PC-A cannot authenticate to PC-B three-port safety inspection",
+                "Configure PC-A attestation URL and shared token before retrying.",
             ))
 
     recorded: dict[str, str] = {}
