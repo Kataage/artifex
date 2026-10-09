@@ -959,6 +959,39 @@ def onboard_pair_sync(
         raise typer.Exit(code=1) from exc
 
 
+@onboard_app.command("renderer-safety")
+def onboard_renderer_safety(
+    config: ConfigOption = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional new read-only JSON evidence file; refuses overwrite."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: inspect live ComfyUI TCP, Scheduler and original PID without intervention."""
+    from artifex.render_node.startup_inspection import inspect_renderer_startup
+
+    chosen = config or Path("config/render-node.yaml")
+    try:
+        if chosen.is_symlink() or not chosen.is_file():
+            raise ValueError("An existing non-symlinked PC-B configuration is required")
+        report = inspect_renderer_startup(_settings(chosen), config_path=chosen)
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            destination = output.expanduser().absolute()
+            if any(part.is_symlink() for part in (destination, *destination.parents)):
+                raise ValueError("Refusing symlinked diagnostic output path")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+        if report.status != "owned_observed":
+            raise typer.Exit(code=1)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"onboard renderer-safety error: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @onboard_app.command("renderer-auto")
 def onboard_renderer_auto(
     comfy_root: Annotated[
