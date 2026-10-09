@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +77,7 @@ def _audit(
 
 def test_stable_verified_process_remains_running_no_launch_permission() -> None:
     sockets = (_socket(8188), _socket(8190, 102, "0.0.0.0"),
-               _socket(8191, 103, "0.0.0.0"))
+               _socket(8191, 102, "0.0.0.0"))
     called: list[str] = []
 
     def probe() -> tuple[WindowsTcpSocket, ...]:
@@ -94,6 +95,7 @@ def test_stable_verified_process_remains_running_no_launch_permission() -> None:
     assert result.status == "owned_observed"
     assert result.actual_owned_listener_pid == 101
     assert result.config_protected and result.snapshots_consistent
+    assert result.service_ports_coherent is True
     assert len(result.listeners) == 3
     assert len(result.owner_checks) == 9
     assert called == ["TCP", "TCP", "OWNER"]
@@ -102,6 +104,111 @@ def test_stable_verified_process_remains_running_no_launch_permission() -> None:
     assert result.reattach_authorized is False
     assert result.mutated_services is False
     assert result.production_qualified is False
+
+
+@pytest.mark.parametrize(
+    ("attestation", "gateway"),
+    [
+        (None, _socket(8191, 102, "0.0.0.0")),
+        (_socket(8190, 102, "0.0.0.0"), None),
+        (_socket(8190, 102, "0.0.0.0"), _socket(8191, 103, "0.0.0.0")),
+        (_socket(8190, 101, "0.0.0.0"), _socket(8191, 101, "0.0.0.0")),
+        (_socket(8190, 0, "0.0.0.0"), _socket(8191, 0, "0.0.0.0")),
+    ],
+)
+def test_missing_foreign_or_divergent_service_pids_block_observed_owner(
+    attestation: WindowsTcpSocket | None,
+    gateway: WindowsTcpSocket | None,
+) -> None:
+    sockets = (_socket(8188),) + tuple(
+        item for item in (attestation, gateway) if item is not None
+    )
+    report = inspect_renderer_startup(
+        _settings(), config_path=Path("render-node.yaml"),
+        windows=True, socket_probe=lambda: sockets, owner_probe=_audit,
+    )
+    assert report.owner_audit_status == "observed_stable"
+    assert report.status == "service_ports_blocked"
+    assert not report.service_ports_coherent
+    assert report.actual_owned_listener_pid is None
+    assert report.blockers and report.next_actions
+    assert report.launch_authorized is False
+    assert report.restart_authorized is False
+    assert report.reattach_authorized is False
+    assert report.production_qualified is False
+
+
+def test_different_ipv4_ipv6_service_listeners_one_pid_are_coherent() -> None:
+    sockets = (
+        _socket(8188),
+        _socket(8190, 102, "0.0.0.0"),
+        _socket(8190, 102, "::"),
+        _socket(8191, 102, "127.0.0.1"),
+    )
+    report = inspect_renderer_startup(
+        _settings(), config_path=Path("render-node.yaml"),
+        windows=True, socket_probe=lambda: sockets, owner_probe=_audit,
+    )
+    assert report.status == "owned_observed"
+    assert report.service_ports_coherent
+
+
+@pytest.mark.parametrize("args", [
+    ("main.py", "--listen", "127.0.0.1", "--listen", "0.0.0.0", "--port", "8188"),
+    ("main.py", "--listen", "127.0.0.1", "--port", "8188", "--port", "9999"),
+    ("main.py", "--listen", "127.0.0.1", "--port", "8189"),
+    ("main.py", "--listen", "127.0.0.1"),
+])
+def test_invalid_managed_command_line_is_not_protected(args: tuple[str, ...]) -> None:
+    settings = _settings()
+    settings.render_agent.comfyui_process.arguments = args
+    sockets = (
+        _socket(8188),
+        _socket(8190, 102, "0.0.0.0"),
+        _socket(8191, 102, "0.0.0.0"),
+    )
+    report = inspect_renderer_startup(
+        settings, config_path=Path("render-node.yaml"),
+        windows=True, socket_probe=lambda: sockets, owner_probe=_audit,
+    )
+    assert not report.config_protected
+    assert report.status != "owned_observed"
+    assert report.launch_authorized is False
+
+
+@pytest.mark.parametrize("args", [
+    ("main.py", "--listen=127.0.0.1", "--port", "8188"),
+    ("main.py", "--listen", "127.0.0.1", "--port=8188"),
+])
+def test_valid_equals_style_launch_args_match_actual_manager(args: tuple[str, ...]) -> None:
+    settings = _settings()
+    settings.render_agent.comfyui_process.arguments = args
+    sockets = (
+        _socket(8188),
+        _socket(8190, 102, "0.0.0.0"),
+        _socket(8191, 102, "0.0.0.0"),
+    )
+    report = inspect_renderer_startup(
+        settings, config_path=Path("render-node.yaml"),
+        windows=True, socket_probe=lambda: sockets, owner_probe=_audit,
+    )
+    assert report.config_protected
+    assert report.status == "owned_observed"
+    assert report.service_ports_coherent
+
+
+def test_windows_tcp_timeout_returns_blocked_json_not_uncaught_exception() -> None:
+    def timeout() -> tuple[WindowsTcpSocket, ...]:
+        raise subprocess.TimeoutExpired(cmd="powershell.exe", timeout=15)
+
+    report = inspect_renderer_startup(
+        _settings(), config_path=Path("render-node.yaml"),
+        windows=True, socket_probe=timeout,
+    )
+    assert report.status == "probe_failed"
+    assert report.blockers and not report.snapshots_consistent
+    assert "powershell.exe" not in report.model_dump_json()
+    assert report.launch_authorized is False
 
 
 def test_free_port_does_not_authorize_new_gpu_child() -> None:

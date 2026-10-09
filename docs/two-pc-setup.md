@@ -146,6 +146,16 @@ launcher ancestry, persistent receipt, TCP ownership and Task Scheduler
 policy. The result reports blockers and safe next actions, without
 raw command lines, auth tokens or changing any Windows services.
 
+The diagnostic also requires the **attestation and protected gateway**
+listener ports to be present and stable with one coherent supervisor PID,
+distinct from the original ComfyUI execution PID. Missing services, divergent
+PIDs, ambiguous ownership, or duplicate/mismatched `--listen` and `--port`
+arguments block `owned_observed` and produce a read-only remediation message.
+The shared supervisor PID is only a TCP topology observation: it does **not**
+prove that a service enforces its Bearer token or that Windows has authorized
+a start. A blocked result should not be resolved by restarting an active
+ComfyUI outside a controlled maintenance window.
+
 A previously verified process is reported as `owned_observed` and should be
 **left running**. Unknown or foreign listeners must not be adopted. Even if
 a port is empty at one instant, that observation **does not authorize**

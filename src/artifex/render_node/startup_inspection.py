@@ -7,6 +7,7 @@ It NEVER starts, reattaches, terminates or permits starting a GPU process.
 from __future__ import annotations
 
 import os
+import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ _REQUIRED_OWNER = frozenset({
 Status = Literal[
     "unsupported", "probe_failed", "configuration_blocked", "changing_ports",
     "unprotected_listener", "unverified_listener", "owned_observed",
-    "no_listener",
+    "service_ports_blocked", "no_listener",
 ]
 
 
@@ -58,6 +59,8 @@ class RendererStartupInspection(BaseModel):
     config_protected: bool
     windows_native: bool
     snapshots_consistent: bool
+    # Only checks three-port topology, not service authentication/authorization.
+    service_ports_coherent: bool = False
     listeners: tuple[PortListener, ...] = ()
     owner_audit_status: str | None = None
     actual_owned_listener_pid: int | None = Field(default=None, ge=1)
@@ -92,6 +95,22 @@ def _listeners(
     ))
 
 
+def _service_ports_coherent(
+    listeners: tuple[PortListener, ...], *, comfy_pid: int,
+) -> bool:
+    """Both protected service endpoints must come from ONE supervisor PID.
+
+    Port ownership is an observation, not proof of the process executable,
+    bearer-token enforcement, or readiness for rendering.
+    """
+    attestation = [x for x in listeners if x.role == "attestation"]
+    gateway = [x for x in listeners if x.role == "gateway"]
+    if not attestation or not gateway:
+        return False
+    owners = {x.pid for x in (*attestation, *gateway)}
+    return len(owners) == 1 and 0 not in owners and comfy_pid not in owners
+
+
 def inspect_renderer_startup(
     settings: ArtifexSettings,
     *,
@@ -117,15 +136,24 @@ def inspect_renderer_startup(
         and base.username is None and base.password is None
         and base.path in {"", "/"} and not base.query and not base.fragment
     )
+    # Match the actual protected launcher admission rules. A second flag,
+    # --listen=value, or mismatched --port cannot be pronounced protected
+    # merely because the first --listen argument looks harmless.
     args = proc.arguments
-    try:
-        index = args.index("--listen")
-    except ValueError:
-        loopback_argv = False
-    else:
-        loopback_argv = (
-            index + 1 < len(args) and args[index + 1] in _LOOPBACK
-        )
+    listens: list[str] = []
+    launch_ports: list[str] = []
+    for index, arg in enumerate(args):
+        if arg == "--listen":
+            listens.append(args[index + 1] if index + 1 < len(args) else "")
+        elif arg.startswith("--listen="):
+            listens.append(arg.partition("=")[2])
+        elif arg == "--port":
+            launch_ports.append(args[index + 1] if index + 1 < len(args) else "")
+        elif arg.startswith("--port="):
+            launch_ports.append(arg.partition("=")[2])
+    loopback_argv = (
+        listens == ["127.0.0.1"] and launch_ports == [str(comfy_port)]
+    )
     protected = (
         local and unique and proc.enabled and gateway.enabled
         and agent.require_token and agent.token_env is not None
@@ -168,7 +196,8 @@ def inspect_renderer_startup(
     try:
         first = _listeners(socket_probe(), lookup)
         second = _listeners(socket_probe(), lookup)
-    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+    except (OSError, ValueError, TypeError, RuntimeError,
+            subprocess.SubprocessError) as exc:
         blockers.append(f"Windows TCP inventory cannot be verified: {type(exc).__name__}")
         actions.append("Inspect Windows Get-NetTCPConnection permissions without restarting ComfyUI.")
         return RendererStartupInspection(
@@ -204,6 +233,7 @@ def inspect_renderer_startup(
             # Even if the sockets look perfect, an arbitrary Python listener
             # is never treated as an Artifex-owned GPU child.
             state = "unverified_listener"
+    service_coherent = False
     audit_status: str | None = None
     owned_pid: int | None = None
     owner_checks: dict[str, Literal["pass", "fail", "unknown"]] = {}
@@ -234,9 +264,23 @@ def inspect_renderer_startup(
                 and actual_pid is not None
                 and {x.pid for x in comfy} == {actual_pid}
             )
-            if stable_owner:
-                state = "owned_observed"
-                owned_pid = actual_pid
+            if stable_owner and actual_pid is not None:
+                service_coherent = _service_ports_coherent(
+                    second, comfy_pid=actual_pid,
+                )
+                if service_coherent:
+                    state = "owned_observed"
+                    owned_pid = actual_pid
+                else:
+                    state = "service_ports_blocked"
+                    blockers.append(
+                        "Protected attestation and gateway listeners are missing, "
+                        "share ComfyUI's PID, or have different supervisor PIDs"
+                    )
+                    actions.append(
+                        "Inspect native PC-B service listeners and Task Scheduler "
+                        "without starting, adopting or interrupting ComfyUI."
+                    )
             else:
                 blockers.append(
                     "Original ComfyUI process identity, TCP ownership or Scheduler/receipt not fully verified"
@@ -268,7 +312,8 @@ def inspect_renderer_startup(
         configured_attestation_port=agent.port,
         configured_gateway_port=gateway.port,
         config_protected=protected, windows_native=True,
-        snapshots_consistent=consistent, listeners=second,
+        snapshots_consistent=consistent,
+        service_ports_coherent=service_coherent, listeners=second,
         owner_audit_status=audit_status,
         actual_owned_listener_pid=owned_pid,
         owner_checks=owner_checks, blockers=tuple(blockers),
