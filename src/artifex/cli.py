@@ -2211,6 +2211,41 @@ def render_node_attest(
     _print_payload(payload, as_json=json_output)
 
 
+@render_node_app.command("launcher-probe")
+def render_node_launcher_probe(
+    python: Annotated[
+        Path | None, typer.Option(
+            "--python", help="Optional exact local Python exe; defaults to this uv environment.",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Optional new local evidence report; never overwritten.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: verify native Python launcher ancestry using isolated no-GPU TCP mock."""
+    from artifex.render_node.native_launcher_probe import inspect_native_python_listener
+
+    try:
+        report = inspect_native_python_listener(python=python)
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            target = output.expanduser().absolute()
+            if any(item.is_symlink() for item in (target, *target.parents)):
+                raise ValueError("Refusing symlinked evidence output")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        typer.echo(f"render-node launcher-probe error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.status != "observed":
+        raise typer.Exit(code=1)
+
+
 @render_node_app.command("socket-audit")
 def render_node_socket_audit(
     config: ConfigOption = None,
