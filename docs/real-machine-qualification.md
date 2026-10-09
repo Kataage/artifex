@@ -712,6 +712,26 @@ Save the returned session_id. Start records Windows/Python/uv versions, NVIDIA G
 
 ## Required ladder
 
+### Parallel safety: one authoritative session, no lost PASS evidence
+
+PC-A's periodic `qualify collect --apply` and operator `qualify record`
+may execute at the same time. Their shared qualification session now has a
+**persistent cross-process lock** (Windows byte-range / POSIX advisory,
+standard library only). The entire fresh-load, actual evidence validation,
+stage mutation and atomic JSON replacement is serialized. Concurrent PC-B
+owner snapshots use the same lock and cannot erase recorded stages.
+A lock contention timeout leaves the session unchanged instead of recording
+a speculative PASS. Lock files persist and **must not be deleted while
+Artifex or a qualifying command is running**.
+
+Once a stage has been recorded, the exact same result may be retried without
+a second write, but competing stage values or different Pack IDs cannot
+silently replace an earlier PASS/FAIL/SKIPPED record. A concurrently running
+collector reports the already recorded value instead of inventing a new PASS.
+For intentional requalification after corrected evidence, start a **new
+explicit qualification session** rather than overwriting a previous record.
+This is not actual native two-PC acceptance or eight-hour soak evidence.
+
 ### PC-A automatic evidence collection during native daemon operation
 
 After starting a qualification session with

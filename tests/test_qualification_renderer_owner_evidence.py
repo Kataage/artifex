@@ -4,6 +4,7 @@ import json
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -353,3 +354,54 @@ def test_owner_endpoint_requires_token_even_when_public_attestation_is_allowed(
     finally:
         stop.set()
         thread.join(timeout=4)
+
+
+
+def test_parallel_remote_owner_snapshots_are_not_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.qualification.service as module
+
+    settings = ArtifexSettings()
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://127.0.0.1:8191",
+        attestation_url="http://127.0.0.1:8190",
+    )
+    service = object.__new__(QualificationService)
+    service._root = tmp_path
+    service._settings = settings
+    now = datetime.now(UTC)
+    service._write(QualificationSession(
+        session_id="parallel-owner", created_at=now - timedelta(seconds=10),
+        updated_at=now, hostname="pc-a", environment={},
+        configuration={}, workflow={}, assets=(), loras=(),
+        doctor_ready=False, doctor={}, stages={},
+    ))
+    monkeypatch.setattr(
+        module, "fetch_renderer_owner_audit",
+        lambda node_id, cfg: RemoteRendererOwnerAudit.model_validate(
+            _observation(captured=now),
+        ),
+    )
+    gate = threading.Barrier(3)
+
+    def collect() -> dict[str, object]:
+        gate.wait(timeout=5)
+        return service.collect_renderer_owner_observation("parallel-owner")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(collect)
+        second = executor.submit(collect)
+        gate.wait(timeout=5)
+        outcomes = [first.result(timeout=15), second.result(timeout=15)]
+    assert all(x["stages_changed"] is False for x in outcomes)
+    current = service.load("parallel-owner")
+    assert current.stages == {}
+    assert len(current.renderer_owner_observations) == 2
+    assert len({
+        str(observation["file"])
+        for observation in current.renderer_owner_observations
+    }) == 2
+    for observation in current.renderer_owner_observations:
+        assert (tmp_path / "parallel-owner" / str(observation["file"])).exists()
