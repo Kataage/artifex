@@ -3238,6 +3238,12 @@ def qualify_handoff(
             "--renderer-config", help="PC-B YAML path for advisory instructions only.",
         ),
     ] = Path("config/render-node.yaml"),
+    pc_b_owner_live: Annotated[
+        bool, typer.Option(
+            "--pc-b-owner-live/--no-pc-b-owner-live",
+            help="Require fresh authenticated PC-B cached ownership evidence (default enabled).",
+        ),
+    ] = True,
     output: Annotated[
         Path | None, typer.Option(
             "--output", help="Optional new JSON handoff report; refuses overwriting.",
@@ -3257,6 +3263,7 @@ def qualify_handoff(
             controller_config=chosen,
             renderer_config=renderer_config,
             session_id=session_id,
+            pc_b_owner_live=pc_b_owner_live,
         ))
         payload = report.model_dump(mode="json")
         if output is not None:
