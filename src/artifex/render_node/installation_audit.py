@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.observer_heartbeat import (
     Status as ObserverHeartbeatStatus,
-    inspect_observer_heartbeat,
 )
+from artifex.render_node.observer_heartbeat import inspect_observer_heartbeat
 from artifex.windows_tasks import (
     StartupRole,
     StartupTaskStatus,
