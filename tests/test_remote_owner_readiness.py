@@ -184,16 +184,20 @@ def test_http_client_requires_bearer_node_match_no_redirects(
     def wrong(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"node_id": "foreign", "report": {}})
 
-    with httpx.Client(transport=httpx.MockTransport(wrong)) as client:
-        with pytest.raises(ValueError, match="node ID"):
-            fetch_remote_owner_readiness("gpu-b", cfg, client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(wrong)) as client,
+        pytest.raises(ValueError, match="node ID"),
+    ):
+        fetch_remote_owner_readiness("gpu-b", cfg, client=client)
 
     def redirect(req: httpx.Request) -> httpx.Response:
         return httpx.Response(302, headers={"location": "http://other.invalid/"})
 
-    with httpx.Client(transport=httpx.MockTransport(redirect)) as client:
-        with pytest.raises(httpx.HTTPStatusError):
-            fetch_remote_owner_readiness("gpu-b", cfg, client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(redirect)) as client,
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        fetch_remote_owner_readiness("gpu-b", cfg, client=client)
 
     monkeypatch.delenv("ARTIFEX_RENDER_NODE_TOKEN")
     with pytest.raises(ValueError, match="token is missing"):
