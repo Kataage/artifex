@@ -23,10 +23,23 @@ choose a specific session; if the newest session is corrupt, foreign or
 symlinked, the command refuses to silently reuse an earlier one.
 
 The response includes `recorded_pass_count`, `unresolved_stage_count`,
-stage-specific next actions, `action_plan` grouped by PC, and one
-`next_safe_command` in structured argv form when a suitable observational
-command exists. Suggested commands are **not executed**. A `qualify collect`
-recommendation is preview-only (there is no `--apply`).
+stage-specific next actions, `action_plan` grouped by PC, and a
+`remediation_triage` for each actionable step. The triage distinguishes
+`observed_live` (a PC-A check was **sampled**, not necessarily passed),
+`unavailable` (no usable observation), `requires_local_pc_b` (do not
+execute the PC-B command remotely), `operator_review`, and
+`real_machine_evidence`. Separate `already_sampled_read_only`,
+`unavailable_read_only`, `pc_b_local_checks_required`, and
+`operator_review_required` lists make it clear what still needs a person.
+
+When the environment is blocked, `next_priority` favors PC-A
+configuration/manual review or a necessary native PC-B check rather than
+telling the user to **repeat read-only checks just performed**.
+`next_safe_command` is therefore null for unresolved current readiness.
+When PC-A is ready and only ordinary persisted Packs remain, the
+`qualify collect` recommendation is preview-only (no `--apply`).
+Suggested commands are **never executed**, and no new runtime/GPU operation
+is triggered.
 
 `production_qualified=false`, `commands_executed=false` and
 `mutated_services=false` are explicit: **stored PASS is not independent
