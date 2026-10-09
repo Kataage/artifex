@@ -2714,6 +2714,45 @@ def qualify_start(
         asyncio.run(core.close())
 
 
+@qualify_app.command("readiness")
+def qualify_readiness(
+    config: ConfigOption = None,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Optional existing session: show recorded, not revalidated, stages."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional new JSON report file, never overwritten."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read-only PC-A / PC-B setup gaps; never authorize GPU production."""
+    from artifex.qualification.readiness_diagnostics import diagnose_qualification_readiness
+
+    chosen = config or Path("config/local.yaml")
+    try:
+        if chosen.is_symlink() or not chosen.is_file():
+            raise ValueError("Existing non-symlinked PC-A configuration is required")
+        report = diagnose_qualification_readiness(
+            _settings(chosen), session_id=session_id,
+        )
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            target = output.expanduser().absolute()
+            if any(item.is_symlink() for item in (target, *target.parents)):
+                raise ValueError("Refusing symlinked report destination")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("x", encoding="utf-8") as file:
+                file.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+        if not report.environment_ready:
+            raise typer.Exit(code=1)
+    except (OSError, TypeError, ValueError) as exc:
+        typer.echo(f"qualification readiness error: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @qualify_app.command("owner-observe")
 def qualify_owner_observe(
     session_id: Annotated[str, typer.Argument(help="Existing qualification session ID.")],
