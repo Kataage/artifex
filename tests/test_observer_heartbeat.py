@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 
 from artifex.config.models import ArtifexSettings
-from artifex.render_node.process_identity import WindowsProcessIdentity
 from artifex.render_node.observer_heartbeat import (
     _MAX_SIZE,
     SampleState,
     inspect_observer_heartbeat,
     publish_observer_heartbeat,
 )
+from artifex.render_node.process_identity import WindowsProcessIdentity
 
 NOW = datetime(2026, 10, 10, 18, 30, tzinfo=UTC)
 

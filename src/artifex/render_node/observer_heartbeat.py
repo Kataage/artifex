@@ -19,7 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.process_identity import (
-    WindowsProcessIdentity, windows_process_identity,
+    WindowsProcessIdentity,
+    windows_process_identity,
 )
 
 _NAME = "observer-health.json"
@@ -158,7 +159,7 @@ def inspect_observer_heartbeat(
         if process is None:
             return "process_missing"
         try:
-            started = datetime.fromisoformat(process.started_utc.replace("Z", "+00:00"))
+            started = datetime.fromisoformat(process.started_utc)
             matches = (
                 process.pid == record.process_pid
                 and started.tzinfo is not None

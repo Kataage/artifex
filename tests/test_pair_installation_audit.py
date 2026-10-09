@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import socket
+import subprocess
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path

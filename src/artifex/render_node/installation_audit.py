@@ -20,7 +20,8 @@ from artifex.render_node.observer_heartbeat import (
 )
 from artifex.render_node.observer_heartbeat import inspect_observer_heartbeat
 from artifex.render_node.process_identity import (
-    WindowsProcessIdentity, windows_process_identity,
+    WindowsProcessIdentity,
+    windows_process_identity,
 )
 from artifex.windows_tasks import (
     StartupRole,
