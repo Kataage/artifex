@@ -23,6 +23,7 @@ from artifex.db.models import (
     GenerationAttemptRow,
     PackRow,
     SceneRow,
+    SettingRow,
 )
 from artifex.domain import LoRAState, PackState
 from artifex.loras import LoRARegistry
@@ -51,6 +52,8 @@ from artifex.qualification.soak_observer import (
 )
 from artifex.render_node import RenderNodeAttestation, fetch_render_attestation
 from artifex.render_node.client import fetch_renderer_owner_audit
+
+_ACTIVE_AUTO_COLLECTION_KEY = "qualification.active_auto_collection"
 
 _PACK_STAGES = frozenset(
     {
@@ -336,7 +339,60 @@ class QualificationService:
             stages=stages,
         )
         self._write(session)
+        self._set_active_auto_collection(session)
         return session
+
+    def _set_active_auto_collection(self, session: QualificationSession) -> None:
+        """Bind collection to the *most recently explicitly started* session.
+
+        An unready baseline also replaces the previous active pointer,
+        preventing the daemon from silently continuing an older session.
+        """
+        now = _utcnow()
+        payload = {
+            "session_id": session.session_id,
+            "created_at": session.created_at.isoformat(),
+            "hostname": session.hostname,
+            "doctor_ready": session.doctor_ready,
+        }
+        with self._database.session() as db_session:
+            row = db_session.get(SettingRow, _ACTIVE_AUTO_COLLECTION_KEY)
+            if row is None:
+                db_session.add(SettingRow(
+                    key=_ACTIVE_AUTO_COLLECTION_KEY,
+                    value_json=payload,
+                    updated_at=now,
+                ))
+            else:
+                row.value_json = payload
+                row.updated_at = now
+
+    def active_auto_collection_session_id(self) -> str | None:
+        """Return only an explicitly activated, locally bound ready session."""
+        if not self._settings.qualification.auto_collect_enabled:
+            return None
+        with self._database.session() as db_session:
+            row = db_session.get(SettingRow, _ACTIVE_AUTO_COLLECTION_KEY)
+            if row is None or not isinstance(row.value_json, dict):
+                return None
+            pointer = dict(row.value_json)
+        session_id = pointer.get("session_id")
+        if (
+            not isinstance(session_id, str)
+            or not session_id
+            or pointer.get("hostname") != socket.gethostname()
+            or pointer.get("doctor_ready") is not True
+        ):
+            return None
+        session = self.load(session_id)
+        if (
+            session.session_id != session_id
+            or session.hostname != pointer["hostname"]
+            or session.created_at.isoformat() != pointer.get("created_at")
+            or not session.doctor_ready
+        ):
+            return None
+        return session_id
 
     def load(self, session_id: str) -> QualificationSession:
         path = self._path(session_id)
