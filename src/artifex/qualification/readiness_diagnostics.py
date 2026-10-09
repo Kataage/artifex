@@ -108,6 +108,17 @@ def _read_session(
     return session
 
 
+
+def load_saved_readiness(path: Path) -> QualificationReadiness:
+    """Read bounded offline evidence without network, symlinks or trust escalation."""
+    source_file = path.expanduser().absolute()
+    if any(part.is_symlink() for part in (source_file, *source_file.parents)):
+        raise ValueError("Refusing symlinked readiness evidence path")
+    if not source_file.is_file() or source_file.stat().st_size > 1024 * 1024:
+        raise ValueError("Saved readiness JSON is missing or too large")
+    return QualificationReadiness.model_validate_json(source_file.read_bytes())
+
+
 def diagnose_qualification_readiness(
     settings: ArtifexSettings,
     *,
