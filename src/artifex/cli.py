@@ -985,11 +985,13 @@ def onboard_renderer_safety(
             with destination.open("x", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         _print_payload(payload, as_json=json_output)
-        if report.status != "owned_observed":
-            raise typer.Exit(code=1)
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         typer.echo(f"onboard renderer-safety error: {type(exc).__name__}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+    # Preserve pure JSON output even on a blocked result. It must remain
+    # machine-readable while returning a nonzero status for the caller.
+    if report.status != "owned_observed":
+        raise typer.Exit(code=1)
 
 
 @onboard_app.command("renderer-auto")
