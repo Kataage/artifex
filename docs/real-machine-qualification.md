@@ -742,6 +742,13 @@ runs does not satisfy this stage. `qualify collect` automatically selects
 the matching Pack IDs; no manual list is needed. Absent/pruned telemetry
 leaves the stage pending, not a false PASS.
 
+`daemon.loop_started`, `daemon.pack_finalized`, and
+`daemon.loop_stopped` are retained outside the bounded routine health-event
+queue. Otherwise routine telemetry pruning during a long soak could silently
+erase a legitimate original daemon-run marker. These small provenance events
+remain in SQLite until a separate evidence retention/archival policy is
+implemented; do not manually delete them before production qualification.
+
 The recorded event sequence is a proof of sustained scheduler execution
 for the selected Packs, **not** proof of eight uninterrupted hours or
 permission to restart a live ComfyUI renderer. The separate soak and
@@ -750,9 +757,14 @@ It also recognizes **real delivered and authorized Discord interactions**
 recorded after the session started. It never fabricates missing evidence,
 changes an existing stage status, queues GPUs, or changes running services.
 A stale/different-host session or changed production config is rejected.
-The default bounded scan covers up to 250 post-session finalized Packs;
-use `--max-packs` (1–1000) to adjust. A truncated scan is reported
-explicitly. Invalid or altered archived manifests are skipped and shown
+The scan now walks all post-session finalized Packs using deterministic
+keyset pagination, **250 Packs per query** by default (`--max-packs` sets
+the page size, 1–1000). The default total safety ceiling is **10,000 Packs**;
+use `--scan-limit` (1–100,000) only if a very long session exceeds that.
+A partial scan sets `scan_truncated=true` / `scan_incomplete=true`, and
+must never be interpreted as proof that no further eligible Packs exist.
+The same `qualify collect` command can be run again safely, without manually
+tracking a cursor or entering Pack IDs. Invalid or altered archived manifests are skipped and shown
 as issues, never treated as valid Packs. Repeated `--apply` runs are safe:
 already recorded stages stay untouched.
 
