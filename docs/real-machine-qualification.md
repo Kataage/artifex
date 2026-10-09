@@ -24,6 +24,52 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## Prepare PC-B with existing ComfyUI automatically (preview first)
+
+On the actual native Windows PC-B, point Artifex at your existing ComfyUI or
+portable installation. It scans only that supplied directory, **not all drives**.
+
+```powershell
+# Nothing is written and no GPU service is started.
+uv run artifex onboard renderer-auto --comfy-root D:\ComfyUI_windows_portable --json
+
+# Create a new PC-B config when the preview selects a single safe checkpoint.
+uv run artifex onboard renderer-auto --comfy-root D:\ComfyUI_windows_portable --apply --json
+
+# When multiple checkpoints or extra_model_paths.yaml exist, choose explicitly.
+uv run artifex onboard renderer-auto --comfy-root D:\ComfyUI_windows_portable --checkpoint-path D:\models\my-model.safetensors --apply --json
+
+# Change existing config with explicitly authorized merge, preserving unrelated keys.
+uv run artifex onboard renderer-auto --comfy-root D:\ComfyUI_windows_portable --apply --update --json
+```
+
+The preview discovers the exact `main.py` directory, embedded or venv
+Python candidates, local checkpoint candidates and local LoRA roots. If **one**
+local checkpoint and **one** Python candidate are found, it offers them as
+a proposal (the `--apply` flag accepts this particular
+proposal). If several are found or extra model paths could introduce more,
+it fails closed and requests the exact `--checkpoint-path`.
+Multiple Python installations require `--comfy-exe`. Paths,
+IP/host and all three ports are configurable. It will not silently
+choose a model, executable or LoRA root from some other drive.
+
+For a **managed** PC-B configuration, the resulting YAML declares:
+- ComfyUI bound to **127.0.0.1:8188**, not an unprotected LAN listener
+- an **authenticated protected gateway** on port 8191
+- a token-required renderer attestation agent on port 8190
+- the selected checkpoint and discovered LoRA roots
+
+The command merely prepares YAML: it **does not install Windows scheduled
+tasks, start/adopt/restart/stop ComfyUI, perform CUDA operations, or prove
+that port 8188 is unoccupied**. An already running unmanaged ComfyUI must
+not be adopted or interrupted. To remain unmanaged, use the explicit
+`--external-comfy` option; this disables the protected
+gateway and **does not meet the protected-ownership production gate**.
+Before enabling startup or management, separately verify the actual
+renderer process ownership, Scheduler safety and current TCP port state.
+Only afterwards use the authenticated PC-A `onboard pair-sync`
+preview to derive its connection settings. Docker is not involved.
+
 ## Prepare PC-A from a live authenticated PC-B with minimal typing
 
 When the actual Windows PC-B render agent and its protected ComfyUI gateway

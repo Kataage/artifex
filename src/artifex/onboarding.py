@@ -211,6 +211,9 @@ def configure_discovered_renderer(
     port: int | None = None,
     comfy_port: int = 8188,
     external_comfy: bool = False,
+    comfy_bind_host: str = "0.0.0.0",
+    protected_gateway: bool = False,
+    gateway_port: int = 8191,
     python_executable: Path | None = None,
     refiner_path: Path | None = None,
     vae_path: Path | None = None,
@@ -278,10 +281,12 @@ def configure_discovered_renderer(
         comfy_executable=chosen_python,
         comfy_working_directory=result.comfyui_directory if chosen_python is not None else None,
         comfy_arguments=(
-            ("main.py", "--listen", "0.0.0.0", "--port", str(comfy_port))
+            ("main.py", "--listen", comfy_bind_host, "--port", str(comfy_port))
             if chosen_python is not None else None
         ),
         disable_comfy_management=external_comfy,
+        protected_gateway=protected_gateway,
+        gateway_port=gateway_port,
         update=update,
         force=force,
     )

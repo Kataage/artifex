@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict
 
@@ -42,6 +43,8 @@ def configure_renderer(
     comfy_working_directory: Path | None = None,
     comfy_arguments: tuple[str, ...] | None = None,
     disable_comfy_management: bool = False,
+    protected_gateway: bool = False,
+    gateway_port: int = 8191,
     update: bool = False,
     force: bool = False,
 ) -> RendererSetupResult:
@@ -71,6 +74,13 @@ def configure_renderer(
     process_options: dict[str, object] = {}
     if disable_comfy_management and comfy_executable is not None:
         raise ValueError("--disable-comfy-management conflicts with --comfy-exe")
+    if protected_gateway and (disable_comfy_management or comfy_executable is None):
+        raise ValueError("Protected gateway requires a configured managed ComfyUI executable")
+    if protected_gateway and (
+        gateway_port in {selected_port, urlsplit(comfy_url).port or 80}
+        or not 1 <= gateway_port <= 65535
+    ):
+        raise ValueError("Gateway, attestation and ComfyUI ports must be distinct")
     if comfy_executable is not None:
         process_options["enabled"] = True
         process_options["executable"] = str(
@@ -92,6 +102,12 @@ def configure_renderer(
             "require_token": True,
             "token_env": selected_token_env,
             **({"comfyui_process": process_options} if process_options else {}),
+            **(
+                {"gateway": {"enabled": True, "bind_host": "0.0.0.0",
+                             "port": gateway_port}}
+                if protected_gateway else
+                {"gateway": {"enabled": False}} if disable_comfy_management else {}
+            ),
             **({"asset_paths": changed_assets} if changed_assets else {}),
             **(
                 {
