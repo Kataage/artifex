@@ -3393,6 +3393,34 @@ def qualify_overview(
         raise typer.Exit(code=1) from exc
 
 
+
+
+@qualify_app.command("pair-install-audit")
+def qualify_pair_install_audit(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Read-only PC-A/PC-B installation audit; never install or start a task."""
+    from artifex.qualification.pair_installation import inspect_two_pc_installation
+
+    selected = config or Path("config/local.yaml")
+    try:
+        if (
+            not selected.is_file()
+            or any(item.is_symlink() for item in (selected, *selected.parents))
+        ):
+            raise ValueError("Existing non-symlinked PC-A config required")
+        report = inspect_two_pc_installation(
+            _settings(selected), controller_config=selected,
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
+        typer.echo(f"pair-install-audit error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.status != "ready_for_passive_monitoring":
+        raise typer.Exit(code=1)
+
+
 @qualify_app.command("handoff")
 def qualify_handoff(
     config: ConfigOption = None,
