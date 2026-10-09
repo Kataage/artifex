@@ -12,10 +12,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-StartupRole = Literal["controller", "renderer"]
+StartupRole = Literal["controller", "renderer", "survival-observer"]
 _TASKS: dict[StartupRole, str] = {
     "controller": "Artifex-Controller",
     "renderer": "Artifex-Renderer",
+    "survival-observer": "Artifex-Survival-Observer",
 }
 _MARKER = "Artifex managed autostart v1"
 
@@ -56,10 +57,16 @@ def _command(role: StartupRole, config: Path) -> tuple[str, str, str]:
         raise FileNotFoundError(f"Artifex startup config is not a file: {config_path}")
     if role == "controller":
         args = ["-m", "artifex.cli", "daemon", "--config", str(config_path)]
-    else:
+    elif role == "renderer":
         args = [
             "-m", "artifex.cli", "render-node", "serve", "--config",
             str(config_path),
+        ]
+    else:
+        # Distinct OS process that can keep observing after the renderer dies.
+        args = [
+            "-m", "artifex.cli", "render-node", "survival-watch",
+            "--config", str(config_path),
         ]
     # The task action executes python directly; it never invokes cmd.exe.
     return str(interpreter), subprocess.list2cmdline(args), str(Path.cwd().resolve())
@@ -248,7 +255,7 @@ $settingsArgs = @{{
   AllowStartIfOnBatteries = $true
   DontStopIfGoingOnBatteries = $true
 }}
-if ({'$true' if role == 'renderer' else '$false'}) {{
+if ({'$true' if role in {'renderer', 'survival-observer'} else '$false'}) {{
   # A stopped Task Scheduler task must not be forcibly terminated while
   # its supervised ComfyUI may still be busy with a CUDA generation.
   $settingsArgs.DisallowHardTerminate = $true
@@ -345,14 +352,14 @@ def task_configuration_matches(
             "Artifex task launch configuration differs from current Python, "
             "working directory or selected --config; explicit --replace is required"
         )
-    if role == "renderer" and (
+    if role in {"renderer", "survival-observer"} and (
         status.action_count != 1
         or status.allow_hard_terminate is not False
         or status.multiple_instances != "IgnoreNew"
         or status.execution_time_limit_seconds != 0
     ):
         return False, (
-            "Renderer task safety settings are missing or unsafe: require "
+            "Protected task safety settings are missing or unsafe: require "
             "exactly one action, AllowHardTerminate=false, "
             "MultipleInstances=IgnoreNew, and an unlimited execution time; "
             "an explicit stopped-task --replace is needed"
