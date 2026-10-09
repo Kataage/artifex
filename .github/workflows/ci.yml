@@ -51,6 +51,7 @@ jobs:
       - run: uv run pytest -q tests/test_qualification_readiness_action_plan.py
       - run: uv run pytest -q tests/test_qualification_readiness_recheck.py
       - run: uv run pytest -q tests/test_qualification_overview.py
+      - run: uv run pytest -q tests/test_pc_b_owner_handoff.py
       - run: uv run pytest -q tests/test_qualification_handoff.py
       - run: uv run pytest -q tests/test_daemon.py tests/test_real_machine_qualification.py -k "unattended or collect_qualifications_uses_only"
       - run: uv run pytest -q tests/test_qualification_paged_collection.py tests/test_telemetry.py

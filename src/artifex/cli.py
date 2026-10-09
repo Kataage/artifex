@@ -3174,6 +3174,13 @@ def qualify_overview(
             help="PC-B YAML path for advisory instructions only; never accessed remotely.",
         ),
     ] = Path("config/render-node.yaml"),
+    pc_b_owner_report: Annotated[
+        Path | None,
+        typer.Option(
+            "--pc-b-owner-report",
+            help="Optional transferred PC-B owner-readiness JSON; compare with live auth.",
+        ),
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option("--output", help="Optional new JSON report file, never overwritten."),
@@ -3190,6 +3197,7 @@ def qualify_overview(
         report = compile_qualification_overview(
             _settings(chosen), session_id=session_id,
             controller_config=chosen, renderer_config=renderer_config,
+            pc_b_owner_report=pc_b_owner_report,
         )
         payload = report.model_dump(mode="json")
         if output is not None:

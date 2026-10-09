@@ -20,6 +20,10 @@ from artifex.qualification.models import (
     QualificationStage,
     QualificationStatus,
 )
+from artifex.qualification.owner_handoff import (
+    PCBOwnerCorrelation,
+    correlate_pc_b_owner_report,
+)
 from artifex.qualification.readiness_action_plan import (
     QualificationActionPlan,
     RemediationStep,
@@ -159,6 +163,7 @@ class QualificationOverview(BaseModel):
     operator_review_required: tuple[str, ...]
     readiness: QualificationReadiness
     action_plan: QualificationActionPlan
+    pc_b_owner_evidence: PCBOwnerCorrelation | None = None
 
 
 def latest_saved_session_id(root: Path) -> str | None:
@@ -195,6 +200,7 @@ def compile_qualification_overview(
     session_id: str | None = None,
     controller_config: Path = Path("config/local.yaml"),
     renderer_config: Path = Path("config/render-node.yaml"),
+    pc_b_owner_report: Path | None = None,
     readiness: QualificationReadiness | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
@@ -217,6 +223,10 @@ def compile_qualification_overview(
     )
     if readiness is not None and selected is not None and not report.recorded_stages:
         raise ValueError("Injected readiness does not include selected session stages")
+    correlation = (
+        correlate_pc_b_owner_report(settings, pc_b_owner_report, now=current)
+        if pc_b_owner_report is not None else None
+    )
     plan = compile_qualification_action_plan(
         report, controller_config=controller_config,
         renderer_config=renderer_config, source="live", now=current,
@@ -298,9 +308,19 @@ def compile_qualification_overview(
             "real target-machine assets still require authoritative qualify verify."
         )
         command = None
+    if correlation is not None and correlation.status != "correlated_read_only":
+        priority = (
+            "Transferred PC-B ownership evidence has not been correlated with "
+            "fresh authenticated observations. Inspect pc_b_owner_evidence "
+            "and gather a new local PC-B report without restarting ComfyUI."
+        )
+        command = None
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
-        environment_ready=plan.environment_ready_observed,
+        environment_ready=(
+            plan.environment_ready_observed
+            and (correlation is None or correlation.status == "correlated_read_only")
+        ),
         recorded_pass_count=passed, recorded_skipped_count=skipped,
         unresolved_stage_count=unresolved, stages=tuple(stages),
         next_priority=priority, next_safe_command=command,
@@ -309,5 +329,5 @@ def compile_qualification_overview(
         unavailable_read_only=unavailable,
         pc_b_local_checks_required=pc_b_local,
         operator_review_required=review,
-        readiness=report, action_plan=plan,
+        readiness=report, action_plan=plan, pc_b_owner_evidence=correlation,
     )
