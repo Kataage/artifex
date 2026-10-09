@@ -3229,6 +3229,12 @@ def qualify_overview(
             help="Fetch bounded PC-B cached launcher evidence over Bearer auth; no file transfer.",
         ),
     ] = False,
+    pc_b_survival_report: Annotated[
+        Path | None, typer.Option(
+            "--pc-b-survival-report",
+            help="Optional PC-B passive supervisor survival JSON; replay untrusted trace read-only.",
+        ),
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option("--output", help="Optional new JSON report file, never overwritten."),
@@ -3247,6 +3253,7 @@ def qualify_overview(
             controller_config=chosen, renderer_config=renderer_config,
             pc_b_owner_report=pc_b_owner_report,
             pc_b_owner_live=pc_b_owner_live,
+            pc_b_survival_report=pc_b_survival_report,
         )
         payload = report.model_dump(mode="json")
         if output is not None:
@@ -3286,6 +3293,12 @@ def qualify_handoff(
             help="Require fresh authenticated PC-B cached ownership evidence (default enabled).",
         ),
     ] = True,
+    pc_b_survival_report: Annotated[
+        Path | None, typer.Option(
+            "--pc-b-survival-report",
+            help="Optional PC-B passive supervisor survival JSON; replay untrusted trace read-only.",
+        ),
+    ] = None,
     output: Annotated[
         Path | None, typer.Option(
             "--output", help="Optional new JSON handoff report; refuses overwriting.",
@@ -3306,6 +3319,7 @@ def qualify_handoff(
             renderer_config=renderer_config,
             session_id=session_id,
             pc_b_owner_live=pc_b_owner_live,
+            pc_b_survival_report=pc_b_survival_report,
         ))
         payload = report.model_dump(mode="json")
         if output is not None:

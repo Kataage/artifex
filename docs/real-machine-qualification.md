@@ -162,6 +162,42 @@ the file, ComfyUI child survival after supervisor loss, actual GPU
 performance, or Issue #93/#40 completion. `file_source_authenticated=false`,
 `stage_pass_registered=false`, `production_qualified=false`, and
 `renderer_restart_authorized=false` are hard-coded in the correlation.
+## PC-A review of saved PC-B natural-exit evidence (Issue #93)
+
+PR #120 can record a passive survival trace on the real PC-B, even when its
+supervisor/attestation service naturally goes offline. A copied (or mounted
+read-only shared) JSON can now be examined by PC-A in its ordinary reports:
+
+```powershell
+uv run artifex qualify overview --config .\config\local.yaml --pc-b-owner-live --pc-b-survival-report .\data\pair\pc-b-survival-unique.json --json
+uv run artifex qualify handoff --config .\config\local.yaml --pc-b-survival-report .\data\pair\pc-b-survival-unique.json --json
+```
+
+An explicit `--pc-b-survival-report` is optional; without it the existing
+commands behave as before. PC-A enforces a size limit and non-symlink file,
+strictly parses the saved trace, recomputes the status from all observation
+samples and verifies order, wall-clock/monotonic agreement, host, configured
+node, process identity and the original Task Scheduler supervisor-PID absence
+claims. It **never trusts the saved status string alone**.
+
+PC-A then tries to independently query the *currently* authenticated PC-B
+owner audit and node attestation. `replayed_and_live_identity_matched` means
+the copied trace is internally consistent and the same ComfyUI process is
+seen now; `replayed_historical_identity` means today's live PID/creation time
+differs. `replayed_live_unavailable` means a coherent historical trace but
+no reachable fresh PC-B. `blocked` and `mismatch` reject invalid details.
+
+These statuses are **review only, not real-machine attestation**. JSON can
+be forged, including all its timestamps and samples. The trace's source
+and historical event remain unauthenticated, even when the live process
+matches. No status closes Issue #93 or #40, adds a qualification stage PASS,
+authorizes a renderer restart, or counts as a real 8-hour GPU soak.
+By design, when an explicitly requested trace cannot be correlated with
+current PC-B, handoff cannot recommend a qualification session start.
+
+While this release removes manual reconstruction of the report, securely
+transporting a trace from PC-B to PC-A is still required. Never stop a
+live ComfyUI task solely to create a survival trace.
 ## Passive native PC-B supervisor-loss survival observation (Issue #93)
 
 Run on the **actual Windows PC-B** from an independent terminal while the

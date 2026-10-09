@@ -34,6 +34,8 @@ class QualificationHandoff(BaseModel):
     authenticated_owner_evidence_required: bool = False
     authenticated_owner_evidence_correlated: bool = False
     authenticated_owner_evidence_state: str | None = None
+    passive_survival_trace_status: str | None = None
+    passive_survival_trace_authenticated: Literal[False] = False
     can_suggest_qualification_start: bool
     saved_session_id: str | None
     saved_session_not_assumed_active: Literal[True] = True
@@ -139,6 +141,17 @@ def compile_handoff(
     )
     if evidence is not None:
         independent = (*independent, *evidence.remaining_real_machine_evidence)
+    survival = overview.pc_b_survival_review
+    if survival is not None:
+        independent = (
+            *independent,
+            (
+                "Independently establish real PC-B provenance of the natural "
+                "supervisor-loss event (a copied JSON replay is not machine proof)."
+            ),
+        )
+        if survival.status != "replayed_and_live_identity_matched":
+            blocked.append("pc_b_passive_survival_trace_not_live_correlated")
     selected = overview.session_id
     command: tuple[str, ...] | None
     if blocked:
@@ -174,6 +187,7 @@ def compile_handoff(
         authenticated_owner_evidence_required=require_authenticated_owner,
         authenticated_owner_evidence_correlated=correlated_owner,
         authenticated_owner_evidence_state=evidence.status if evidence else None,
+        passive_survival_trace_status=survival.status if survival else None,
         can_suggest_qualification_start=not blocked,
         saved_session_id=selected,
         blockers=tuple(dict.fromkeys(blocked)),
@@ -191,6 +205,7 @@ async def inspect_qualification_handoff(
     session_id: str | None = None,
     renderer_config: Path = Path("config/render-node.yaml"),
     pc_b_owner_live: bool = True,
+    pc_b_survival_report: Path | None = None,
     overview_fn: Callable[..., QualificationOverview] = compile_qualification_overview,
     deployment_fn: Callable[..., Awaitable[DeploymentReport]] = verify_deployment,
 ) -> QualificationHandoff:
@@ -204,6 +219,7 @@ async def inspect_qualification_handoff(
         controller_config=controller_config,
         renderer_config=renderer_config,
         pc_b_owner_live=pc_b_owner_live,
+        pc_b_survival_report=pc_b_survival_report,
     )
     deployment = await deployment_fn(
         settings, role="controller", require_autostart=False, render_smoke=False,
