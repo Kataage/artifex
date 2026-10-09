@@ -115,7 +115,14 @@ from artifex.two_pc_readiness import (
     read_renderer_evidence,
     verify_pair_readiness,
 )
-from artifex.windows_tasks import StartupRole, install_task, task_status, uninstall_task
+from artifex.windows_tasks import (
+    StartupRole,
+    activate_task,
+    install_task,
+    task_configuration_matches,
+    task_status,
+    uninstall_task,
+)
 
 app = typer.Typer(
     name="artifex",
@@ -230,8 +237,10 @@ def preflight(
 
 def _startup_role(value: str) -> StartupRole:
     selected = value.strip().casefold()
-    if selected not in {"controller", "renderer"}:
-        raise ValueError("startup role must be controller or renderer")
+    if selected not in {"controller", "renderer", "survival-observer"}:
+        raise ValueError(
+            "startup role must be controller, renderer, or survival-observer"
+        )
     return cast(StartupRole, selected)
 
 
@@ -390,6 +399,70 @@ def startup_lifecycle_probe(
     _print_payload(result, as_json=json_output)
     if result["status"] == "blocked":
         raise typer.Exit(code=1)
+
+
+
+@startup_app.command("observer-enable")
+def startup_observer_enable(
+    config: ConfigOption = None,
+    apply: Annotated[
+        bool, typer.Option(
+            "--apply", help="Explicitly register/start ONLY the independent observer task.",
+        ),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Prepare native logon autostart for a separate read-only PC-B watcher.
+
+    Default dry-run. The protected renderer task and ComfyUI are never
+    touched, replaced, stopped or started by this command.
+    """
+    selected = config or Path("config/render-node.yaml")
+    try:
+        if selected.is_symlink() or not selected.is_file():
+            raise ValueError("Existing non-symlinked PC-B config required")
+        settings = _settings(selected)
+        if not settings.render_agent.comfyui_process.enabled:
+            raise ValueError("Survival observer requires managed ComfyUI settings")
+        # Task Scheduler status is always read-only unless --apply is set.
+        current = task_status("survival-observer")
+        if current.installed and not current.managed:
+            raise ValueError("Refusing a pre-existing non-Artifex observer task")
+        if apply:
+            observed, action = activate_task(
+                "survival-observer",
+                config=selected,
+                install_missing=True,
+                replace=False,
+            )
+        else:
+            observed = current
+            if not current.installed:
+                action = "would_register_and_start_observer_only"
+            else:
+                compatible, reason = task_configuration_matches(
+                    "survival-observer", config=selected, status=current,
+                )
+                if not compatible:
+                    raise ValueError(reason)
+                action = (
+                    "already_running" if current.state == "Running"
+                    else "would_start_observer_only"
+                )
+        _print_payload({
+            "schema_version": 1,
+            "mode": "applied" if apply else "read_only_plan",
+            "action": action,
+            "observer_task": observed.model_dump(mode="json"),
+            "renderer_task_modified": False,
+            "comfyui_process_modified": False,
+            "gpu_jobs_submitted": False,
+            "issue_93_closure_authorized": False,
+            "production_qualified": False,
+        }, as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"observer-enable error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @startup_app.command("uninstall")
@@ -2246,6 +2319,43 @@ def render_node_launcher_probe(
         raise typer.Exit(code=1)
 
 
+
+
+
+@render_node_app.command("survival-watch")
+def render_node_survival_watch(
+    config: ConfigOption = None,
+    poll_seconds: Annotated[
+        float, typer.Option("--poll-seconds", min=5, max=300),
+    ] = 15,
+    window_seconds: Annotated[
+        float, typer.Option("--window-seconds", min=10, max=86400),
+    ] = 3600,
+    max_seconds: Annotated[
+        float, typer.Option("--max-seconds", min=0, max=86400),
+    ] = 0,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Stand-alone passive Windows PC-B watcher, independent of renderer."""
+
+    from artifex.render_node.survival_watcher import (
+        run_passive_survival_watcher,
+    )
+
+    path = config or Path("config/render-node.yaml")
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Existing non-symlinked PC-B config required")
+        settings = _settings(path)
+        report = run_passive_survival_watcher(
+            settings,
+            config=path, poll_seconds=poll_seconds,
+            window_seconds=window_seconds, max_seconds=max_seconds,
+        )
+        _print_payload(report, as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"survival-watch error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @render_node_app.command("survival-observe")
