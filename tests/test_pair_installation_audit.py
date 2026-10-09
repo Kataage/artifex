@@ -22,6 +22,7 @@ from artifex.render_node.installation_audit import (
     inspect_renderer_installation,
     inspect_spool,
 )
+from artifex.render_node.observer_heartbeat import publish_observer_heartbeat
 from artifex.windows_tasks import StartupTaskStatus
 
 NOW = datetime(2026, 10, 10, tzinfo=UTC)
@@ -68,6 +69,10 @@ def _remote(
     observer: str = "Running",
     time: datetime = NOW,
 ) -> RemoteRendererInstallationAudit:
+    publish_observer_heartbeat(
+        settings, observed_utc=time,
+        poll_seconds=15, sample_count=1, state="verified",
+    )
     report = inspect_renderer_installation(
         settings, owner_config=config, native_windows=True, now=time,
         probe=lambda role: _task(
@@ -120,6 +125,7 @@ def test_pc_b_readiness_uses_both_tasks_and_spool_without_gpu(
     (tmp_path / "spool").mkdir()
     yes = _remote(settings, conf)
     assert yes.audit.safe_for_passive_observation
+    assert yes.audit.observer_heartbeat == "fresh"
     assert yes.audit.evidence_spool == "empty"
     assert yes.audit.actual_survival_observed is False
     assert yes.audit.production_qualified is False

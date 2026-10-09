@@ -15,6 +15,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
+from artifex.render_node.observer_heartbeat import (
+    Status as ObserverHeartbeatStatus,
+)
+from artifex.render_node.observer_heartbeat import inspect_observer_heartbeat
 from artifex.windows_tasks import (
     StartupRole,
     StartupTaskStatus,
@@ -52,6 +56,7 @@ class RendererInstallationAudit(BaseModel):
     renderer_task: TaskInstallationCheck
     survival_observer_task: TaskInstallationCheck
     evidence_spool: SpoolCondition
+    observer_heartbeat: ObserverHeartbeatStatus = "missing"
     safe_for_passive_observation: bool
     task_actions_executed: Literal[False] = False
     renderer_process_mutated: Literal[False] = False
@@ -173,6 +178,7 @@ def inspect_renderer_installation(
     observer = checked("survival-observer")
     managed = bool(settings.render_agent.comfyui_process.enabled)
     spool = inspect_spool(settings.render_agent.survival_evidence_dir)
+    heartbeat = inspect_observer_heartbeat(settings, now=now)
     return RendererInstallationAudit(
         node_id=settings.render_agent.node_id,
         captured_utc=now or datetime.now(UTC),
@@ -182,10 +188,12 @@ def inspect_renderer_installation(
         renderer_task=renderer,
         survival_observer_task=observer,
         evidence_spool=spool,
+        observer_heartbeat=heartbeat,
         safe_for_passive_observation=(
             native and config_ok and managed
             and renderer.status == "running"
             and observer.status == "running"
+            and heartbeat == "fresh"
             and spool in {"has_evidence", "empty", "missing"}
         ),
     )

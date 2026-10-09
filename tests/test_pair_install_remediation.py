@@ -63,6 +63,7 @@ def _audit(
                 "renderer_task": _task("renderer", renderer),
                 "survival_observer_task": _task("survival-observer", observer),
                 "evidence_spool": spool,
+                "observer_heartbeat": "fresh" if observer == "running" else "missing",
                 "safe_for_passive_observation": (
                     windows and managed and renderer == "running"
                     and observer == "running"

@@ -157,6 +157,7 @@ def test_service_process_samples_without_influencing_renderer(
     ]
     pids: list[tuple[int, ...]] = []
     writes: list[tuple[dict[str, Any], Path]] = []
+    heartbeats: list[int] = []
     def read(
         settings: ArtifexSettings, *, config: Path, elapsed_seconds: float,
         original_supervisor_ids: tuple[int, ...], now: Any,
@@ -179,8 +180,12 @@ def test_service_process_samples_without_influencing_renderer(
         sleep=advance,
         output=lambda settings: tmp_path / "evidence.json",
         persist=lambda data, path: (writes.append((data, path)) or path),
+        publish_heartbeat=lambda *_args, **kwargs: heartbeats.append(
+            kwargs["sample_count"]
+        ),
     )
     assert pids == [(), (100,), (100,), (100,)]
+    assert heartbeats == [1, 2, 3, 4]
     assert report["saved_traces"] == 1
     assert report["samples"] == 4
     assert report["last_event"] == "observed_after_supervisor_absence"

@@ -143,6 +143,12 @@ def inspect_two_pc_installation(
     ):
         if snapshot.status != "running" or not snapshot.configuration_verified:
             blockers.append("pc_b_" + role + "_" + snapshot.status)
+    if detail.observer_heartbeat != "fresh":
+        blockers.append("pc_b_observer_heartbeat_" + detail.observer_heartbeat)
+        advice.append(
+            "The independent watcher has not recorded a fresh successful "
+            "sampling heartbeat; inspect it without restarting ComfyUI."
+        )
     if detail.evidence_spool in {"unsafe", "unavailable"}:
         blockers.append("pc_b_survival_spool_" + detail.evidence_spool)
     if not detail.safe_for_passive_observation:
