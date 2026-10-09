@@ -42,6 +42,8 @@ jobs:
       - run: uv run pytest -q tests/test_renderer_owner_audit.py
       - run: uv run pytest -q tests/test_qualification_renderer_owner_evidence.py
       - run: uv run pytest -q tests/test_soak_owner_continuity.py
+      - run: uv run pytest -q tests/test_qualification_readiness_diagnostics.py
+      - run: uv run artifex qualify readiness --help
       - run: uv run artifex qualify owner-observe --help
       - run: uv run artifex render-node owner-audit --help
       - run: uv run pytest -q tests/test_windows_task_lifecycle_probe.py
