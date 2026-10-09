@@ -9,7 +9,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from urllib.parse import urlsplit
 
@@ -21,7 +21,7 @@ from artifex.render_node.models import RenderNodeAttestation
 from artifex.setup import configure_two_pc
 
 _ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
-_ASSET = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]{1,255}\.(?:safetensors|ckpt)$", re.I)
+_ASSET = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]{1,255}\.(?:safetensors|ckpt)$", re.IGNORECASE)
 _MAX_JSON = 2 * 1024 * 1024
 
 
@@ -137,7 +137,7 @@ def discover_controller_pair(
             raise ValueError("PC-B gateway health response is oversized")
         stats = response.json()
         if not isinstance(stats, dict) or not isinstance(stats.get("system"), dict):
-            raise ValueError("PC-B protected gateway did not return ComfyUI system_stats")
+            raise TypeError("PC-B protected gateway did not return ComfyUI system_stats")
         if not stats["system"].get("comfyui_version"):
             raise ValueError("PC-B protected gateway did not identify running ComfyUI")
         return PairConfigurationPreview(
