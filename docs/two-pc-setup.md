@@ -799,6 +799,41 @@ the file, ComfyUI child survival after supervisor loss, actual GPU
 performance, or Issue #93/#40 completion. `file_source_authenticated=false`,
 `stage_pass_registered=false`, `production_qualified=false`, and
 `renderer_restart_authorized=false` are hard-coded in the correlation.
+## Passive native PC-B supervisor-loss survival observation (Issue #93)
+
+Run on the **actual Windows PC-B** from an independent terminal while the
+managed ComfyUI and Artifex renderer task are already running. The observer
+only reads Task Scheduler, CIM process identity, receipts and TCP; it does
+not create/stop/restart or replace any supervisor, service or GPU process.
+Never stop the live renderer to force this diagnostic to succeed.
+
+```powershell
+uv run artifex render-node survival-observe --config .\config\render-node.yaml --output .\data\qualification\pc-b-survival-unique.json --duration-seconds 600 --interval-seconds 10 --json
+```
+
+The baseline must establish a Running managed task with exact supervisor
+PID plus creation time and a schema-2-owned ComfyUI listener. Only an
+unforced natural transition to Ready can support the outcome. Every
+original supervisor PID must independently be absent from CIM; the same
+ComfyUI PID, creation time, launcher PID, receipt, identity and exclusive
+TCP listener must remain verified for two separated after-exit samples.
+Unexpected supervisor replacement/reappearance, process/PID reuse, gaps
+in monitoring, unsupported task/legacy receipt, foreign listener or a
+missing/unsafe task policy fail closed.
+
+Possible results: `observed_after_supervisor_absence`, `inconclusive`
+(transition never witnessed), or `blocked` (missing/contradictory evidence).
+All attempts write a NEW, exclusive JSON evidence file; a non-observed
+result exits nonzero. Output is never overwritten or symlink-followed.
+An independent PC-B observer remains able to sample after the managed
+supervisor/attestation service goes offline.
+
+This is **only natural-process-continuity evidence**; it does not prove
+reattachment, forced-failure safety, GPU recovery, eight-hour soak, or all
+14 qualification stages. Even if naturally witnessed, the report keeps
+`child_survival_qualified=false`, `issue_93_closure_authorized=false`,
+`renderer_restart_authorized=false` and `production_qualified=false`.
+CI simulations cannot stand in for actual physical-PC observations.
 ## One-command read-only PC-B owner evidence reconciliation
 
 Run on the actual native Windows PC-B with the original ComfyUI still running:

@@ -2248,6 +2248,48 @@ def render_node_launcher_probe(
 
 
 
+@render_node_app.command("survival-observe")
+def render_node_survival_observe(
+    output: Annotated[
+        Path, typer.Option(
+            "--output", help="A NEW evidence JSON file; never overwrites or follows symlinks.",
+        ),
+    ],
+    config: ConfigOption = None,
+    duration_seconds: Annotated[
+        float, typer.Option(
+            "--duration-seconds", min=20, max=86400,
+            help="Passive observation window; does NOT trigger a supervisor exit.",
+        ),
+    ] = 300,
+    interval_seconds: Annotated[
+        float, typer.Option(
+            "--interval-seconds", min=5, max=3600,
+            help="Sampling interval; must permit at least two post-exit samples.",
+        ),
+    ] = 10,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: witness natural ComfyUI survival across supervisor disappearance."""
+    from artifex.render_node.supervisor_survival import observe_supervisor_survival
+
+    path = config or Path("config/render-node.yaml")
+    if path.is_symlink() or not path.is_file():
+        typer.echo("survival-observe error: existing non-symlinked PC-B config required", err=True)
+        raise typer.Exit(code=1)
+    try:
+        report = observe_supervisor_survival(
+            _settings(path), config=path, output=output,
+            duration_seconds=duration_seconds, interval_seconds=interval_seconds,
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"survival-observe error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.status != "observed_after_supervisor_absence":
+        raise typer.Exit(code=1)
+
+
 @render_node_app.command("owner-readiness")
 def render_node_owner_readiness(
     config: ConfigOption = None,
