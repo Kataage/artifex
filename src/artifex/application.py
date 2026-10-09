@@ -697,6 +697,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         settings.agent,
         maintenance=MaintenanceGroup(maintenance_tasks),
         idle_maintenance=lora_validation_maintenance,
+        telemetry=core.telemetry,
     )
     return ArtifexApplication(
         core,
