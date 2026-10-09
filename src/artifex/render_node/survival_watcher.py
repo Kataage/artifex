@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.owner_audit import save_owner_observation
+from artifex.render_node.observer_heartbeat import publish_observer_heartbeat
 from artifex.render_node.supervisor_survival import (
     SurvivalAssessment,
     SurvivalSample,
@@ -113,6 +114,7 @@ def run_passive_survival_watcher(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     output: Callable[[ArtifexSettings], Path] = automatic_survival_output,
     persist: Callable[[dict[str, Any], Path], Path] = save_owner_observation,
+    publish_heartbeat: Callable[..., None] = publish_observer_heartbeat,
 ) -> dict[str, object]:
     """Loop independently of the renderer; never cause a task transition.
 
@@ -154,6 +156,13 @@ def run_passive_survival_watcher(
         )
         samples += 1
         verdict = watcher.ingest(reading, monotonic_seconds=current)
+        publish_heartbeat(
+            settings,
+            observed_utc=reading.observed_utc,
+            poll_seconds=poll_seconds,
+            sample_count=samples,
+            state=reading.state,
+        )
         if verdict is not None:
             # Automatic deterministic naming with exclusive file creation;
             # no task/renderer/receipt mutations, ever.
