@@ -243,7 +243,7 @@ def test_no_external_fetch_on_bad_file(tmp_path: Path) -> None:
 def test_overview_cli_accepts_copied_report_without_executing_pc_b(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    import artifex.cli as cli
+    from artifex import cli
 
     chosen = tmp_path / "local.yaml"
     chosen.write_text("render_nodes: {}\n", encoding="utf-8")
