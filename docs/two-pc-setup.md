@@ -1181,8 +1181,12 @@ When the two Windows PCs are already operating and you have a qualification
 session ID, `uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml`.
 The unattended three-Pack stage now requires three distinct finalized
 post-session Packs carrying events from **one actual continuous daemon run**,
-not any three manual archives. This evidence is auto-discovered and
-authoritatively rechecked by `qualify collect --apply`; if missing, leave
+not any three manual archives. This evidence is auto-discovered with stable keyset pagination
+(250 Packs/query, 10,000 total by default; adjust with `--scan-limit`),
+and authoritatively rechecked by `qualify collect --apply`. Routine
+telemetry pruning preserves daemon loop/completion provenance independently
+so an eight-hour run does not silently lose its original start event.
+If evidence is missing, leave
 Artifex running normally and inspect the telemetry rather than forcing
 manual PASS. `qualify recheck` also recognizes the PC-A authenticated
 remote safety probe as observed (or unavailable) without executing its
