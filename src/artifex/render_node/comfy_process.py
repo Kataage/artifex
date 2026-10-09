@@ -251,6 +251,7 @@ class ManagedComfyUI:
         if process is None:
             raise RuntimeError("Cannot record an absent ComfyUI process")
         observed_launcher = windows_process_identity(process.pid)
+        launcher: WindowsProcessIdentity | None
         captured_launcher = self._launch_snapshot
         if captured_launcher is not None:
             if observed_launcher is not None and observed_launcher != captured_launcher:
