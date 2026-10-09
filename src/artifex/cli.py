@@ -907,6 +907,58 @@ def onboard_inspect(
         raise typer.Exit(code=1) from exc
 
 
+@onboard_app.command("pair-sync")
+def onboard_pair_sync(
+    attestation_url: Annotated[
+        str,
+        typer.Option("--attestation-url", help="PC-B authenticated LAN URL, e.g. http://192.168.1.20:8190."),
+    ],
+    gateway_port: Annotated[
+        int,
+        typer.Option("--gateway-port", min=1, max=65535, help="PC-B protected ComfyUI gateway port."),
+    ] = 8191,
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="PC-A YAML path; never overwritten without --update."),
+    ] = Path("config/local.yaml"),
+    token_env: Annotated[
+        str, typer.Option("--token-env", help="Name (not value) of existing shared token environment variable."),
+    ] = "ARTIFEX_RENDER_NODE_TOKEN",
+    apply: Annotated[
+        bool, typer.Option("--apply", help="Explicitly write PC-A config after authenticated checks."),
+    ] = False,
+    update: Annotated[
+        bool, typer.Option("--update", help="With --apply, preserve and merge existing PC-A config."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Derive the PC-A config from live authenticated PC-B without stopping GPU work."""
+    from artifex.onboarding_pair import (
+        apply_controller_pair,
+        discover_controller_pair,
+    )
+
+    try:
+        if update and not apply:
+            raise ValueError("--update requires --apply")
+        preview = discover_controller_pair(
+            attestation_url, gateway_port=gateway_port, token_env=token_env,
+        )
+        if apply:
+            settings = _settings(output) if update else _settings(None)
+            preview = apply_controller_pair(
+                preview, settings, output,
+                update=update, token_env=token_env,
+            )
+        _print_payload(preview.model_dump(mode="json"), as_json=json_output)
+    except (OSError, ValueError, TypeError, RuntimeError, httpx.HTTPError) as exc:
+        typer.echo(
+            f"onboard pair-sync error: {type(exc).__name__}: {exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+
 @onboard_app.command("renderer")
 def onboard_renderer(
     comfy_root: Annotated[Path, typer.Option("--comfy-root", help="ComfyUI or portable root.")],
