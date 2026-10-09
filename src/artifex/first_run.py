@@ -102,7 +102,11 @@ def compile_first_run_guide(
                 "--output", str(config), "--json",
             )
             if native:
-                opt_in = (*safe[:-1], "--apply", *("--update",) if has_config else (), "--json")
+                opt_in = (
+                    (*safe[:-1], "--apply", "--update", "--json")
+                    if has_config else
+                    (*safe[:-1], "--apply", "--json")
+                )
             status: Literal["needs_input", "needs_review", "preview_ready", "configured"] = (
                 "preview_ready" if native else "needs_review"
             )
