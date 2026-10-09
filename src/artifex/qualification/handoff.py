@@ -97,10 +97,14 @@ def compile_handoff(
     # that Windows virtualenv launcher identity and child survival were
     # verified on the operator's actual machine (Issue #93).
     independent: tuple[str, ...] = (
-        "Confirm actual native PC-B launcher, Task Scheduler and child PID "
-        "survival on the owner's machine (Issue #93).",
-        "Complete independent real-PC 14-stage acceptance including live "
-        "GPU recovery, archive reproduction and eight-hour soak (Issue #40).",
+        (
+            "Confirm actual native PC-B launcher, Task Scheduler and child PID "
+            "survival on the owner's machine (Issue #93)."
+        ),
+        (
+            "Complete independent real-PC 14-stage acceptance including live "
+            "GPU recovery, archive reproduction and eight-hour soak (Issue #40)."
+        ),
     )
     selected = overview.session_id
     if blocked:
