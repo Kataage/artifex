@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -17,9 +18,11 @@ from artifex.editorial.models import (
     SeriesPlanKind,
 )
 from artifex.editorial.repository import EditorialRepository, PackInventoryRepository
-from artifex.performance import PerformanceLearningService
 from artifex.planner.models import CharacterOption, ConceptCandidate, PlanningContext
 from artifex.series import SeriesProfile, SeriesRepository, SeriesStatus
+
+if TYPE_CHECKING:
+    from artifex.performance.service import PerformanceLearningService
 
 
 class EditorialService:
