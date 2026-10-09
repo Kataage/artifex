@@ -202,11 +202,24 @@ class ManagedComfyUI:
                 "refusing automatic process shutdown or restart"
             )
 
+    def _verify_receipt_launcher(self, receipt: ComfyOwnershipReceipt) -> None:
+        """A dead shim is safe, but a reused shim PID is never our launcher."""
+        recorded = receipt.launcher_identity
+        if recorded is None:
+            return
+        current = windows_process_identity(recorded.pid)
+        if current is not None and current != recorded:
+            raise RuntimeError(
+                "Recorded ComfyUI launcher PID was reused; refusing reattachment "
+                "or automatic replacement"
+            )
+
     def _verify_owned_listener(self) -> None:
         if not self.settings.render_agent.gateway.enabled:
             return
         receipt = self._current_receipt
         if receipt is not None:
+            self._verify_receipt_launcher(receipt)
             observed = windows_process_identity(receipt.identity.pid)
             if observed is None or not matches_owned_process(
                 self.settings, receipt, observed,
@@ -304,6 +317,7 @@ class ManagedComfyUI:
         receipt = self._receipts.load()
         if receipt is None:
             return False
+        self._verify_receipt_launcher(receipt)
         observed = windows_process_identity(receipt.identity.pid)
         if observed is None:
             # Natural child death, with the TCP port demonstrably free, lets
@@ -336,6 +350,7 @@ class ManagedComfyUI:
         receipt = self._current_receipt
         if not self.settings.render_agent.gateway.enabled or receipt is None:
             return
+        self._verify_receipt_launcher(receipt)
         if windows_process_identity(receipt.identity.pid) is not None:
             raise RuntimeError(
                 "Prior ComfyUI PID is still in use; refusing automatic replacement"
@@ -448,6 +463,7 @@ class ManagedComfyUI:
                 continue
             if self._adopted is not None:
                 receipt = self._adopted
+                self._verify_receipt_launcher(receipt)
                 observed = windows_process_identity(receipt.identity.pid)
                 if observed is None:
                     if healthy:
@@ -478,6 +494,7 @@ class ManagedComfyUI:
                 continue
             if self.settings.render_agent.gateway.enabled and self._current_receipt:
                 receipt = self._current_receipt
+                self._verify_receipt_launcher(receipt)
                 observed = windows_process_identity(receipt.identity.pid)
                 if observed is not None:
                     if not matches_owned_process(self.settings, receipt, observed):
