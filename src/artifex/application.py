@@ -70,14 +70,14 @@ from artifex.policy import (
     PolicyEngine,
     PolicyRegistry,
 )
-from artifex.qualification.maintenance import QualificationEvidenceMaintenance
-from artifex.qualification.service import QualificationService
 from artifex.production import (
     ComfyGenerationBackend,
     PlanningContextBuilder,
     ProductionCoordinator,
 )
 from artifex.prompts import ILXLDanbooruAdapter, PromptCompiler
+from artifex.qualification.maintenance import QualificationEvidenceMaintenance
+from artifex.qualification.service import QualificationService
 from artifex.research import (
     DDGSResearchProvider,
     GelbooruMetadataProvider,
