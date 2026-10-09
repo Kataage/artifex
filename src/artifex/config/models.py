@@ -384,6 +384,8 @@ class RenderAgentConfig(StrictModel):
     bind_host: str = "127.0.0.1"
     port: int = Field(default=8190, ge=1, le=65535)
     attestation_cache_seconds: float = Field(default=60.0, ge=0, le=3600)
+    # PC-B local immutable survival traces; endpoint exposes latest only.
+    survival_evidence_dir: Path = Path("data/qualification/survival")
     token_env: str | None = "ARTIFEX_RENDER_NODE_TOKEN"
     require_token: bool = True
     comfyui_process: ManagedComfyConfig = Field(default_factory=ManagedComfyConfig)

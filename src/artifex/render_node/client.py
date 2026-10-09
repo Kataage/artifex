@@ -8,6 +8,7 @@ from artifex.config.models import RenderNodeConfig
 from artifex.render_node.models import (
     RemoteOwnerReadinessEvidence,
     RemoteRendererOwnerAudit,
+    RemoteSurvivalTrace,
     RenderNodeAttestation,
 )
 from artifex.render_node.startup_inspection import RemoteRendererSafetyInspection
@@ -175,3 +176,49 @@ def fetch_remote_owner_readiness(
     if evidence.node_id != node_id:
         raise ValueError("remote owner evidence node ID mismatch")
     return evidence
+
+
+
+def fetch_remote_survival_trace(
+    node_id: str,
+    config: RenderNodeConfig,
+    *,
+    timeout_seconds: float = 35.0,
+    client: httpx.Client | None = None,
+) -> RemoteSurvivalTrace:
+    """Obtain the newest saved PC-B report, never triggering a local probe."""
+    if not config.attestation_url:
+        raise ValueError("render node has no attestation_url configured")
+    if not config.attestation_token_env:
+        raise ValueError("remote survival requires configured Bearer token")
+    token = os.environ.get(config.attestation_token_env)
+    if not token:
+        raise ValueError("remote survival Bearer token is missing")
+    url = config.attestation_url.rstrip("/") + "/v1/survival-evidence"
+    owns = client is None
+    http = client or httpx.Client(
+        timeout=httpx.Timeout(timeout_seconds),
+        follow_redirects=False, trust_env=False,
+    )
+    try:
+        # Do not follow redirects or accept unbounded HTTP payloads.
+        with http.stream(
+            "GET", url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=timeout_seconds, follow_redirects=False,
+        ) as response:
+            response.raise_for_status()
+            chunks: list[bytes] = []
+            total = 0
+            for part in response.iter_bytes():
+                total += len(part)
+                if total > 13 * 1024 * 1024:
+                    raise ValueError("remote survival response exceeds size limit")
+                chunks.append(part)
+        received = RemoteSurvivalTrace.model_validate_json(b"".join(chunks))
+    finally:
+        if owns:
+            http.close()
+    if received.node_id != node_id:
+        raise ValueError("remote survival node ID mismatch")
+    return received

@@ -38,6 +38,7 @@ from artifex.qualification.readiness_diagnostics import (
 from artifex.qualification.readiness_recheck import _observed
 from artifex.qualification.survival_review import (
     PCBSurvivalEvidenceReview,
+    review_live_pc_b_survival_evidence,
     review_pc_b_survival_evidence,
 )
 
@@ -209,6 +210,7 @@ def compile_qualification_overview(
     pc_b_owner_report: Path | None = None,
     pc_b_owner_live: bool = False,
     pc_b_survival_report: Path | None = None,
+    pc_b_survival_live: bool = False,
     readiness: QualificationReadiness | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
@@ -240,11 +242,16 @@ def compile_qualification_overview(
             if pc_b_owner_report is not None else None
         )
     )
+    if pc_b_survival_live and pc_b_survival_report is not None:
+        raise ValueError("Choose PC-B local survival JSON OR remote saved trace")
     survival = (
-        review_pc_b_survival_evidence(
-            settings, pc_b_survival_report, now=current,
+        review_live_pc_b_survival_evidence(settings, now=current)
+        if pc_b_survival_live else (
+            review_pc_b_survival_evidence(
+                settings, pc_b_survival_report, now=current,
+            )
+            if pc_b_survival_report is not None else None
         )
-        if pc_b_survival_report is not None else None
     )
     plan = compile_qualification_action_plan(
         report, controller_config=controller_config,

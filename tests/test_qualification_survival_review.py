@@ -263,3 +263,131 @@ def test_overview_and_handoff_cli_forward_optional_trace_only(
         ])
         assert result.exit_code == (0 if command == "overview" else 1), result.output
     assert captured == [("overview", survival), ("handoff", survival)]
+
+
+
+def test_authenticated_remote_trace_is_replayed_without_manual_copy(
+    tmp_path: Path,
+) -> None:
+    import hashlib
+
+    from artifex.render_node.models import RemoteSurvivalTrace
+
+    path = tmp_path / "local-pc-b.json"
+    _trace(path)
+    original = path.read_text(encoding="utf-8")
+    path.unlink()
+    owner, attestation = _probes()
+    requested: list[str] = []
+
+    def get_saved(node: str, cfg: RenderNodeConfig) -> RemoteSurvivalTrace:
+        requested.append(node)
+        return RemoteSurvivalTrace(
+            node_id=node, content=original,
+            sha256=hashlib.sha256(original.encode()).hexdigest(),
+        )
+
+    reviewed = review_pc_b_survival_evidence(
+        _settings(), None, remote=True, now=NOW,
+        remote_probe=get_saved, owner_probe=owner,
+        attestation_probe=attestation,
+    )
+    assert requested == ["gpu-b"]
+    assert reviewed.status == "replayed_and_live_identity_matched"
+    assert reviewed.source_mode == "bearer_remote"
+    assert reviewed.remote_bearer_checked is True
+    assert reviewed.source_authenticated is False
+    assert reviewed.historical_event_authenticated is False
+    assert reviewed.independent_supervisor_survival_qualified is False
+    assert reviewed.production_qualified is False
+
+
+@pytest.mark.parametrize("problem,expected", (
+    ("unreachable", "remote_unavailable"),
+    ("wrong_node", "blocked"),
+    ("bad_sha", "blocked"),
+    ("future_sample", "blocked"),
+    ("historical_pid_changed", "replayed_historical_identity"),
+))
+def test_remote_trace_unavailable_or_corrupt_never_qualifies(
+    tmp_path: Path, problem: str, expected: str,
+) -> None:
+    import hashlib
+
+    from artifex.render_node.models import RemoteSurvivalTrace
+
+    path = tmp_path / "local-pc-b.json"
+    _trace(path)
+    original = path.read_text(encoding="utf-8")
+    owner, attestation = _probes(pid=401 if problem == "historical_pid_changed" else 400)
+
+    def get_saved(node: str, cfg: RenderNodeConfig) -> RemoteSurvivalTrace:
+        if problem == "unreachable":
+            raise OSError("PC-B not up yet")
+        content = original
+        if problem == "future_sample":
+            doc = json.loads(content)
+            doc["samples"][-1]["observed_utc"] = (
+                NOW + timedelta(hours=3)
+            ).isoformat()
+            content = json.dumps(doc)
+        return RemoteSurvivalTrace(
+            node_id="foreign" if problem == "wrong_node" else node,
+            content=content,
+            sha256=("0" * 64 if problem == "bad_sha" else
+                    hashlib.sha256(content.encode()).hexdigest()),
+        )
+
+    result = review_pc_b_survival_evidence(
+        _settings(), None, remote=True, now=NOW,
+        remote_probe=get_saved, owner_probe=owner,
+        attestation_probe=attestation,
+    )
+    assert result.status == expected
+    assert result.production_qualified is False
+    assert result.issue_93_closure_authorized is False
+
+
+def test_pc_a_cli_accepts_remote_survival_flag_without_local_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from artifex import cli
+    from artifex.qualification import handoff, overview
+
+    cfg = tmp_path / "controller.yaml"
+    cfg.write_text("{}")
+    monkeypatch.setattr(cli, "_settings", lambda _: _settings())
+    params: list[tuple[str, bool, object]] = []
+
+    class FakeOverview:
+        environment_ready = False
+
+        def model_dump(self, *, mode: str) -> dict[str, object]:
+            return {"production_qualified": False}
+
+    def overview_stub(*args, **kwargs):
+        params.append(("overview", kwargs["pc_b_survival_live"],
+                       kwargs["pc_b_survival_report"]))
+        return FakeOverview()
+
+    async def handoff_stub(*args, **kwargs):
+        params.append(("handoff", kwargs["pc_b_survival_live"],
+                       kwargs["pc_b_survival_report"]))
+
+        class FakeHandoff:
+            state = "blocked"
+
+            def model_dump(self, *, mode: str) -> dict[str, object]:
+                return {"production_qualified": False, "state": "blocked"}
+
+        return FakeHandoff()
+
+    monkeypatch.setattr(overview, "compile_qualification_overview", overview_stub)
+    monkeypatch.setattr(handoff, "inspect_qualification_handoff", handoff_stub)
+    for cmd in ("overview", "handoff"):
+        result = CliRunner().invoke(app, [
+            "qualify", cmd, "--config", str(cfg),
+            "--pc-b-survival-live", "--json",
+        ])
+        assert result.exit_code == (0 if cmd == "overview" else 1), result.output
+    assert params == [("overview", True, None), ("handoff", True, None)]

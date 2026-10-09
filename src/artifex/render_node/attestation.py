@@ -30,6 +30,7 @@ from artifex.render_node.remote_owner_readiness import (
     OwnerReadinessCache,
     can_collect_owner_readiness,
 )
+from artifex.render_node.survival_spool import latest_survival_trace
 
 
 def _hash_file(path: Path, digest: Any) -> tuple[int, int]:
@@ -269,11 +270,11 @@ def serve_attestation(
                 return
             protected_path = url.path in {
                 "/v1/owner-audit", "/v1/renderer-safety",
-                "/v1/owner-readiness-evidence",
+                "/v1/owner-readiness-evidence", "/v1/survival-evidence",
             }
             if url.path not in {
                 "/v1/attestation", "/v1/owner-audit", "/v1/renderer-safety",
-                "/v1/owner-readiness-evidence",
+                "/v1/owner-readiness-evidence", "/v1/survival-evidence",
             }:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
@@ -284,6 +285,27 @@ def serve_attestation(
                 # /health and legacy attestation can be configured public,
                 # but owner and safety evidence always require a Bearer token.
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
+            if url.path == "/v1/survival-evidence":
+                if url.query:
+                    self._json(
+                        HTTPStatus.BAD_REQUEST, {"error": "query_not_supported"},
+                    )
+                    return
+                # Only a configured directory's most recent immutable report.
+                # GET never starts a Python child, Task Scheduler job, or GPU task.
+                try:
+                    sha, content = latest_survival_trace(settings)
+                except (OSError, ValueError, UnicodeError):
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "survival_evidence_unavailable"},
+                    )
+                    return
+                self._json(HTTPStatus.OK, {
+                    "node_id": settings.render_agent.node_id,
+                    "sha256": sha, "content": content,
+                })
                 return
             if url.path == "/v1/owner-readiness-evidence":
                 if url.query or not can_collect_owner_readiness(settings, owner_config):

@@ -2251,10 +2251,10 @@ def render_node_launcher_probe(
 @render_node_app.command("survival-observe")
 def render_node_survival_observe(
     output: Annotated[
-        Path, typer.Option(
-            "--output", help="A NEW evidence JSON file; never overwrites or follows symlinks.",
+        Path | None, typer.Option(
+            "--output", help="Optional unique JSON output; default auto-publishes to PC-B spool.",
         ),
-    ],
+    ] = None,
     config: ConfigOption = None,
     duration_seconds: Annotated[
         float, typer.Option(
@@ -2272,14 +2272,17 @@ def render_node_survival_observe(
 ) -> None:
     """PC-B: witness natural ComfyUI survival across supervisor disappearance."""
     from artifex.render_node.supervisor_survival import observe_supervisor_survival
+    from artifex.render_node.survival_spool import automatic_survival_output
 
     path = config or Path("config/render-node.yaml")
     if path.is_symlink() or not path.is_file():
         typer.echo("survival-observe error: existing non-symlinked PC-B config required", err=True)
         raise typer.Exit(code=1)
     try:
+        settings = _settings(path)
+        destination = output if output is not None else automatic_survival_output(settings)
         report = observe_supervisor_survival(
-            _settings(path), config=path, output=output,
+            settings, config=path, output=destination,
             duration_seconds=duration_seconds, interval_seconds=interval_seconds,
         )
         _print_payload(report.model_dump(mode="json"), as_json=json_output)
@@ -3235,6 +3238,12 @@ def qualify_overview(
             help="Optional PC-B passive supervisor survival JSON; replay untrusted trace read-only.",
         ),
     ] = None,
+    pc_b_survival_live: Annotated[
+        bool, typer.Option(
+            "--pc-b-survival-live",
+            help="Retrieve PC-B's newest immutable survival trace over Bearer auth.",
+        ),
+    ] = False,
     output: Annotated[
         Path | None,
         typer.Option("--output", help="Optional new JSON report file, never overwritten."),
@@ -3254,6 +3263,7 @@ def qualify_overview(
             pc_b_owner_report=pc_b_owner_report,
             pc_b_owner_live=pc_b_owner_live,
             pc_b_survival_report=pc_b_survival_report,
+            pc_b_survival_live=pc_b_survival_live,
         )
         payload = report.model_dump(mode="json")
         if output is not None:
@@ -3299,6 +3309,12 @@ def qualify_handoff(
             help="Optional PC-B passive supervisor survival JSON; replay untrusted trace read-only.",
         ),
     ] = None,
+    pc_b_survival_live: Annotated[
+        bool, typer.Option(
+            "--pc-b-survival-live",
+            help="Retrieve PC-B's newest immutable survival trace over Bearer auth.",
+        ),
+    ] = False,
     output: Annotated[
         Path | None, typer.Option(
             "--output", help="Optional new JSON handoff report; refuses overwriting.",
@@ -3320,6 +3336,7 @@ def qualify_handoff(
             session_id=session_id,
             pc_b_owner_live=pc_b_owner_live,
             pc_b_survival_report=pc_b_survival_report,
+            pc_b_survival_live=pc_b_survival_live,
         ))
         payload = report.model_dump(mode="json")
         if output is not None:

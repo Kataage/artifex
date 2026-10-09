@@ -74,3 +74,12 @@ class RemoteOwnerReadinessEvidence(RenderNodeModel):
     schema_version: Literal[1] = 1
     node_id: str = Field(min_length=1)
     report: dict[str, Any]
+
+
+class RemoteSurvivalTrace(RenderNodeModel):
+    """Bearer-gated immutable PC-B trace (NOT trusted event attestation)."""
+
+    schema_version: Literal[1] = 1
+    node_id: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    content: str
