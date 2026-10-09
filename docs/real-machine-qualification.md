@@ -2,6 +2,61 @@
 
 Issue #40 is the final production-readiness gate. Architecture/CI evidence alone is not sufficient. Run this procedure on the actual native Windows host with the intended models, ComfyUI workflow, LoRAs and services. Docker, Podman and WSL are optional and are not accepted as substitutes.
 
+## First-run guide before either PC has a YAML (read-only)
+
+You can inspect **PC-A or PC-B without creating a config file, starting a
+service, changing a task or generating an image**. All paths, URLs, model
+locations and machine addresses remain configurable; the guide never guesses
+the IP address of PC-B, ComfyUI root, GPU ownership or a checkpoint.
+
+**On PC-B, with the existing ComfyUI path:**
+
+```powershell
+uv run artifex onboard first-run --role renderer --comfy-root "D:/AI/ComfyUI_windows_portable" --json
+```
+
+This uses the existing `renderer-auto` preview's strict selection rules. A
+single checkpoint/Python is a *proposal*, not an authorized renderer launch.
+Ambiguous checkpoints, `extra_model_paths.yaml` or multiple Python binaries
+require an explicit operator selection. The returned
+`next_safe_preview_argv` remains read-only; any
+`optional_config_write_argv` is **advice for an explicitly approved
+config-only `--apply`**, not executed by this command.
+
+**On PC-A, before `config/local.yaml` exists:**
+
+```powershell
+uv run artifex onboard first-run --role controller --json
+```
+
+It checks local `uv`, the configured Spark GGUF and llama.cpp binary presence,
+and lists the missing inputs without downloading anything. Once PC-B's
+**actual LAN attestation URL** and shared token environment variable are known,
+use the authenticated preview:
+
+```powershell
+uv run artifex onboard first-run --role controller `
+  --attestation-url "http://192.168.1.20:8190" --json
+```
+
+The URL above is only an example: use the PC-B address from the real network.
+Set `ARTIFEX_RENDER_NODE_TOKEN` in both PCs' environments, **never in the
+command line or a saved JSON file**. The controller preview performs at most
+the two existing protected, bounded authenticated GETs to PC-B
+(`/v1/attestation?fresh=1` and gateway `/system_stats`). It does not call
+`/prompt`, use a direct 8188 bypass, or launch ComfyUI.
+
+If the YAML already exists, the guide points to existing
+`qualify overview` (PC-A) or `onboard renderer-safety` (PC-B) instead of
+rewriting anything. For an audit trail, `--report-path` creates **only a new
+JSON report** and refuses to overwrite/symlink a previous one.
+
+An opt-in config-write argv is shown only for native Windows, a protected
+authenticated pair preview or an unambiguous renderer model/Python preview.
+It is **never executed**. A report can be `configured` or `preview_ready`
+without being qualified; the separate 14-stage actual Windows/GPU/soak
+verification is mandatory.
+
 ## PC-B registered Task Scheduler hard-termination audit
 
 On PC-B run `uv run artifex startup audit --role renderer
