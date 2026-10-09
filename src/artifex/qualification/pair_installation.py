@@ -93,16 +93,16 @@ def inspect_two_pc_installation(
         return TwoPCInstallationAudit(
             checked_utc=tick, status="pc_b_unconfigured",
             pc_a_controller_task=local, pc_b_node_id=None,
-            blockers=tuple((*blockers, "pc_b_primary_node_unconfigured")),
-            next_actions=tuple((*advice, "Configure render_nodes.primary and its attestation URL.")),
+            blockers=(*blockers, "pc_b_primary_node_unconfigured"),
+            next_actions=(*advice, "Configure render_nodes.primary and its attestation URL."),
         )
     node_id, config = chosen
     if not config.attestation_url or not config.attestation_token_env:
         return TwoPCInstallationAudit(
             checked_utc=tick, status="pc_b_unconfigured",
             pc_a_controller_task=local, pc_b_node_id=node_id,
-            blockers=tuple((*blockers, "pc_b_attestation_or_bearer_unconfigured")),
-            next_actions=tuple((*advice, "Configure PC-B's protected attestation URL and token variable.")),
+            blockers=(*blockers, "pc_b_attestation_or_bearer_unconfigured"),
+            next_actions=(*advice, "Configure PC-B's protected attestation URL and token variable."),
         )
     try:
         response = remote_probe(node_id, config)
@@ -110,11 +110,14 @@ def inspect_two_pc_installation(
         return TwoPCInstallationAudit(
             checked_utc=tick, status="pc_b_unreachable",
             pc_a_controller_task=local, pc_b_node_id=node_id,
-            blockers=tuple((*blockers, "pc_b_authenticated_installation_unavailable")),
-            next_actions=tuple((
-                *advice, "Check PC-B attestation availability, network and Bearer environment; "
-                "do not start or restart ComfyUI merely to enable this audit.",
-            )),
+            blockers=(*blockers, "pc_b_authenticated_installation_unavailable"),
+            next_actions=(
+                *advice,
+                (
+                    "Check PC-B attestation availability, network and Bearer environment; "
+                    "do not start or restart ComfyUI merely to enable this audit."
+                ),
+            ),
         )
     detail = response.audit
     if (
@@ -125,10 +128,10 @@ def inspect_two_pc_installation(
         return TwoPCInstallationAudit(
             checked_utc=tick, status="pc_b_needs_setup",
             pc_a_controller_task=local, pc_b_node_id=node_id, pc_b=response,
-            blockers=tuple((*blockers, "pc_b_node_identity_or_snapshot_stale")),
-            next_actions=tuple((
+            blockers=(*blockers, "pc_b_node_identity_or_snapshot_stale"),
+            next_actions=(
                 *advice, "Inspect PC-B node ID and clock; do not trust mismatched/stale reports.",
-            )),
+            ),
         )
     if not detail.native_windows:
         blockers.append("pc_b_not_native_windows")
