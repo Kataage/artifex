@@ -729,6 +729,23 @@ uv run artifex qualify collect <SESSION> --apply --config .\\config\\local.yaml
 The collector uses the exact same strict validators as manual registration,
 including validated LoRAs, Scene publication tiers, continued Series IDs,
 recorded retries, restart/recovery telemetry and unique finalized Packs.
+
+**Unattended multi-Pack proof is stricter than a total of three finished
+Packs.** Native Artifex `daemon` records a unique run ID when it enters
+its sustained `run_forever` loop, and associates only *persisted, finalized
+archive checkpoints* reached by that scheduler with its run ID.
+`unattended_multi_pack` requires at least three **distinct post-session
+Packs** completed in one continuous daemon run and matching
+`daemon.loop_started` / `daemon.pack_finalized` telemetry. Running
+`run_once`, creating manual finalized Packs, or combining different daemon
+runs does not satisfy this stage. `qualify collect` automatically selects
+the matching Pack IDs; no manual list is needed. Absent/pruned telemetry
+leaves the stage pending, not a false PASS.
+
+The recorded event sequence is a proof of sustained scheduler execution
+for the selected Packs, **not** proof of eight uninterrupted hours or
+permission to restart a live ComfyUI renderer. The separate soak and
+recovery stages remain mandatory.
 It also recognizes **real delivered and authorized Discord interactions**
 recorded after the session started. It never fabricates missing evidence,
 changes an existing stage status, queues GPUs, or changes running services.
