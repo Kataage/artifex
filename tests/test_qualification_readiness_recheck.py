@@ -110,6 +110,40 @@ def test_recheck_fails_closed_when_ownership_unavailable_now() -> None:
     assert result.updated_plan.production_qualified is False
 
 
+
+def test_pc_a_remote_safety_is_acknowledged_only_when_both_probes_return() -> None:
+    previous = _report(
+        _check("pc_b", "safety:overall", "fail"),
+        _check("pc_b", "safety:three_ports", "fail"),
+    )
+    current = _report(
+        _check("pc_b", "safety:overall", "pass"),
+        _check("pc_b", "safety:three_ports", "pass"),
+        _check("pc_b", "safety:freshness", "pass"),
+        _check("pc_b", "safety:pid_consistency", "pass"),
+        ready=True,
+    )
+    result, calls = _reconcile(previous, current)
+    assert len(calls) == 1
+    mapped = {item.step_id: item for item in result.observations}
+    assert mapped["pc-a-remote-renderer-safety"].state == "observed_live"
+    assert mapped["pc-a-remote-renderer-safety"].cli_commands_executed is False
+    assert result.arbitrary_plan_commands_executed is False
+    assert result.production_qualified is False
+
+    missing = _report(
+        _check("pc_b", "safety:remote_probe", "unknown"),
+        ready=False,
+    )
+    blocked, _ = _reconcile(previous, missing)
+    item = next(
+        x for x in blocked.observations
+        if x.step_id == "pc-a-remote-renderer-safety"
+    )
+    assert item.state == "unavailable"
+    assert not blocked.latest_environment_ready
+
+
 def test_remote_inventory_is_never_called_a_native_pc_b_preflight() -> None:
     previous = _report(
         _check("pc_b", "preflight:render_inventory", "fail"),
