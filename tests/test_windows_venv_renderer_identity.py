@@ -230,7 +230,21 @@ def test_protected_supervisor_records_child_pid_and_reattaches_after_launcher_lo
     assert adopted.process is None
     assert adopted._adopted == receipt
     adopted.watch(FiniteStop())  # type: ignore[arg-type]
+
+    # The original shim may disappear safely, but a newly reused launcher
+    # PID must block both ongoing monitoring and a fresh supervisor.
+    identities[101] = launcher.model_copy(update={
+        "started_utc": "2026-10-09T05:00:00Z",
+    })
+    with pytest.raises(RuntimeError, match="launcher PID was reused"):
+        adopted.watch(FiniteStop())  # type: ignore[arg-type]
     adopted.close()
+    assert mock.terminate_calls == mock.kill_calls == 0
+
+    rejected = ManagedComfyUI(settings, process_factory=forbid_spawn)
+    monkeypatch.setattr(rejected, "_healthy", lambda: True)
+    with pytest.raises(RuntimeError, match="launcher PID was reused"):
+        rejected.start(threading.Event())
     assert mock.terminate_calls == mock.kill_calls == 0
 
 
