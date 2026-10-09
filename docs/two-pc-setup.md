@@ -879,6 +879,40 @@ current PC-B, handoff cannot recommend a qualification session start.
 While this release removes manual reconstruction of the report, securely
 transporting a trace from PC-B to PC-A is still required. Never stop a
 live ComfyUI task solely to create a survival trace.
+## Independent watcher heartbeat: prove recent observation, not just Task Running
+
+The PC-B independent observer now writes a small, fixed-name
+`observer-health.json` to the **configured**
+`render_agent.survival_evidence_dir` after each completed read-only
+sampling pass. The file is updated through an exclusive temporary file
+and atomic replacement; its content is bounded and carries the
+configured node ID, UTC observation timestamp, watcher PID, polling
+interval, sample count and diagnostic sample state, **not** passwords,
+task command lines or ComfyUI ownership tokens.
+
+`GET /v1/installation-audit` reads that local heartbeat (never
+performs an observation). A new `observer_heartbeat` field shows
+`fresh`, `missing`, `stale`, `unsafe` or `unavailable`.
+`safe_for_passive_observation` now requires a *fresh* heartbeat as
+well as both correctly configured Running tasks. PC-A
+`qualify pair-install-audit` reports
+`pc_b_observer_heartbeat_<status>` when heartbeat is not fresh.
+The existing per-PC remediation plan gives only observational advice,
+not a renderer restart.
+
+For a 15-second sampling interval, evidence becomes stale after 90
+seconds. For customized longer intervals, the threshold is 3 times
+the configured interval (maximum 900 seconds). Freshness is only
+evidence that a local watcher sampled recently: a JSON file or a PID
+does **not** establish physical process identity, authentic historical
+survival, production qualification, or any of the 14 GPU stages.
+
+This feature neither starts nor terminates ComfyUI and does not enroll
+a Task Scheduler job. Operators must still explicitly enroll the
+independent observer using the existing `startup observer-enable
+--apply` workflow if needed. No actual operator-PC-B observation
+is claimed based on CI.
+
 ## PC-A pair installation audit: safe, per-machine next steps
 
 The existing read-only two-PC check now also returns a structured
