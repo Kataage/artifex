@@ -53,6 +53,7 @@ def compile_handoff(
     deployment: DeploymentReport,
     *,
     controller_config: Path,
+    expected_workflow_ids: tuple[str, ...],
 ) -> QualificationHandoff:
     """Fail closed if one gate is missing, contradicts the other or is stale."""
     if deployment.role != "controller":
@@ -74,8 +75,10 @@ def compile_handoff(
         if check.name.startswith("workflow:")
     )
     unique_workflows = {check.name for check in workflow_checks}
+    expected = {"workflow:" + name for name in expected_workflow_ids}
     workflow_ready = (
-        bool(workflow_checks)
+        bool(expected)
+        and unique_workflows == expected
         and len(unique_workflows) == len(workflow_checks)
         and all(check.ready for check in workflow_checks)
     )
@@ -164,4 +167,8 @@ async def inspect_qualification_handoff(
     )
     return compile_handoff(
         overview, deployment, controller_config=controller_config,
+        expected_workflow_ids=(
+            settings.comfyui.default_template,
+            settings.production.repair_workflow_template,
+        ),
     )
