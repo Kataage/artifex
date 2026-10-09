@@ -79,6 +79,39 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## PC-A qualification handoff: protected readiness + actual workflow nodes
+
+Once PC-B has a protected gateway and PC-A has a non-symlinked
+`config/local.yaml`, run **one read-only handoff** on PC-A:
+
+```powershell
+uv run artifex qualify handoff --config .\\config\\local.yaml --json
+```
+
+This runs the existing PC-A/PC-B authenticated `qualify overview` snapshot,
+then validates both **configured ComfyUI production and repair workflows**
+through the existing `deployment verify` **without** `--render-smoke`.
+The node checks use the configured protected PC-B gateway, not a direct
+unmanaged ComfyUI port. No new stage is registered, workflow submitted,
+Task Scheduler job changed or model downloaded.
+
+The response distinguishes `blocked`, `session_start_candidate`, and
+`saved_session_review`. The first is returned as structured JSON and a
+nonzero CLI exit; missing PC-A/PC-B live readiness, stale samples, incomplete
+real node dependencies or a contradictory deployment result **block** the
+suggestion to begin qualification. A `session_start_candidate` includes an
+**unexecuted** `qualify start` argv; a saved session is **not assumed active**
+and suggests only a preview-only continuation. An optional
+`--output data/qualification/handoff.json` creates a new evidence report
+but never overwrites another one. Always use the actual configured paths.
+
+Even if the handoff is ready, `renderer_start_authorized=false`,
+`gpu_jobs_submitted=false` and `production_qualified=false` remain
+explicit. This **does not prove** Windows virtualenv process survival
+(Issue #93), active GPU image generation, the eight-hour soak, or all
+14 required real-machine stages (Issue #40). No live ComfyUI service may
+be stopped, restarted or adopted to satisfy these checks.
+
 ## One-command PC-A qualification overview (read-only)
 
 From **PC-A**, get current authenticated PC-B safety, PC-A preflight,
