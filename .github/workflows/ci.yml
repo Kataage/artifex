@@ -44,6 +44,8 @@ jobs:
       - run: uv run pytest -q tests/test_soak_owner_continuity.py
       - run: uv run pytest -q tests/test_qualification_readiness_diagnostics.py
       - run: uv run pytest -q tests/test_qualification_readiness_action_plan.py
+      - run: uv run pytest -q tests/test_qualification_readiness_recheck.py
+      - run: uv run artifex qualify recheck --help
       - run: uv run artifex qualify plan --help
       - run: uv run artifex qualify readiness --help
       - run: uv run artifex qualify owner-observe --help
