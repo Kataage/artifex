@@ -57,6 +57,35 @@ It is **never executed**. A report can be `configured` or `preview_ready`
 without being qualified; the separate 14-stage actual Windows/GPU/soak
 verification is mandatory.
 
+## One-command PC-A evidence-aware qualification handoff (Issue #93 / #40)
+
+After PC-A and PC-B both run the latest Artifex, the **default** PC-A
+handoff now includes the authenticated PC-B owner-readiness cache, current
+owner audit and workflow checks automatically. No JSON copy, manual
+PC-B probe command, renderer restart, GPU submission or stage mutation:
+
+```powershell
+uv run artifex qualify handoff --config .\config\local.yaml --json
+```
+
+The `authenticated_owner_evidence_*` fields and embedded
+`overview.pc_b_owner_evidence` distinguish whether the protected
+PC-B evidence was actually correlated. Even when the usual PC-A checks and
+workflow prerequisites are green, a missing, stale, mismatched, wrong-node
+or unavailable PC-B owner report blocks the session-start suggestion rather
+than silently using the older less-complete handoff criteria. The blockers
+include `pc_b_authenticated_owner_evidence_missing_or_unverified`.
+Native evidence still missing for supervisor-loss child survival, real
+production GPU renders, 8-hour soak and the complete 14-stage ladder remains
+visible. A successful handoff **only suggests** explicitly beginning the
+qualification process: it is never a production PASS.
+
+For intentionally *legacy advisory-only* diagnostics (e.g. PC-B software
+has not yet been upgraded), `--no-pc-b-owner-live` disables just the
+new correlation gate. This is **not** a substitute for proving Issue #93 or
+#40 and does not authorize launching ComfyUI or production workloads. Do
+not use this opt-out to interpret an unverified PC-B as production-ready.
+
 ## PC-A automatic authenticated PC-B evidence (no manual JSON copy)
 
 After installing this version on both Windows PCs, the **protected** PC-B

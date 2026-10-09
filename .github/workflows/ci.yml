@@ -70,6 +70,7 @@ jobs:
       - run: uv run artifex qualify recheck --help
       - run: uv run artifex qualify plan --help
       - run: uv run artifex qualify readiness --help
+      - run: uv run artifex qualify handoff --help
       - run: uv run artifex qualify owner-observe --help
       - run: uv run artifex render-node owner-audit --help
       - run: uv run pytest -q tests/test_windows_task_lifecycle_probe.py

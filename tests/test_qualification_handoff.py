@@ -17,6 +17,7 @@ from artifex.qualification.handoff import (
     inspect_qualification_handoff,
 )
 from artifex.qualification.overview import compile_qualification_overview
+from artifex.qualification.owner_handoff import PCBOwnerCorrelation
 from artifex.qualification.readiness_diagnostics import (
     QualificationReadiness,
     ReadinessCheck,
@@ -205,11 +206,13 @@ async def test_live_orchestrator_only_calls_existing_read_only_entry_points() ->
 
     result = await inspect_qualification_handoff(
         _settings(), controller_config=CONTROLLER,
+        pc_b_owner_live=False,
         overview_fn=inspect, deployment_fn=deployment,
     )
     assert result.state == "session_start_candidate"
     assert len(observed) == 2
     assert observed[0][0] == "overview"
+    assert observed[0][1]["pc_b_owner_live"] is False
     assert observed[1][0] == "deployment"
     assert observed[1][1] == {
         "role": "controller",
@@ -270,3 +273,146 @@ def test_cli_handoff_json_exclusive_report_and_blocked_exit(
     assert parsed["state"] == "blocked"
     assert parsed["advisory_argv"] is None
     assert parsed["production_qualified"] is False
+
+
+
+def _remote_owner(*, state: str = "correlated_read_only") -> PCBOwnerCorrelation:
+    return PCBOwnerCorrelation(
+        checked_utc=NOW,
+        status=state,
+        reason="two independent observations",
+        node_id="gpu-b",
+        report_sha256="a" * 64,
+        saved_host="pc-b",
+        live_host="PC-B",
+        saved_listener_pid=1234,
+        live_listener_pid=1234,
+        source_mode="authenticated_remote",
+        remote_bearer_checked=True,
+        remaining_real_machine_evidence=(
+            "real_comfyui_child_survival_after_supervisor_loss",
+            "real_gpu_production_workflow_result",
+            "eight_hour_unattended_gpu_soak",
+            "all_fourteen_real_machine_qualification_stages",
+        ),
+    )
+
+
+def test_auth_pc_b_live_handoff_only_advises_session_start() -> None:
+    evidence = _remote_owner()
+    current = _overview().model_copy(update={"pc_b_owner_evidence": evidence})
+    report = compile_handoff(
+        current, _deployment(), controller_config=CONTROLLER,
+        expected_workflow_ids=EXPECTED, require_authenticated_owner=True,
+    )
+    assert report.state == "session_start_candidate"
+    assert report.authenticated_owner_evidence_required is True
+    assert report.authenticated_owner_evidence_correlated is True
+    assert report.authenticated_owner_evidence_state == "correlated_read_only"
+    assert report.can_suggest_qualification_start
+    assert "eight_hour_unattended_gpu_soak" in report.remaining_native_evidence
+    assert report.advisory_argv is not None
+    assert "qualify" in report.advisory_argv
+    assert report.gpu_jobs_submitted is False
+    assert report.renderer_start_authorized is False
+    assert report.actual_eight_hour_soak_verified is False
+    assert report.production_qualified is False
+
+
+@pytest.mark.parametrize("case", (
+    "missing", "blocked", "stale", "wrong_node", "wrong_host",
+    "pid_drift", "file_source", "bearer_missing", "stale_correlation",
+    "untrusted_production_claim",
+))
+def test_required_pc_b_evidence_fails_closed(
+    case: str,
+) -> None:
+    if case == "missing":
+        evidence = None
+    else:
+        evidence = _remote_owner(
+            state="blocked" if case == "blocked" else
+            "stale" if case == "stale" else
+            "correlated_read_only"
+        )
+        if case == "wrong_node":
+            evidence = evidence.model_copy(update={"node_id": "foreign"})
+        elif case == "wrong_host":
+            evidence = evidence.model_copy(update={"live_host": "foreign"})
+        elif case == "pid_drift":
+            evidence = evidence.model_copy(update={"live_listener_pid": 5678})
+        elif case == "file_source":
+            evidence = evidence.model_copy(update={"source_mode": "transferred_file"})
+        elif case == "bearer_missing":
+            evidence = evidence.model_copy(update={"remote_bearer_checked": False})
+        elif case == "stale_correlation":
+            evidence = evidence.model_copy(update={
+                "checked_utc": NOW - timedelta(minutes=20),
+            })
+        elif case == "untrusted_production_claim":
+            evidence = evidence.model_copy(update={"production_qualified": True})
+    current = _overview().model_copy(update={"pc_b_owner_evidence": evidence})
+    report = compile_handoff(
+        current, _deployment(), controller_config=CONTROLLER,
+        expected_workflow_ids=EXPECTED, require_authenticated_owner=True,
+    )
+    assert report.state == "blocked"
+    assert "pc_b_authenticated_owner_evidence_missing_or_unverified" in report.blockers
+    assert not report.can_suggest_qualification_start
+    assert report.advisory_argv is None
+    assert report.authenticated_owner_evidence_correlated is False
+    assert report.gpu_jobs_submitted is False
+    assert report.production_qualified is False
+
+
+@pytest.mark.asyncio
+async def test_handoff_default_requests_live_authenticated_pc_b_proof() -> None:
+    observed: list[tuple[str, object]] = []
+
+    def overview(_: ArtifexSettings, **kwargs: object) -> Any:
+        observed.append(("overview", kwargs))
+        return _overview().model_copy(
+            update={"pc_b_owner_evidence": _remote_owner()},
+        )
+
+    async def deployment(_: ArtifexSettings, **kwargs: object) -> DeploymentReport:
+        observed.append(("deployment", kwargs))
+        return _deployment()
+
+    report = await inspect_qualification_handoff(
+        _settings(), controller_config=CONTROLLER,
+        overview_fn=overview, deployment_fn=deployment,
+    )
+    assert observed[0][0] == "overview"
+    assert observed[0][1]["pc_b_owner_live"] is True
+    assert report.authenticated_owner_evidence_required
+    assert report.authenticated_owner_evidence_correlated
+    assert report.state == "session_start_candidate"
+
+
+def test_handoff_cli_default_and_opt_out_are_explicit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from artifex import cli
+    from artifex.qualification import handoff
+
+    chosen = tmp_path / "local.yaml"
+    chosen.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_settings", lambda _: _settings())
+    call_args: list[object] = []
+
+    async def fake_inspect(*args: object, **kwargs: object) -> QualificationHandoff:
+        call_args.append(kwargs["pc_b_owner_live"])
+        return compile_handoff(
+            _overview(), _deployment(), controller_config=chosen,
+            expected_workflow_ids=EXPECTED,
+        )
+
+    monkeypatch.setattr(handoff, "inspect_qualification_handoff", fake_inspect)
+    for suffix, expected in (((), True), (("--no-pc-b-owner-live",), False)):
+        result = CliRunner().invoke(
+            app, ["qualify", "handoff", "--config", str(chosen), *suffix, "--json"],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["production_qualified"] is False
+        assert call_args[-1] is expected
