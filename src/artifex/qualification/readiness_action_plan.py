@@ -164,8 +164,12 @@ def compile_qualification_action_plan(
         _argv("pc_a", controller_config, "preflight"),
     )
     pc_b_assets = [
-        c for c in unresolved if c.target == "pc_b" and not (
-            c in (*pc_b_owner, *pc_b_network)
+        c for c in unresolved if c.target == "pc_b"
+        and c not in (*pc_b_owner, *pc_b_network)
+        and (
+            c.name in {"preflight:render_gpu", "preflight:render_os",
+                       "preflight:render_inventory"}
+            or c.name.startswith("preflight:asset_")
         )
     ]
     add(
