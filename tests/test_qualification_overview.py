@@ -274,9 +274,7 @@ def test_blocker_triage_avoids_false_remote_sampling_and_pc_b_command_execution(
     )
     triage = {item.step_id: item for item in observed.remediation_triage}
     assert triage["pc-a-preflight"].state == "observed_live"
-    assert triage["pc-b-connectivity"].state == "unavailable" or (
-        "pc-b-connectivity" not in triage
-    )
+    assert "pc-b-connectivity" not in triage  # no LAN failure was reported
     assert triage["pc-b-owner"].state == "unavailable"
     assert triage["pc-a-remote-renderer-safety"].state == "unavailable"
     assert triage["pc-b-inventory"].state == "requires_local_pc_b"
