@@ -127,7 +127,8 @@ def test_remote_safety_client_refuses_missing_token(
 def test_authenticated_server_safety_path_is_read_only_and_not_public(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    from artifex.render_node import attestation, startup_inspection as safety_module
+    from artifex.render_node import attestation
+    from artifex.render_node import startup_inspection as safety_module
 
     monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "do-not-leak")
     settings = ArtifexSettings()
