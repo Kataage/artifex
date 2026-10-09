@@ -145,8 +145,10 @@ def compile_handoff(
     if survival is not None:
         independent = (
             *independent,
-            "Independently establish real PC-B provenance of the natural "
-            "supervisor-loss event (a copied JSON replay is not machine proof).",
+            (
+                "Independently establish real PC-B provenance of the natural "
+                "supervisor-loss event (a copied JSON replay is not machine proof)."
+            ),
         )
         if survival.status != "replayed_and_live_identity_matched":
             blocked.append("pc_b_passive_survival_trace_not_live_correlated")
