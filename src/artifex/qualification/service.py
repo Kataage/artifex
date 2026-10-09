@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import re
 import socket
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,7 @@ from artifex.qualification.models import (
     QualificationStageEvidence,
     QualificationStatus,
 )
+from artifex.qualification.session_lock import qualification_session_lock
 from artifex.qualification.renderer_owner_evidence import (
     persist_owner_observation,
     verify_owner_observation,
@@ -404,19 +407,22 @@ class QualificationService:
 
     def collect_renderer_owner_observation(self, session_id: str) -> dict[str, object]:
         """Fetch authenticated current PC-B state, append evidence, never mark stage PASS."""
-        session = self.load(session_id)
+        # Remote network inspection happens outside the lock; only the
+        # load+append+save transaction must serialize against stage records.
         primary = self._settings.render_nodes.primary_node()
         if primary is None:
             raise ValueError("PC-B owner observation requires a configured primary node")
         node_id, node = primary
         observed = fetch_renderer_owner_audit(node_id, node)
-        binding = persist_owner_observation(self._root, session_id, observed)
-        self._write(session.model_copy(update={
-            "updated_at": _utcnow(),
-            "renderer_owner_observations": (
-                *session.renderer_owner_observations, binding,
-            ),
-        }))
+        with qualification_session_lock(self._path(session_id).parent):
+            session = self.load(session_id)
+            binding = persist_owner_observation(self._root, session_id, observed)
+            self._write(session.model_copy(update={
+                "updated_at": _utcnow(),
+                "renderer_owner_observations": (
+                    *session.renderer_owner_observations, binding,
+                ),
+            }))
         return {
             "session_id": session_id,
             "node_id": node_id,
@@ -442,49 +448,63 @@ class QualificationService:
     ) -> QualificationSession:
         if stage is QualificationStage.DOCTOR:
             raise ValueError("doctor stage is captured by qualify start")
-        session = self.load(session_id)
-        payload = dict(details or {})
-        if status is QualificationStatus.PASS:
-            if stage in _PACK_STAGES and not pack_ids:
+        with qualification_session_lock(self._path(session_id).parent):
+            # Reload *inside* the lock: never write an old session snapshot.
+            session = self.load(session_id)
+            previous = session.stage(stage)
+            if previous.status is not QualificationStatus.PENDING:
+                normalized_ids = tuple(dict.fromkeys(pack_ids))
+                if (
+                    previous.status is status
+                    and previous.pack_ids == normalized_ids
+                ):
+                    return session
                 raise ValueError(
-                    f"{stage.value} PASS requires at least one finalized Pack ID"
+                    f"qualification stage {stage.value} already recorded as "
+                    f"{previous.status.value}; refusing a competing overwrite"
                 )
-            verified = self._verify_stage(
-                stage,
-                pack_ids,
-                payload,
-                since=session.created_at,
-                session=session,
-            )
-            if verified:
-                payload["verified_packs"] = verified
-        elif status is QualificationStatus.SKIPPED:
-            if not (
-                stage is QualificationStage.DISCORD_CONTROLS
-                and not self._settings.discord.enabled
-            ):
-                raise ValueError(
-                    "only disabled Discord qualification may be skipped"
+            payload = dict(details or {})
+            if status is QualificationStatus.PASS:
+                if stage in _PACK_STAGES and not pack_ids:
+                    raise ValueError(
+                        f"{stage.value} PASS requires at least one finalized Pack ID"
+                    )
+                verified = self._verify_stage(
+                    stage,
+                    pack_ids,
+                    payload,
+                    since=session.created_at,
+                    session=session,
                 )
+                if verified:
+                    payload["verified_packs"] = verified
+            elif status is QualificationStatus.SKIPPED:
+                if not (
+                    stage is QualificationStage.DISCORD_CONTROLS
+                    and not self._settings.discord.enabled
+                ):
+                    raise ValueError(
+                        "only disabled Discord qualification may be skipped"
+                    )
 
-        evidence = QualificationStageEvidence(
-            stage=stage,
-            status=status,
-            recorded_at=_utcnow(),
-            pack_ids=tuple(dict.fromkeys(pack_ids)),
-            note=note,
-            details=payload,
-        )
-        stages = dict(session.stages)
-        stages[stage.value] = evidence
-        updated = session.model_copy(
-            update={
-                "updated_at": _utcnow(),
-                "stages": stages,
-            }
-        )
-        self._write(updated)
-        return updated
+            evidence = QualificationStageEvidence(
+                stage=stage,
+                status=status,
+                recorded_at=_utcnow(),
+                pack_ids=tuple(dict.fromkeys(pack_ids)),
+                note=note,
+                details=payload,
+            )
+            stages = dict(session.stages)
+            stages[stage.value] = evidence
+            updated = session.model_copy(
+                update={
+                    "updated_at": _utcnow(),
+                    "stages": stages,
+                }
+            )
+            self._write(updated)
+            return updated
 
     def require_collection_candidate(self, session: QualificationSession) -> None:
         """Refuse to search/register on a stale, foreign or unready baseline."""
@@ -1773,15 +1793,29 @@ class QualificationService:
     def _write(self, session: QualificationSession) -> None:
         path = self._path(session.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(
-                session.model_dump(mode="json"),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(path)
+        raw = json.dumps(
+            session.model_dump(mode="json"),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ) + "\n"
+        # Unique temp names prevent collisions with a new session or other
+        # future reader/writer. Atomic replace happens after flushing/closing.
+        candidate: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix="qualification-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                candidate = Path(handle.name)
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            candidate.replace(path)
+        finally:
+            if candidate is not None:
+                candidate.unlink(missing_ok=True)
