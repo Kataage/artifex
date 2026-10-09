@@ -264,7 +264,7 @@ def inspect_renderer_startup(
                 and actual_pid is not None
                 and {x.pid for x in comfy} == {actual_pid}
             )
-            if stable_owner:
+            if stable_owner and actual_pid is not None:
                 service_coherent = _service_ports_coherent(
                     second, comfy_pid=actual_pid,
                 )
