@@ -10,7 +10,7 @@ import re
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -62,11 +62,14 @@ _GUIDANCE = {
 }
 
 
+StageRecordStatus = Literal["not_inspected", "pending", "pass", "fail", "skipped"]
+
+
 class StageOverview(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     stage: str
-    recorded_status: Literal["not_inspected", "pending", "pass", "fail", "skipped"]
+    recorded_status: StageRecordStatus
     evidence_kind: str
     next_action: str | None
     independently_revalidated: Literal[False] = False
@@ -171,7 +174,8 @@ def compile_qualification_overview(
             unresolved += 1
         kind = _STAGE_KIND[stage]
         stages.append(StageOverview(
-            stage=stage.value, recorded_status=stored, evidence_kind=kind,
+            stage=stage.value, recorded_status=cast(StageRecordStatus, stored),
+            evidence_kind=kind,
             next_action=None if stored in ("pass", "skipped") else _GUIDANCE[kind],
         ))
     safe = next(
