@@ -74,6 +74,11 @@ class QualificationEvidenceCollector:
             except (OSError, KeyError, TypeError, ValueError) as exc:
                 invalid.append({"pack_id": pack_id, "reason": str(exc)})
 
+        # Select unattended candidates only from real continuous-daemon
+        # completion events. Arbitrary finalized Pack triples cannot qualify.
+        daemon_runs = self._service.unattended_run_packs(
+            since=qualification.created_at,
+        )
         statuses: list[dict[str, object]] = []
         for stage in _COLLECTIBLE:
             current = qualification.stage(stage)
@@ -90,7 +95,9 @@ class QualificationEvidenceCollector:
 
             chosen: tuple[str, ...] = ()
             failure_reason = "no matching verified evidence in this qualification session"
-            for candidate in self._candidates(stage, evidence):
+            for candidate in self._candidates(
+                stage, evidence, unattended_runs=daemon_runs,
+            ):
                 try:
                     self._service.validate_candidate(qualification, stage, candidate)
                 except (OSError, KeyError, TypeError, ValueError) as exc:
@@ -167,6 +174,8 @@ class QualificationEvidenceCollector:
     def _candidates(
         stage: QualificationStage,
         evidence: dict[str, dict[str, object]],
+        *,
+        unattended_runs: dict[str, tuple[str, ...]] | None = None,
     ) -> Iterator[tuple[str, ...]]:
         if stage is QualificationStage.DISCORD_CONTROLS:
             return
@@ -182,8 +191,12 @@ class QualificationEvidenceCollector:
                     yield (related[0], related[1])
             return
         if stage is QualificationStage.UNATTENDED_MULTI_PACK:
-            if len(evidence) >= 3:
-                yield tuple(list(evidence)[:3])
+            for run_id, pack_ids in sorted((unattended_runs or {}).items()):
+                verified = tuple(
+                    pack_id for pack_id in pack_ids if pack_id in evidence
+                )
+                if len(verified) >= 3:
+                    yield verified[:3]
             return
         for pack_id, data in evidence.items():
             characters = data.get("character_ids", [])
