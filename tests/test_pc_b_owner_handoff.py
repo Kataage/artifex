@@ -274,3 +274,111 @@ def test_overview_cli_accepts_copied_report_without_executing_pc_b(
     assert result.exit_code == 0, result.output
     assert captured["pc_b_owner_report"] == tmp_path / "handoff.json"
     assert json.loads(result.output)["production_qualified"] is False
+
+
+
+def test_remote_live_correlation_requires_no_manual_json_copy(
+    tmp_path: Path,
+) -> None:
+    from artifex.render_node.models import RemoteOwnerReadinessEvidence
+
+    path = tmp_path / "local-only-pc-b.json"
+    _save(path)
+    remote_data = json.loads(path.read_text())
+    # PC-A receives this report through the protected PC-B endpoint, not
+    # from the local disk. Remove the file before starting correlation.
+    path.unlink()
+    owner_probe, attestation_probe = _probes()
+    requests: list[str] = []
+
+    def remote(node_id: str, config: RenderNodeConfig) -> RemoteOwnerReadinessEvidence:
+        requests.append(node_id)
+        return RemoteOwnerReadinessEvidence(
+            node_id=node_id, report=remote_data,
+        )
+
+    observed = correlate_pc_b_owner_report(
+        _settings(), None, remote=True, now=NOW,
+        remote_probe=remote, owner_probe=owner_probe,
+        attestation_probe=attestation_probe,
+    )
+    assert requests == ["renderer-b"]
+    assert observed.status == "correlated_read_only"
+    assert observed.source_mode == "authenticated_remote"
+    assert observed.remote_bearer_checked is True
+    assert observed.file_source_authenticated is False
+    assert observed.stage_pass_registered is False
+    assert observed.production_qualified is False
+    assert observed.supervisor_loss_survival_qualified is False
+
+
+@pytest.mark.parametrize("problem,expected", (
+    ("stale", "stale"),
+    ("wrong_node", "blocked"),
+    ("bad_body", "blocked"),
+    ("pid_drift", "mismatch"),
+    ("offline", "unavailable"),
+))
+def test_remote_evidence_is_not_promoted_on_failure(
+    tmp_path: Path, problem: str, expected: str,
+) -> None:
+    from artifex.render_node.models import RemoteOwnerReadinessEvidence
+
+    path = tmp_path / "local-pc-b.json"
+    _save(path, captured=NOW - timedelta(hours=1) if problem == "stale" else NOW)
+    remote_data = json.loads(path.read_text())
+    owner_probe, attestation_probe = _probes(
+        pid=4555 if problem == "pid_drift" else 4433,
+    )
+
+    def remote(node_id: str, config: RenderNodeConfig) -> RemoteOwnerReadinessEvidence:
+        if problem == "offline":
+            raise OSError("no PC-B connection")
+        return RemoteOwnerReadinessEvidence(
+            node_id="other" if problem == "wrong_node" else node_id,
+            report={"schema_version": 1} if problem == "bad_body" else remote_data,
+        )
+
+    observed = correlate_pc_b_owner_report(
+        _settings(), None, remote=True, now=NOW,
+        remote_probe=remote, owner_probe=owner_probe,
+        attestation_probe=attestation_probe,
+    )
+    assert observed.status == expected
+    assert not observed.production_qualified
+    assert not observed.renderer_restart_authorized
+    assert observed.remaining_real_machine_evidence
+
+
+def test_cli_remote_flag_forwards_without_local_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from artifex import cli
+
+    chosen = tmp_path / "local.yaml"
+    chosen.write_text("render_nodes: {}\n", encoding="utf-8")
+    kwargs: dict[str, object] = {}
+
+    class FakeReport:
+        def model_dump(self, *, mode: str) -> dict[str, object]:
+            return {
+                "production_qualified": False,
+                "pc_b_owner_evidence": {"status": "unavailable"},
+            }
+
+    def compile(*args, **params):
+        kwargs.update(params)
+        return FakeReport()
+
+    monkeypatch.setattr(
+        "artifex.qualification.overview.compile_qualification_overview", compile,
+    )
+    monkeypatch.setattr(cli, "_settings", lambda path: _settings())
+    result = CliRunner().invoke(app, [
+        "qualify", "overview", "--config", str(chosen),
+        "--pc-b-owner-live", "--json",
+    ])
+    assert result.exit_code == 0, result.output
+    assert kwargs["pc_b_owner_live"] is True
+    assert kwargs["pc_b_owner_report"] is None
+    assert json.loads(result.output)["production_qualified"] is False

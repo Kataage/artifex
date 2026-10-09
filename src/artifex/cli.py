@@ -3181,6 +3181,12 @@ def qualify_overview(
             help="Optional transferred PC-B owner-readiness JSON; compare with live auth.",
         ),
     ] = None,
+    pc_b_owner_live: Annotated[
+        bool, typer.Option(
+            "--pc-b-owner-live",
+            help="Fetch bounded PC-B cached launcher evidence over Bearer auth; no file transfer.",
+        ),
+    ] = False,
     output: Annotated[
         Path | None,
         typer.Option("--output", help="Optional new JSON report file, never overwritten."),
@@ -3198,6 +3204,7 @@ def qualify_overview(
             _settings(chosen), session_id=session_id,
             controller_config=chosen, renderer_config=renderer_config,
             pc_b_owner_report=pc_b_owner_report,
+            pc_b_owner_live=pc_b_owner_live,
         )
         payload = report.model_dump(mode="json")
         if output is not None:
