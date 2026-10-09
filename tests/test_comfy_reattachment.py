@@ -225,6 +225,21 @@ def test_protected_spawn_refuses_missing_supervisor_lease(
         manager._start_owned()
     assert manager.process is None
 
+def test_protected_receipt_publication_never_overwrites_existing_evidence(
+    tmp_path: Path,
+) -> None:
+    """The final file-system operation must itself be create-only."""
+    settings = _settings(tmp_path)
+    store = ComfyReceiptStore(
+        settings.render_agent.comfyui_process.ownership_receipt_path,
+    )
+    original = expected_receipt(settings, _identity(settings, 101))
+    replacement = expected_receipt(settings, _identity(settings, 202))
+    store.save(original, overwrite=False)
+    with pytest.raises(FileExistsError):
+        store.save(replacement, overwrite=False)
+    assert store.load() == original
+
 def test_stale_receipt_after_natural_death_allows_safe_new_spawn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
