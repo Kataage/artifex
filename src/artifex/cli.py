@@ -3025,6 +3025,58 @@ def qualify_readiness(
         raise typer.Exit(code=1) from exc
 
 
+@qualify_app.command("overview")
+def qualify_overview(
+    config: ConfigOption = None,
+    session_id: Annotated[
+        str | None,
+        typer.Option(
+            "--session-id",
+            help="Optional specific session. Default: newest saved local session (not assumed active).",
+        ),
+    ] = None,
+    renderer_config: Annotated[
+        Path,
+        typer.Option(
+            "--renderer-config",
+            help="PC-B YAML path for advisory instructions only; never accessed remotely.",
+        ),
+    ] = Path("config/render-node.yaml"),
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional new JSON report file, never overwritten."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Show PC-A/PC-B safety, stored 14-stage progress and next action in one pass."""
+    from artifex.qualification.overview import compile_qualification_overview
+
+    chosen = config or Path("config/local.yaml")
+    try:
+        if chosen.is_symlink() or not chosen.is_file():
+            raise ValueError("Existing non-symlinked PC-A configuration is required")
+        report = compile_qualification_overview(
+            _settings(chosen), session_id=session_id,
+            controller_config=chosen, renderer_config=renderer_config,
+        )
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            target = output.expanduser().absolute()
+            if any(item.is_symlink() for item in (target, *target.parents)):
+                raise ValueError("Refusing symlinked overview destination")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+        # Successful display is not equivalent to production qualification.
+    except (OSError, TypeError, ValueError, KeyError) as exc:
+        typer.echo(
+            f"qualification overview error: {type(exc).__name__}: {exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+
 @qualify_app.command("owner-observe")
 def qualify_owner_observe(
     session_id: Annotated[str, typer.Argument(help="Existing qualification session ID.")],
