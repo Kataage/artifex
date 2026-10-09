@@ -3407,12 +3407,12 @@ def qualify_pair_install_audit(
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
     """Read-only PC-A/PC-B audit plus deterministic safe per-machine advice."""
+    from artifex.qualification.pair_install_remediation import (
+        compile_pair_install_remediation,
+    )
     from artifex.qualification.pair_installation import (
         TwoPCInstallationAudit,
         inspect_two_pc_installation,
-    )
-    from artifex.qualification.pair_install_remediation import (
-        compile_pair_install_remediation,
     )
 
     selected = config or Path("config/local.yaml")
