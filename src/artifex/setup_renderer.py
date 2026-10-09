@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict
 
@@ -76,7 +77,7 @@ def configure_renderer(
     if protected_gateway and (disable_comfy_management or comfy_executable is None):
         raise ValueError("Protected gateway requires a configured managed ComfyUI executable")
     if protected_gateway and (
-        gateway_port in {selected_port, int(comfy_url.rsplit(":", 1)[-1])}
+        gateway_port in {selected_port, urlsplit(comfy_url).port or 80}
         or not 1 <= gateway_port <= 65535
     ):
         raise ValueError("Gateway, attestation and ComfyUI ports must be distinct")
