@@ -149,7 +149,7 @@ def test_unready_pc_a_is_prioritized_before_saved_stage_evidence(
     assert result.environment_ready is False
     assert result.next_safe_command is not None
     assert result.next_safe_command[3:5] == ("preflight", "--config")
-    assert result.next_safe_command[-2] == "C:/my config/controller.yaml"
+    assert result.next_safe_command[-2] == str(Path("C:/my config/controller.yaml"))
     assert result.recorded_pass_count == 0
     assert result.production_qualified is False
     assert result.action_plan.steps[-1].safety == "real_machine_evidence"
