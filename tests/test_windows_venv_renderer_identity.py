@@ -267,6 +267,136 @@ def test_ambiguous_foreign_listener_is_never_claimed(
 
 
 
+def test_exited_venv_launcher_can_reconnect_only_to_proven_original_child(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Launcher exit before HTTP readiness must not force a second GPU spawn."""
+    import artifex.render_node.comfy_process as process_module
+
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    seen = {"launched": False, "launcher_observations": 0}
+
+    def inspect(pid: int) -> WindowsProcessIdentity | None:
+        if pid == launcher.pid:
+            seen["launcher_observations"] += 1
+            # Captured immediately after Popen, gone by the HTTP-ready point.
+            return launcher if seen["launcher_observations"] == 1 else None
+        return child if pid == child.pid else None
+
+    def audit(settings: ArtifexSettings, **kwargs: Any) -> RendererSocketAudit:
+        if not seen["launched"]:
+            return RendererSocketAudit(
+                status="missing_listener", upstream_port=8188,
+                expected_owned_pid=kwargs.get("owned_pid"),
+            )
+        return _socket(settings, **kwargs)
+
+    monkeypatch.setattr(process_module, "windows_process_identity", inspect)
+    monkeypatch.setattr(process_module, "audit_renderer_sockets", audit)
+    wrapper = FakeProcess()
+
+    def launch(*args: Any, **kwargs: Any) -> FakeProcess:
+        seen["launched"] = True
+        wrapper.dead = True  # Wrapper is gone before the listener is ready.
+        return wrapper
+
+    manager = ManagedComfyUI(
+        settings, process_factory=launch,  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(manager, "_healthy", lambda: seen["launched"])
+    manager.start(threading.Event())
+    receipt = manager._current_receipt
+    assert receipt is not None
+    assert receipt.schema_version == 2
+    assert receipt.launcher_identity == launcher
+    assert receipt.identity == child
+    assert seen["launcher_observations"] >= 2
+    manager.close()
+    assert wrapper.terminate_calls == wrapper.kill_calls == 0
+
+
+def test_venv_launcher_pid_reuse_between_spawn_and_ready_blocks_ownership(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Even a correct child cannot justify a reused launcher PID."""
+    import artifex.render_node.comfy_process as process_module
+
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    reused = launcher.model_copy(update={"started_utc": "2026-10-09T04:00:00Z"})
+    state = {"launched": False, "calls": 0}
+
+    def inspect(pid: int) -> WindowsProcessIdentity | None:
+        if pid == launcher.pid:
+            state["calls"] += 1
+            return launcher if state["calls"] == 1 else reused
+        return child if pid == child.pid else None
+
+    monkeypatch.setattr(process_module, "windows_process_identity", inspect)
+
+    def audit(settings: ArtifexSettings, **kwargs: Any) -> RendererSocketAudit:
+        if not state["launched"]:
+            return RendererSocketAudit(
+                status="missing_listener", upstream_port=8188,
+                expected_owned_pid=kwargs.get("owned_pid"),
+            )
+        return _socket(settings, **kwargs)
+
+    monkeypatch.setattr(process_module, "audit_renderer_sockets", audit)
+    wrapper = FakeProcess()
+
+    def launch(*args: Any, **kwargs: Any) -> FakeProcess:
+        state["launched"] = True
+        wrapper.dead = True
+        return wrapper
+
+    manager = ManagedComfyUI(
+        settings, process_factory=launch,  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(manager, "_healthy", lambda: state["launched"])
+    with pytest.raises(RuntimeError, match="launcher PID was reused"):
+        manager.start(threading.Event())
+    assert manager._current_receipt is None
+    assert wrapper.terminate_calls == wrapper.kill_calls == 0
+
+
+def test_venv_launcher_exit_without_original_snapshot_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A surviving /system_stats endpoint does not establish launcher ancestry."""
+    import artifex.render_node.comfy_process as process_module
+
+    settings = _settings(tmp_path)
+    state = {"launched": False}
+    monkeypatch.setattr(process_module, "windows_process_identity", lambda pid: None)
+
+    def audit(settings: ArtifexSettings, **kwargs: Any) -> RendererSocketAudit:
+        if not state["launched"]:
+            return RendererSocketAudit(
+                status="missing_listener", upstream_port=8188,
+                expected_owned_pid=kwargs.get("owned_pid"),
+            )
+        return _socket(settings, **kwargs)
+
+    monkeypatch.setattr(process_module, "audit_renderer_sockets", audit)
+    wrapper = FakeProcess()
+
+    def launch(*args: Any, **kwargs: Any) -> FakeProcess:
+        state["launched"] = True
+        wrapper.dead = True
+        return wrapper
+
+    manager = ManagedComfyUI(
+        settings, process_factory=launch,  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(manager, "_healthy", lambda: state["launched"])
+    with pytest.raises(RuntimeError, match="without verified original identity"):
+        manager.start(threading.Event())
+    assert manager._current_receipt is None
+    assert wrapper.terminate_calls == wrapper.kill_calls == 0
+
+
 @pytest.mark.skipif(os.name != "nt", reason="real Windows CIM and native TCP ownership")
 def test_native_venv_python_launcher_matches_actual_mock_tcp_listener(
     tmp_path: Path,
