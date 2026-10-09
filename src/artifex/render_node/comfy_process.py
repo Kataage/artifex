@@ -296,7 +296,7 @@ class ManagedComfyUI:
         # reason to overwrite somebody else's ownership evidence.
         if self._receipts.load() is not None:
             raise RuntimeError("ComfyUI ownership receipt changed during launch")
-        self._receipts.save(receipt)
+        self._receipts.save(receipt, overwrite=False)
         self._current_receipt = receipt
 
     def _try_reattach(self) -> bool:
