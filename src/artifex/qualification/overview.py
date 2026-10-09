@@ -79,7 +79,7 @@ class QualificationOverview(BaseModel):
     captured_utc: datetime
     session_id: str | None
     session_selection: Literal["explicit", "latest_saved", "none"]
-    session_is_active_auto_collection: Literal[False] = False
+    auto_collection_binding: Literal["not_checked"] = "not_checked"
     session_stages_are_revalidated: Literal[False] = False
     real_machine_qualification_complete: Literal[False] = False
     actual_eight_hour_soak_verified: Literal[False] = False
