@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from artifex.config.models import ArtifexSettings
-from artifex.render_node.owner_audit import save_owner_observation
 from artifex.render_node.observer_heartbeat import publish_observer_heartbeat
+from artifex.render_node.owner_audit import save_owner_observation
 from artifex.render_node.supervisor_survival import (
     SurvivalAssessment,
     SurvivalSample,
