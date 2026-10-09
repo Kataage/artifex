@@ -6,7 +6,6 @@ import socket
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
@@ -19,8 +18,6 @@ from artifex.render_node.attestation import serve_attestation
 from artifex.render_node.client import fetch_remote_installation_audit
 from artifex.render_node.installation_audit import (
     RemoteRendererInstallationAudit,
-    RendererInstallationAudit,
-    TaskInstallationCheck,
     inspect_registered_task,
     inspect_renderer_installation,
     inspect_spool,
