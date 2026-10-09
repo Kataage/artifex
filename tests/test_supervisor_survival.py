@@ -159,9 +159,14 @@ def test_observation_is_passive_writes_once_and_never_overwrites(
     count: list[int] = []
     def snapshot(
         settings: ArtifexSettings, *, config: Path,
-        elapsed_seconds: float, now: Any,
+        elapsed_seconds: float, original_supervisor_ids: tuple[int, ...],
+        now: Any,
     ) -> SurvivalSample:
         assert config == cfg
+        if not count:
+            assert original_supervisor_ids == ()
+        else:
+            assert original_supervisor_ids == (123,)
         count.append(1)
         return samples[len(count) - 1]
 
