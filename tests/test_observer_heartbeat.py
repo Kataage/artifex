@@ -10,6 +10,7 @@ import pytest
 from artifex.config.models import ArtifexSettings
 from artifex.render_node.observer_heartbeat import (
     _MAX_SIZE,
+    SampleState,
     inspect_observer_heartbeat,
     publish_observer_heartbeat,
 )
@@ -25,10 +26,11 @@ def _settings(tmp_path: Path) -> ArtifexSettings:
 
 
 def _emit(settings: ArtifexSettings, *, when: datetime = NOW,
-          poll: float = 15, count: int = 1) -> None:
+          poll: float = 15, count: int = 1,
+          state: SampleState = "verified") -> None:
     publish_observer_heartbeat(
         settings, observed_utc=when,
-        poll_seconds=poll, sample_count=count, state="verified",
+        poll_seconds=poll, sample_count=count, state=state,
     )
 
 
@@ -78,7 +80,8 @@ def test_long_configured_poll_interval_is_respected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("change", ["wrong_node", "missing_timezone", "oversized",
-                                    "invalid_json", "false_qualification"])
+                                    "invalid_json", "false_qualification",
+                                    "invalid_state", "missing_state"])
 def test_invalid_heartbeat_is_not_treated_as_alive(
     tmp_path: Path, change: str,
 ) -> None:
@@ -92,6 +95,10 @@ def test_invalid_heartbeat_is_not_treated_as_alive(
         payload["observed_utc"] = "2026-10-10T18:30:00"
     elif change == "false_qualification":
         payload["production_qualified"] = True
+    elif change == "invalid_state":
+        payload["last_sample_state"] = "running"
+    elif change == "missing_state":
+        payload.pop("last_sample_state")
     if change == "oversized":
         path.write_bytes(b"x" * (_MAX_SIZE + 1))
     elif change == "invalid_json":
@@ -166,3 +173,49 @@ def test_pair_audit_rejects_running_scheduler_without_fresh_heartbeat(
     )
     assert older.observer_heartbeat == "stale"
     assert not older.safe_for_passive_observation
+
+
+@pytest.mark.parametrize("state", ["blocked", "unsupported"])
+def test_fresh_failed_sample_blocks_readiness_and_next_verified_recovers(
+    tmp_path: Path, state: SampleState,
+) -> None:
+    from artifex.render_node.installation_audit import inspect_renderer_installation
+    from artifex.windows_tasks import StartupTaskStatus
+
+    settings = _settings(tmp_path)
+    settings.render_agent.comfyui_process.enabled = True
+    cfg = tmp_path / "renderer.yaml"
+    cfg.write_text("{}")
+
+    def probe(role: str) -> StartupTaskStatus:
+        return StartupTaskStatus.model_validate({
+            "role": role, "task_name": "Artifex-" + role,
+            "installed": True, "managed": True, "state": "Running",
+        })
+
+    def verify(*args: object, **kwargs: object) -> tuple[bool, str]:
+        return True, "protected policy verified"
+
+    _emit(settings, count=1, state="verified")
+    assert inspect_observer_heartbeat(settings, now=NOW) == "fresh"
+    _emit(settings, count=2, state=state)
+    assert inspect_observer_heartbeat(settings, now=NOW) == state
+    report = inspect_renderer_installation(
+        settings, owner_config=cfg, native_windows=True, now=NOW,
+        probe=probe, verify=verify,
+    )
+    assert report.renderer_task.status == "running"
+    assert report.survival_observer_task.status == "running"
+    assert report.observer_heartbeat == state
+    assert report.safe_for_passive_observation is False
+    assert report.renderer_process_mutated is False
+    assert report.production_qualified is False
+
+    _emit(settings, count=3, state="verified")
+    recovered = inspect_renderer_installation(
+        settings, owner_config=cfg, native_windows=True, now=NOW,
+        probe=probe, verify=verify,
+    )
+    assert recovered.observer_heartbeat == "fresh"
+    assert recovered.safe_for_passive_observation is True
+    assert recovered.production_qualified is False

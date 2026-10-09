@@ -49,6 +49,7 @@ def _audit(
     remote: bool = True,
     status: str = "pc_b_needs_setup",
     blockers: tuple[str, ...] | None = None,
+    heartbeat: str | None = None,
 ) -> TwoPCInstallationAudit:
     pc_b = None
     if remote:
@@ -63,10 +64,13 @@ def _audit(
                 "renderer_task": _task("renderer", renderer),
                 "survival_observer_task": _task("survival-observer", observer),
                 "evidence_spool": spool,
-                "observer_heartbeat": "fresh" if observer == "running" else "missing",
+                "observer_heartbeat": heartbeat or (
+                    "fresh" if observer == "running" else "missing"
+                ),
                 "safe_for_passive_observation": (
                     windows and managed and renderer == "running"
                     and observer == "running"
+                    and heartbeat in {None, "fresh"}
                 ),
             }),
         )
@@ -208,6 +212,29 @@ def test_evidence_spool_empty_is_only_waiting_not_a_pass() -> None:
     assert "pc-b-no-event-yet" in {s.step_id for s in report.steps}
     assert report.actual_survival_observed is False
     assert report.production_qualified is False
+
+
+@pytest.mark.parametrize("heartbeat", ["blocked", "unsupported"])
+def test_failed_recent_heartbeat_only_offers_read_only_diagnostics(
+    heartbeat: str,
+) -> None:
+    blocker = "pc_b_observer_heartbeat_" + heartbeat
+    audit = _audit(
+        observer="running", heartbeat=heartbeat, status="pc_b_needs_setup",
+        blockers=(blocker, "pc_b_passive_observer_preconditions_unverified"),
+    )
+    report = _plan(audit)
+    step = next(s for s in report.steps if s.step_id == "pc-b-observer-liveness")
+    assert step.matching_blockers == (blocker,)
+    assert step.read_only_argv == (
+        "uv", "run", "artifex", "startup", "status",
+        "--role", "survival-observer", "--json",
+    )
+    assert step.operator_approved_apply_argv is None
+    assert report.read_only_only
+    assert not report.renderer_task_modified
+    assert not report.comfyui_process_modified
+    assert not report.production_qualified
 
 
 def test_fully_registered_tasks_only_yield_observation_guidance() -> None:

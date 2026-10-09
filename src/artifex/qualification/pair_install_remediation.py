@@ -243,8 +243,9 @@ def compile_pair_install_remediation(
         if remote.observer_heartbeat != "fresh":
             add(
                 "pc-b-observer-liveness", "pc_b", "read_only",
-                "Task Scheduler Running is not enough: inspect recent independent "
-                "observer samples without changing renderer state.",
+                "Task Scheduler Running and a recent heartbeat are not enough: "
+                "inspect the latest independent sampling verdict and renderer "
+                "ownership checks without changing renderer state.",
                 ("pc_b_observer_heartbeat_" + remote.observer_heartbeat,),
                 argv=_argv("startup", "status", "--role", "survival-observer"),
             )
