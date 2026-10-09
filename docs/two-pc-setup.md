@@ -125,6 +125,45 @@ is busy. The audit reports `restart_authorized=false` and
 `child_survival_qualified=false`; the real two-PC qualification remains
 required.
 
+## From a readiness diagnostic to a safe PC-by-PC action plan
+
+Run on PC-A, using your existing real two-PC configuration:
+
+```powershell
+uv run artifex qualify plan --config .\config\local.yaml --renderer-config .\config\render-node.yaml --json
+
+# If a readiness report was saved already, generate the plan offline
+# without contacting either machine or loading the YAML:
+uv run artifex qualify plan --from-report .\readiness-report.json --json
+```
+
+The result classifies each unresolved check into explicit **PC-A** or **PC-B**
+work and provides a suggested *structured argv list* (not a command string
+to pass to a shell). Read-only checks use existing tools such as
+`artifex preflight`, `artifex render-node owner-audit` and
+`artifex render-node preflight`. Installation, config edits, token
+provisioning and any maintenance that might affect a live GPU process are
+categorized `review_required` and **are never executed by this tool**.
+The 14-stage actual-machine evidence is shown separately as
+`real_machine_evidence` and is never claimed complete by
+diagnostics. Every step explicitly reports `automatically_executed=false`.
+
+Saved readiness reports are limited to 1 MiB, reject symlinks and are
+considered **stale after five minutes**. A stale report always includes
+a fresh-readiness step and cannot be considered a current environment pass.
+The optional `--output PATH` writes a new JSON report without
+overwriting existing files. All paths in proposed commands are derived only
+from operator-selected config paths, and are passed as separate argv values
+to avoid shell-injection problems; neither a failed check's detail nor a
+remote endpoint's error text becomes executable shell input.
+
+This is a preparation plan only: it does not modify Windows Task Scheduler
+or ComfyUI, download files, set credentials, start an LLM, run a GPU job,
+or make changes to qualification evidence. An operator can carry out safe
+read-only commands first, then explicitly authorize riskier changes during
+a maintenance window. Complete real two-PC 14-stage and eight-hour
+qualification remains required after the plan is clear.
+
 ## One-command PC-A / PC-B qualification readiness diagnosis
 
 Before creating a real qualification session, run this **read-only** command on
