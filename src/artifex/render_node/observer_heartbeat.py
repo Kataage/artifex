@@ -6,8 +6,11 @@ or production/GPU qualification. No scheduler or GPU APIs are called here.
 """
 from __future__ import annotations
 
+import ntpath
 import os
+import subprocess
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -15,6 +18,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings
+from artifex.render_node.process_identity import (
+    WindowsProcessIdentity, windows_process_identity,
+)
 
 _NAME = "observer-health.json"
 _MAX_SIZE = 4096
@@ -37,7 +43,7 @@ class ObserverHeartbeat(BaseModel):
 # "fresh" means recent AND verified; a recent failed observation is not healthy.
 Status = Literal[
     "fresh", "blocked", "unsupported", "missing", "stale", "unsafe",
-    "unavailable",
+    "unavailable", "process_missing", "process_mismatch", "process_unavailable",
 ]
 
 
@@ -96,8 +102,13 @@ def publish_observer_heartbeat(
 
 def inspect_observer_heartbeat(
     settings: ArtifexSettings, *, now: datetime | None = None,
+    config: Path | None = None,
+    process_probe: Callable[[int], WindowsProcessIdentity | None] = windows_process_identity,
 ) -> Status:
-    """Read bounded file and validate recency; never mark mere PID as ownership."""
+    """Read bounded heartbeat and optionally corroborate its native writer PID.
+
+    A verified PID/argv is only a liveness check, not Scheduler ownership or GPU proof.
+    """
     current = now or datetime.now(UTC)
     if current.tzinfo is None:
         return "unsafe"
@@ -125,9 +136,43 @@ def inspect_observer_heartbeat(
             or delta > timedelta(seconds=max(90, record.poll_seconds * 3))
         ):
             return "stale"
-        # An active watcher can continuously report failed/unsupported owner
-        # checks. Such samples must never qualify passive monitoring.
-        return "fresh" if record.last_sample_state == "verified" else record.last_sample_state
+        if record.last_sample_state != "verified":
+            return record.last_sample_state
+        if config is None:
+            return "fresh"
+        # A venv launcher can exit while its actual Python interpreter remains.
+        # Corroborate the writer itself; never assume TaskScheduler's shim PID.
+        try:
+            selected = config.expanduser().resolve(strict=True)
+            if not selected.is_file() or any(
+                item.is_symlink() for item in (config, *config.parents)
+            ):
+                return "process_mismatch"
+            args = subprocess.list2cmdline([
+                "-m", "artifex.cli", "render-node", "survival-watch",
+                "--config", str(selected),
+            ])
+            process = process_probe(record.process_pid)
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            return "process_unavailable"
+        if process is None:
+            return "process_missing"
+        try:
+            started = datetime.fromisoformat(process.started_utc.replace("Z", "+00:00"))
+            matches = (
+                process.pid == record.process_pid
+                and started.tzinfo is not None
+                and started <= record.observed_utc
+                and ntpath.basename(process.executable).casefold() in {
+                    "python.exe", "pythonw.exe",
+                }
+                and process.command_line.casefold().endswith(
+                    (" " + args).casefold()
+                )
+            )
+        except (TypeError, ValueError):
+            matches = False
+        return "fresh" if matches else "process_mismatch"
     except (ValueError, TypeError, UnicodeError):
         return "unsafe"
     except OSError:

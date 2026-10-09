@@ -19,6 +19,9 @@ from artifex.render_node.observer_heartbeat import (
     Status as ObserverHeartbeatStatus,
 )
 from artifex.render_node.observer_heartbeat import inspect_observer_heartbeat
+from artifex.render_node.process_identity import (
+    WindowsProcessIdentity, windows_process_identity,
+)
 from artifex.windows_tasks import (
     StartupRole,
     StartupTaskStatus,
@@ -158,6 +161,9 @@ def inspect_renderer_installation(
     now: datetime | None = None,
     probe: Callable[[StartupRole], StartupTaskStatus] = task_status,
     verify: Callable[..., tuple[bool, str]] = task_configuration_matches,
+    observer_process_probe: Callable[[int], WindowsProcessIdentity | None] = (
+        windows_process_identity
+    ),
 ) -> RendererInstallationAudit:
     """Observe local PC-B config, Task Scheduler and spool without mutations."""
     native = platform.system() == "Windows" if native_windows is None else native_windows
@@ -178,7 +184,11 @@ def inspect_renderer_installation(
     observer = checked("survival-observer")
     managed = bool(settings.render_agent.comfyui_process.enabled)
     spool = inspect_spool(settings.render_agent.survival_evidence_dir)
-    heartbeat = inspect_observer_heartbeat(settings, now=now)
+    heartbeat = inspect_observer_heartbeat(
+        settings, now=now,
+        config=task_config if native and config_ok else None,
+        process_probe=observer_process_probe,
+    )
     return RendererInstallationAudit(
         node_id=settings.render_agent.node_id,
         captured_utc=now or datetime.now(UTC),

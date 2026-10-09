@@ -260,6 +260,17 @@ performs an observation). A new `observer_heartbeat` field shows `fresh`, `block
 A recent `blocked` or `unsupported` sample is not healthy, even when
 Task Scheduler reports `Running`. Unexpected/missing sample states are
 `unsafe`; stale samples stay `stale` regardless of the previous verdict.
+
+On native PC-B, the read-only inspection now corroborates the **heartbeat
+writer's Windows PID** using CIM. A healthy `fresh` verdict requires a
+currently running Python interpreter with the exact configured
+`-m artifex.cli render-node survival-watch --config ...` arguments and
+a creation timestamp not later than the sample. Exited, reused, foreign-command
+or uninspectable processes become `process_missing`, `process_mismatch`
+or `process_unavailable`, all non-healthy. A Windows venv launcher may be a
+different PID from the actual watcher; comparing only to the shim is incorrect.
+This liveness check does **not** prove Task Scheduler ownership or any actual
+ComfyUI survival/GPU qualification.
 `safe_for_passive_observation` requires a fresh *verified* heartbeat as
 well as both correctly configured Running tasks. PC-A
 `qualify pair-install-audit` reports
