@@ -13,7 +13,6 @@ from artifex.qualification.models import (
     QualificationSession,
     QualificationStage,
     QualificationStageEvidence,
-    QualificationStatus,
 )
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
