@@ -104,27 +104,30 @@ def test_remote_safety_client_rejects_untrusted_or_incomplete_responses(
             payload["inspection"]["launch_authorized"] = True
         return httpx.Response(200, json=payload)
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises((ValueError, httpx.HTTPStatusError)):
-            fetch_renderer_safety_inspection("gpu-b", _config(), client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises((ValueError, httpx.HTTPStatusError)),
+    ):
+        fetch_renderer_safety_inspection("gpu-b", _config(), client=client)
 
 
 def test_remote_safety_client_refuses_missing_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("ARTIFEX_RENDER_NODE_TOKEN", raising=False)
-    with httpx.Client(transport=httpx.MockTransport(
-        lambda req: pytest.fail("No unauthenticated request")
-    )) as client:
-        with pytest.raises(ValueError, match="token is missing"):
-            fetch_renderer_safety_inspection("gpu-b", _config(), client=client)
+    with (
+        httpx.Client(transport=httpx.MockTransport(
+            lambda req: pytest.fail("No unauthenticated request")
+        )) as client,
+        pytest.raises(ValueError, match="token is missing"),
+    ):
+        fetch_renderer_safety_inspection("gpu-b", _config(), client=client)
 
 
 def test_authenticated_server_safety_path_is_read_only_and_not_public(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    import artifex.render_node.attestation as attestation
-    import artifex.render_node.startup_inspection as safety_module
+    from artifex.render_node import attestation, startup_inspection as safety_module
 
     monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "do-not-leak")
     settings = ArtifexSettings()
