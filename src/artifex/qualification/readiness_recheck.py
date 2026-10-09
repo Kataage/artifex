@@ -167,8 +167,7 @@ def _observed(
             visible = bool(latest.checks)
         else:
             visible = any(
-                key.startswith("pc_a:preflight:")
-                or key.startswith("pc_b:preflight:")
+                key.startswith(("pc_a:preflight:", "pc_b:preflight:"))
                 for key in keys
             ) and "pc_a:preflight:probe" not in keys
         return ReadOnlyObservation(
