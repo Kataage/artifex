@@ -257,16 +257,47 @@ def serve_attestation(
                     },
                 )
                 return
-            if url.path not in {"/v1/attestation", "/v1/owner-audit"}:
+            protected_path = url.path in {"/v1/owner-audit", "/v1/renderer-safety"}
+            if url.path not in {"/v1/attestation", "/v1/owner-audit", "/v1/renderer-safety"}:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
             if (
                 not self._authorized()
-                or (url.path == "/v1/owner-audit" and expected_token is None)
+                or (protected_path and expected_token is None)
             ):
                 # /health and legacy attestation can be configured public,
-                # but renderer owner evidence always requires a Bearer token.
+                # but owner and safety evidence always require a Bearer token.
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
+            if url.path == "/v1/renderer-safety":
+                if (
+                    url.query or owner_config is None
+                    or owner_config.is_symlink() or not owner_config.is_file()
+                ):
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "renderer_safety_unconfigured"},
+                    )
+                    return
+                # An uncached Windows PID/TCP/Scheduler observation only.
+                # This endpoint cannot authorize startup or modify services.
+                try:
+                    from artifex.render_node.startup_inspection import (
+                        inspect_renderer_startup,
+                    )
+
+                    inspection = inspect_renderer_startup(
+                        settings, config_path=owner_config,
+                    )
+                    self._json(HTTPStatus.OK, {
+                        "node_id": settings.render_agent.node_id,
+                        "inspection": inspection.model_dump(mode="json"),
+                    })
+                except Exception:  # noqa: BLE001 - no host paths or tokens in errors
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "renderer_safety_failed"},
+                    )
                 return
             if url.path == "/v1/owner-audit":
                 if url.query or owner_config is None or owner_config.is_symlink() or not owner_config.is_file():
