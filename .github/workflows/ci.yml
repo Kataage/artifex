@@ -45,6 +45,7 @@ jobs:
       - run: uv run artifex render-node launcher-probe --help
       - run: uv run pytest -q tests/test_renderer_owner_audit.py
       - run: uv run pytest -q tests/test_supervisor_survival.py
+      - run: uv run pytest -q tests/test_qualification_survival_review.py
       - run: uv run artifex render-node survival-observe --help
       - run: uv run pytest -q tests/test_qualification_renderer_owner_evidence.py
       - run: uv run pytest -q tests/test_soak_owner_continuity.py
