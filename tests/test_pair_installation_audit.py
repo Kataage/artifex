@@ -16,13 +16,13 @@ from artifex.config.models import ArtifexSettings, RenderNodeConfig
 from artifex.qualification.pair_installation import inspect_two_pc_installation
 from artifex.render_node.attestation import serve_attestation
 from artifex.render_node.client import fetch_remote_installation_audit
-from artifex.render_node.observer_heartbeat import publish_observer_heartbeat
 from artifex.render_node.installation_audit import (
     RemoteRendererInstallationAudit,
     inspect_registered_task,
     inspect_renderer_installation,
     inspect_spool,
 )
+from artifex.render_node.observer_heartbeat import publish_observer_heartbeat
 from artifex.windows_tasks import StartupTaskStatus
 
 NOW = datetime(2026, 10, 10, tzinfo=UTC)
