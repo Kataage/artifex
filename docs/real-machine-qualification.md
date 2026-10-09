@@ -57,6 +57,39 @@ It is **never executed**. A report can be `configured` or `preview_ready`
 without being qualified; the separate 14-stage actual Windows/GPU/soak
 verification is mandatory.
 
+## Native PC-B venv launcher evidence without GPU or live renderer changes
+
+On the intended **Windows PC-B**, run the isolated diagnostic from an Artifex
+`uv` environment, optionally choosing the *actual* known ComfyUI Python
+executable with `--python`. This is the minimum local mock check for Issue
+#93, **not** a production listener probe:
+
+```powershell
+uv run artifex render-node launcher-probe --json
+uv run artifex render-node launcher-probe --output data/qualification/launcher-evidence.json --json
+# Optional explicit Python: --python "D:/ComfyUI/.venv/Scripts/python.exe"
+```
+
+The tool launches a **single temporary non-Comfy Python loopback fixture** on
+an OS-selected ephemeral port. The fixture emits its actual PID, and the
+diagnostic compares native Windows CIM start time, original venv launcher
+executable/command line, **direct parent ancestry** when separate, repeated
+real TCP ownership, and an in-memory receipt validated by the same checks
+used for protected ComfyUI. It returns `observed` only if all match and
+otherwise fails closed with `blocked`; a PID or responsive port alone does
+not pass. The child reads no Artifex token environment variables.
+
+The fixture voluntarily exits when its private release flag appears (or
+its bounded lifetime expires); **nothing kills or restarts** the actual
+ComfyUI, and no receipt is saved in the production renderer configuration.
+The optional output report is exclusive-create and must never overwrite
+existing evidence. Its `test_listener_only=true`,
+`actual_comfyui_inspected=false`, `renderer_restart_authorized=false`,
+and `production_child_survival_qualified=false` fields mean that a
+successful native mock **does not close Issue #93**. Independently observe
+the real PC-B listener with `render-node owner-audit` and complete the
+Windows process survival and full #40 real-GPU soak checks.
+
 ## PC-B registered Task Scheduler hard-termination audit
 
 On PC-B run `uv run artifex startup audit --role renderer
