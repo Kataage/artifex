@@ -712,6 +712,44 @@ Save the returned session_id. Start records Windows/Python/uv versions, NVIDIA G
 
 ## Required ladder
 
+### PC-A automatic evidence collection during native daemon operation
+
+After starting a qualification session with
+`uv run artifex qualify start --config .\\config\\local.yaml --json`,
+Artifex stores the latest explicit session binding in the **PC-A SQLite DB**.
+Only a session with a ready doctor/native baseline and the same hostname and
+configuration is eligible. The `qualify start` output exposes
+`auto_collection.active`, `enabled`, and the configured cadence.
+
+While the normal **PC-A `artifex daemon`** is running, it scans **already
+finalized** Packs and authentic Discord telemetry about once every 15 minutes
+(default) and registers only stages that pass the existing authoritative
+qualification validators. No separate repeated `qualify collect --apply`
+command, Pack ID entry, or additional service is required. The collector
+runs in a worker thread to avoid occupying the normal production scheduler;
+failures are isolated as `qualification.auto_collect_failed` (error type only).
+Newly verified stages generate `qualification.auto_collected` telemetry.
+Repeated scans cannot re-register already passed stages. A newly started,
+unready session replaces the old active binding and prevents accidental reuse.
+
+Optional settings in the PC-A YAML:
+
+```yaml
+qualification:
+  auto_collect_enabled: true
+  auto_collect_interval_seconds: 900
+  auto_collect_scan_limit: 10000
+```
+
+Set `auto_collect_enabled: false` to disable all automatic stage recording;
+the manual preview and apply commands remain available. Merely updating
+Artifex or launching a daemon does not activate old sessions: start a new
+session explicitly. Auto-collection does **not** generate images, start or
+restart ComfyUI, grant ownership permission, run an overnight soak, replay
+archived GPU outputs, or claim full production qualification. The separate
+soak and archive-reproduction stages still require actual evidence.
+`qualify verify` remains the sole overall production acceptance decision.
+
 ### Automatically collect already-verified real Pack evidence
 
 Instead of copying Pack IDs into many `qualify record` commands, Artifex

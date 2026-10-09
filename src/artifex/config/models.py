@@ -681,6 +681,12 @@ class OperationsConfig(StrictModel):
 class QualificationConfig(StrictModel):
     evidence_dir: Path = Path("data/qualification")
     minimum_soak_hours: float = Field(default=8.0, gt=0)
+    # When a session is explicitly started with a healthy doctor baseline,
+    # PC-A automatically records only strictly validated, preexisting evidence.
+    # No new Pack, GPU work or service restart is ever scheduled here.
+    auto_collect_enabled: bool = True
+    auto_collect_interval_seconds: int = Field(default=900, ge=60, le=86400)
+    auto_collect_scan_limit: int = Field(default=10000, ge=1, le=100000)
     asset_paths: dict[str, Path] = Field(default_factory=dict)
     required_asset_labels: tuple[str, ...] = (
         "production_checkpoint",

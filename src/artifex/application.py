@@ -76,6 +76,8 @@ from artifex.production import (
     ProductionCoordinator,
 )
 from artifex.prompts import ILXLDanbooruAdapter, PromptCompiler
+from artifex.qualification.maintenance import QualificationEvidenceMaintenance
+from artifex.qualification.service import QualificationService
 from artifex.research import (
     DDGSResearchProvider,
     GelbooruMetadataProvider,
@@ -680,6 +682,16 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         signal_maintenance,
         lora_discovery_maintenance,
     ]
+    if settings.qualification.auto_collect_enabled:
+        maintenance_tasks.append(QualificationEvidenceMaintenance(
+            QualificationService(
+                settings, core.database, core.characters, core.loras,
+            ),
+            core.database,
+            core.telemetry,
+            interval_seconds=settings.qualification.auto_collect_interval_seconds,
+            scan_limit=settings.qualification.auto_collect_scan_limit,
+        ))
     lora_validation_maintenance = (
         LoRAValidationMaintenance(
             lora_validation_runner,

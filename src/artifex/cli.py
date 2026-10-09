@@ -2843,6 +2843,18 @@ def qualify_start(
             "renderer_owner_observation": owner_result,
             "session_id": session.session_id,
             "doctor_ready": session.doctor_ready,
+            "auto_collection": {
+                "enabled": core.settings.qualification.auto_collect_enabled,
+                "active": (
+                    service.active_auto_collection_session_id() == session.session_id
+                ),
+                "interval_seconds": (
+                    core.settings.qualification.auto_collect_interval_seconds
+                ),
+                "scan_limit": core.settings.qualification.auto_collect_scan_limit,
+                "requires_running_daemon": True,
+                "starts_gpu_work": False,
+            },
             "evidence_path": str(
                 core.settings.qualification.evidence_dir
                 / session.session_id

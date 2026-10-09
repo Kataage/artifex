@@ -44,6 +44,7 @@ from artifex.qualification.archive_reproduction import (
     reproduce_archived_attempt,
 )
 from artifex.qualification.collector import QualificationEvidenceCollector
+from artifex.qualification.maintenance import QualificationEvidenceMaintenance
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
@@ -1454,4 +1455,95 @@ def test_remote_render_asset_is_attested_and_revalidated(
         "production_checkpoint hash changed during qualification" in issue
         for issue in verified["issues"]
     )
+    database.dispose()
+
+
+
+def test_automatic_collection_binds_latest_ready_session_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    assert service.active_auto_collection_session_id() is None
+
+    older = service.start(_doctor())
+    newer = service.start(_doctor())
+    assert service.active_auto_collection_session_id() == newer.session_id
+    pack_id = _seed_pack(
+        database, tmp_path, "auto-collector-real-pack",
+        character_ids=("char-2",),
+    )
+    observer = QualificationEvidenceMaintenance(
+        service, database, TelemetryRepository(database),
+        interval_seconds=900, scan_limit=500,
+    )
+    first = asyncio.run(observer.maintain())
+    assert first is not None
+    stage = service.load(newer.session_id).stage(QualificationStage.SINGLE_CHARACTER)
+    assert stage.status is QualificationStatus.PASS
+    assert stage.pack_ids == (pack_id,)
+    assert service.load(older.session_id).stage(
+        QualificationStage.SINGLE_CHARACTER,
+    ).status is QualificationStatus.PENDING
+
+    # No extra collection or duplicate PASS during the same interval.
+    assert asyncio.run(observer.maintain()) is None
+    result = QualificationEvidenceCollector(service, database).collect(
+        newer.session_id, apply=True,
+    )
+    assert next(
+        row for row in result["stages"] if row["stage"] == "single_character"
+    )["state"] == "already_recorded"
+    signals = [
+        event for event in TelemetryRepository(database).recent(limit=30)
+        if event.event_type == "qualification.auto_collected"
+    ]
+    assert len(signals) == 1
+    assert signals[0].payload["stages"] == ["single_character"]
+    database.dispose()
+
+
+def test_automatic_collection_rejects_unready_or_changed_baseline(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    ready = service.start(_doctor())
+    assert service.active_auto_collection_session_id() == ready.session_id
+    blocked = service.start(_doctor(ready=False))
+    assert not blocked.doctor_ready
+    assert service.active_auto_collection_session_id() is None
+
+    reporter = TelemetryRepository(database)
+    maintenance = QualificationEvidenceMaintenance(
+        service, database, reporter, interval_seconds=900,
+    )
+    assert asyncio.run(maintenance.maintain()) is None
+    assert not any(
+        e.event_type == "qualification.auto_collected"
+        for e in reporter.recent()
+    )
+    # An explicitly ready session is never permitted to survive a changed
+    # production configuration without verification.
+    ready_again = service.start(_doctor())
+    _seed_pack(
+        database, tmp_path, "auto-collector-stale-pack",
+        character_ids=("char-2",),
+    )
+    settings.production.checkpoint = "another-checkpoint"
+    maintenance = QualificationEvidenceMaintenance(
+        service, database, reporter, interval_seconds=900,
+    )
+    assert asyncio.run(maintenance.maintain()) is None
+    assert service.load(ready_again.session_id).stage(
+        QualificationStage.SINGLE_CHARACTER,
+    ).status is QualificationStatus.PENDING
+    failures = [
+        e for e in reporter.recent()
+        if e.event_type == "qualification.auto_collect_failed"
+    ]
+    assert len(failures) == 1
+    assert failures[0].payload == {"error_type": "ValueError"}
+
+    # Turning collection off does not delete/alter the session or launch work.
+    settings.qualification.auto_collect_enabled = False
+    assert service.active_auto_collection_session_id() is None
     database.dispose()
