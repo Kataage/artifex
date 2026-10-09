@@ -1178,7 +1178,15 @@ the remaining strict qualification steps are still separate workflows.
 ## Automatic collection of completed Pack qualification
 
 When the two Windows PCs are already operating and you have a qualification
-session ID, `uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml`
+session ID, `uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml`.
+The unattended three-Pack stage now requires three distinct finalized
+post-session Packs carrying events from **one actual continuous daemon run**,
+not any three manual archives. This evidence is auto-discovered and
+authoritatively rechecked by `qualify collect --apply`; if missing, leave
+Artifex running normally and inspect the telemetry rather than forcing
+manual PASS. `qualify recheck` also recognizes the PC-A authenticated
+remote safety probe as observed (or unavailable) without executing its
+advisory commands.
 shows which genuine completed Packs qualify the required production tests,
 without manually gathering IDs. Run the same command with `--apply` to
 register only validated post-session evidence, without generating or restarting

@@ -32,7 +32,10 @@ CheckStatus = Literal["pass", "fail", "unknown", "missing"]
 
 # These are inspection paths, not permitted subprocess commands. Only the
 # existing in-process readiness diagnostic may run.
-PC_A_READ_ONLY = frozenset({"pc-a-preflight", "pc-b-connectivity", "refresh-readiness"})
+PC_A_READ_ONLY = frozenset({
+    "pc-a-preflight", "pc-b-connectivity", "refresh-readiness",
+    "pc-a-remote-renderer-safety",
+})
 PC_B_OWNER_READ_ONLY = frozenset({"pc-b-owner"})
 PC_B_LOCAL_READ_ONLY = frozenset({"pc-b-inventory"})
 
@@ -165,6 +168,11 @@ def _observed(
     if step.id in PC_A_READ_ONLY:
         if step.id == "refresh-readiness":
             visible = bool(latest.checks)
+        elif step.id == "pc-a-remote-renderer-safety":
+            visible = all(
+                f"pc_b:safety:{name}" in keys
+                for name in ("overall", "freshness", "three_ports", "pid_consistency")
+            )
         else:
             visible = any(
                 key.startswith(("pc_a:preflight:", "pc_b:preflight:"))
@@ -175,8 +183,9 @@ def _observed(
             state="observed_live" if visible else "unavailable",
             check_names=step.blocked_checks,
             explanation=(
-                "PC-A in-process read-only readiness probes were evaluated."
-                if visible else "PC-A live preflight could not be fully observed."
+                "PC-A in-process read-only readiness probes were evaluated; "
+                "FAIL and UNKNOWN remain unresolved."
+                if visible else "PC-A live preflight or remote safety could not be fully observed."
             ),
         )
     return ReadOnlyObservation(
