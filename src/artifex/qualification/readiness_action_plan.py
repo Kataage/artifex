@@ -153,6 +153,17 @@ def compile_qualification_action_plan(
         pc_b_owner,
         _argv("pc_b", renderer_config, "render-node", "owner-audit"),
     )
+    pc_b_safety = [
+        c for c in unresolved
+        if c.target == "pc_b" and c.name.startswith("safety:")
+    ]
+    add(
+        "pc-a-remote-renderer-safety", "pc_a", "read_only",
+        "Recheck protected PC-B ComfyUI, attestation and gateway listeners from "
+        "PC-A over the existing authenticated channel. No process changes.",
+        pc_b_safety,
+        _argv("pc_a", controller_config, "qualify", "readiness"),
+    )
     pc_b_network = group(
         "pc_b", ("preflight:comfyui_lan", "preflight:render_attestation",
                  "preflight:render_attestation_freshness"),
