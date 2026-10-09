@@ -1179,6 +1179,19 @@ the remaining strict qualification steps are still separate workflows.
 
 When the two Windows PCs are already operating and you have a qualification
 session ID, `uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml`.
+
+When PC-A already has an explicitly started **ready** qualification session,
+its native daemon now checks finalized Pack evidence approximately every
+15 minutes and automatically applies only stages passing the strict
+validators. It keeps the most recently started session ID in PC-A's DB;
+an unready/new/foreign/configuration-changed session cannot be collected.
+This can be disabled through `qualification.auto_collect_enabled: false`
+(or its cadence adjusted with `auto_collect_interval_seconds`).
+The collector only reads existing archives and records verified stages,
+without sending new ComfyUI/GPU jobs, restarting services, or granting
+production qualification. A standalone `qualify collect` is still useful
+for immediate preview; `qualify verify` is the final authority.
+
 The unattended three-Pack stage now requires three distinct finalized
 post-session Packs carrying events from **one actual continuous daemon run**,
 not any three manual archives. This evidence is auto-discovered with stable keyset pagination
