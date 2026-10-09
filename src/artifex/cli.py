@@ -959,6 +959,67 @@ def onboard_pair_sync(
         raise typer.Exit(code=1) from exc
 
 
+@onboard_app.command("renderer-auto")
+def onboard_renderer_auto(
+    comfy_root: Annotated[
+        Path, typer.Option("--comfy-root", help="Existing local ComfyUI project or portable root."),
+    ],
+    checkpoint_path: Annotated[
+        Path | None, typer.Option("--checkpoint-path", help="Use the exact selected model when ambiguous."),
+    ] = None,
+    comfy_exe: Annotated[
+        Path | None, typer.Option("--comfy-exe", help="Choose an exact Python if multiple installations exist."),
+    ] = None,
+    output: Annotated[
+        Path, typer.Option("--output", help="PC-B configuration; never overwrite by default."),
+    ] = Path("config/render-node.yaml"),
+    node_id: Annotated[str, typer.Option("--node-id")] = "renderer",
+    bind_host: Annotated[str, typer.Option("--bind-host")] = "0.0.0.0",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535)] = 8190,
+    gateway_port: Annotated[
+        int, typer.Option("--gateway-port", min=1, max=65535),
+    ] = 8191,
+    comfy_port: Annotated[int, typer.Option("--comfy-port", min=1, max=65535)] = 8188,
+    external_comfy: Annotated[
+        bool, typer.Option("--external-comfy", help="Keep an existing unmanaged ComfyUI outside Artifex."),
+    ] = False,
+    apply: Annotated[
+        bool, typer.Option("--apply", help="Explicitly accept a unique proposed checkpoint and write YAML."),
+    ] = False,
+    update: Annotated[
+        bool, typer.Option("--update", help="With --apply, merge without erasing unrelated settings."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Find local ComfyUI, propose model/Python, prepare safe PC-B YAML without starting GPU."""
+    from artifex.onboarding_renderer_auto import (
+        apply_renderer_auto,
+        plan_renderer_auto,
+    )
+
+    try:
+        if update and not apply:
+            raise ValueError("--update requires --apply")
+        plan = plan_renderer_auto(
+            comfy_root,
+            checkpoint_path=checkpoint_path, python_executable=comfy_exe,
+            external_comfy=external_comfy, node_id=node_id,
+            bind_host=bind_host, attestation_port=port,
+            gateway_port=gateway_port, comfy_port=comfy_port,
+        )
+        if apply:
+            plan, _ = apply_renderer_auto(
+                plan, output, update=update,
+                settings=_settings(output) if update else _settings(None),
+            )
+        _print_payload(plan.model_dump(mode="json"), as_json=json_output)
+        if not plan.ready_to_write:
+            raise typer.Exit(code=1)
+    except (FileExistsError, OSError, ValueError, TypeError) as exc:
+        typer.echo(f"onboard renderer-auto error: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @onboard_app.command("renderer")
 def onboard_renderer(
     comfy_root: Annotated[Path, typer.Option("--comfy-root", help="ComfyUI or portable root.")],
