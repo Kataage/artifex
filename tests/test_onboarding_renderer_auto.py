@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 
 from artifex.cli import app
 from artifex.config import load_settings
-from artifex.config.models import ArtifexSettings
 from artifex.onboarding_renderer_auto import (
     apply_renderer_auto,
     plan_renderer_auto,
