@@ -1180,6 +1180,14 @@ the remaining strict qualification steps are still separate workflows.
 When the two Windows PCs are already operating and you have a qualification
 session ID, `uv run artifex qualify collect <SESSION> --config .\\config\\local.yaml`.
 
+Automatic collection and the manual `qualify record` command may
+run simultaneously: both use one durable per-session Windows process lock
+and atomic file replacement, and competing PASS registrations cannot
+silently overwrite each other. Authenticated PC-B owner snapshots append
+through the same lock. Leave `qualification.lock` in place; never delete it
+during live sessions. A lock timeout is a blocked verification, **not** a
+production PASS. For changed evidence, start a new qualification session.
+
 When PC-A already has an explicitly started **ready** qualification session,
 its native daemon now checks finalized Pack evidence approximately every
 15 minutes and automatically applies only stages passing the strict
