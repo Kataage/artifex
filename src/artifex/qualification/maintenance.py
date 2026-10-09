@@ -17,10 +17,6 @@ from artifex.qualification.service import QualificationService
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
 
-
-_LOG = logging.getLogger(__name__)
-
-
 class QualificationEvidenceMaintenance:
     """Low-frequency asynchronous, bounded, failure-isolated evidence ingestion."""
 
@@ -73,7 +69,7 @@ class QualificationEvidenceMaintenance:
                     {"error_type": type(exc).__name__},
                 )
             except Exception:  # noqa: BLE001 - never take down production
-                _LOG.warning("Qualification failure telemetry could not be stored")
+                logging.getLogger(__name__).warning("Qualification failure telemetry could not be stored")
             return None
         if report is not None:
             stages = report.get("stages", [])
@@ -96,5 +92,5 @@ class QualificationEvidenceMaintenance:
                         },
                     )
                 except Exception:  # noqa: BLE001 - no telemetry failure may stop daemon
-                    _LOG.warning("Qualification success telemetry could not be stored")
+                    logging.getLogger(__name__).warning("Qualification success telemetry could not be stored")
         return report
