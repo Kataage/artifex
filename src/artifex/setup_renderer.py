@@ -105,7 +105,8 @@ def configure_renderer(
             **(
                 {"gateway": {"enabled": True, "bind_host": "0.0.0.0",
                              "port": gateway_port}}
-                if protected_gateway else {}
+                if protected_gateway else
+                {"gateway": {"enabled": False}} if disable_comfy_management else {}
             ),
             **({"asset_paths": changed_assets} if changed_assets else {}),
             **(
