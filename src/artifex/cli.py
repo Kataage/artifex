@@ -5,7 +5,7 @@ import hashlib
 import json
 import socket
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import uuid4
 
 import httpx
@@ -2741,6 +2741,7 @@ def qualify_plan(
     )
 
     chosen = config or Path("config/local.yaml")
+    source: Literal["live", "saved"]
     try:
         if report_path is None:
             if chosen.is_symlink() or not chosen.is_file():
