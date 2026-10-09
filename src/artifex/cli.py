@@ -2246,6 +2246,40 @@ def render_node_launcher_probe(
         raise typer.Exit(code=1)
 
 
+
+
+@render_node_app.command("owner-readiness")
+def render_node_owner_readiness(
+    config: ConfigOption = None,
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Optional new PC-B evidence JSON; never overwritten.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: reconcile disposable launcher and live ComfyUI ownership."""
+    from artifex.render_node.owner_audit import save_owner_observation
+    from artifex.render_node.owner_readiness import collect_owner_readiness
+
+    target = config or Path("config/render-node.yaml")
+    if target.is_symlink() or not target.is_file():
+        typer.echo(
+            f"render-node owner-readiness error: existing non-symlink config required: {target}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        report = collect_owner_readiness(_settings(target), config=target)
+        if output is not None:
+            save_owner_observation(report, output)
+        _print_payload(report, as_json=json_output)
+    except (OSError, ValueError, RuntimeError, TypeError) as exc:
+        typer.echo(f"render-node owner-readiness error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report["status"] != "observed_independently":
+        raise typer.Exit(code=1)
+
 @render_node_app.command("socket-audit")
 def render_node_socket_audit(
     config: ConfigOption = None,

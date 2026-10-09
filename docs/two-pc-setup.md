@@ -694,6 +694,36 @@ tokens and environment variables. **Do not** record an Issue #40 PASS merely
 because this check succeeds; actual two-PC GPU, 14-stage and 8-hour soak
 evidence is still required.
 
+## One-command read-only PC-B owner evidence reconciliation
+
+Run on the actual native Windows PC-B with the original ComfyUI still running:
+
+```powershell
+uv run artifex render-node owner-readiness --config .\config\render-node.yaml --json
+uv run artifex render-node owner-readiness --config .\config\render-node.yaml --output .\data\qualification\owner-readiness-unique.json --json
+```
+
+The command uses exactly the configured managed ComfyUI Python executable
+for PR #115's disposable no-GPU launcher fixture (no interpreter fallback),
+then independently observes the real listener using the receipt, Windows
+CIM identity, Task Scheduler policy, and repeated TCP ownership inventories.
+It never submits /prompt, changes a task, adopts or restarts a process, or
+modifies the production ownership receipt.
+
+The JSON reports both independent checks, original observations and
+`remaining_real_machine_evidence`. Results are `observed_independently`,
+`blocked` or `unsupported`. Passing mock + real observations **does not**
+prove that the disposable Python's PID belongs to the real ComfyUI.
+Even `observed_independently` always retains
+`issue_93_closure_authorized=false`, `issue_40_closure_authorized=false`,
+`production_qualified=false`, and `renderer_restart_authorized=false`.
+Supervisor-loss survival, a real GPU render, all 14 actual stages and the
+eight-hour soak still require separate target-PC evidence.
+
+Missing/unsupported configured Python, unsafe Task Scheduler policy, missing
+receipt, foreign listener, process drift, or mismatched host fails closed.
+Optional --output exclusively creates a new JSON file; use a unique name.
+Native CI mock successes never substitute for physical PC-B qualification.
 ## Native PC-B venv launcher evidence without GPU or live renderer changes
 
 On the intended **Windows PC-B**, run the isolated diagnostic from an Artifex
