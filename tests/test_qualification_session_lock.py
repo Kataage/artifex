@@ -62,13 +62,17 @@ def test_native_session_lock_timeout_and_missing_directory_fail_closed(
     tmp_path: Path,
 ) -> None:
     directory = tmp_path / "session"
-    with pytest.raises(ValueError, match="missing"):
-        with qualification_session_lock(directory):
-            pytest.fail("nonexistent session must not be locked")
+    with (
+        pytest.raises(ValueError, match="missing"),
+        qualification_session_lock(directory),
+    ):
+        pytest.fail("nonexistent session must not be locked")
     directory.mkdir()
-    with pytest.raises(ValueError, match="nonnegative"):
-        with qualification_session_lock(directory, timeout_seconds=-1):
-            pytest.fail("invalid timeout")
+    with (
+        pytest.raises(ValueError, match="nonnegative"),
+        qualification_session_lock(directory, timeout_seconds=-1),
+    ):
+        pytest.fail("invalid timeout")
     # A stable lock file is not deleted and cannot be confused with data.
     with qualification_session_lock(directory):
         assert (directory / "qualification.lock").is_file()
