@@ -107,6 +107,7 @@ def compile_handoff(
         ),
     )
     selected = overview.session_id
+    command: tuple[str, ...] | None
     if blocked:
         state: HandoffState = "blocked"
         action = (
