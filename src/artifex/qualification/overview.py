@@ -36,6 +36,10 @@ from artifex.qualification.readiness_diagnostics import (
     diagnose_qualification_readiness,
 )
 from artifex.qualification.readiness_recheck import _observed
+from artifex.qualification.survival_review import (
+    PCBSurvivalEvidenceReview,
+    review_pc_b_survival_evidence,
+)
 
 _SESSION_NAME = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
 # Do not scan an unbounded foreign / malformed directory tree.
@@ -165,6 +169,7 @@ class QualificationOverview(BaseModel):
     readiness: QualificationReadiness
     action_plan: QualificationActionPlan
     pc_b_owner_evidence: PCBOwnerCorrelation | None = None
+    pc_b_survival_review: PCBSurvivalEvidenceReview | None = None
 
 
 def latest_saved_session_id(root: Path) -> str | None:
@@ -203,6 +208,7 @@ def compile_qualification_overview(
     renderer_config: Path = Path("config/render-node.yaml"),
     pc_b_owner_report: Path | None = None,
     pc_b_owner_live: bool = False,
+    pc_b_survival_report: Path | None = None,
     readiness: QualificationReadiness | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
@@ -233,6 +239,12 @@ def compile_qualification_overview(
             correlate_pc_b_owner_report(settings, pc_b_owner_report, now=current)
             if pc_b_owner_report is not None else None
         )
+    )
+    survival = (
+        review_pc_b_survival_evidence(
+            settings, pc_b_survival_report, now=current,
+        )
+        if pc_b_survival_report is not None else None
     )
     plan = compile_qualification_action_plan(
         report, controller_config=controller_config,
@@ -323,11 +335,19 @@ def compile_qualification_overview(
             "restarting existing ComfyUI."
         )
         command = None
+    if survival is not None and survival.status != "replayed_and_live_identity_matched":
+        priority = (
+            "PC-B passive survival trace is historical, incomplete, mismatched, "
+            "or cannot be correlated with the current authenticated PC-B. "
+            "Inspect pc_b_survival_review; never restart ComfyUI to force a match."
+        )
+        command = None
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
         environment_ready=(
             plan.environment_ready_observed
             and (correlation is None or correlation.status == "correlated_read_only")
+            and (survival is None or survival.status == "replayed_and_live_identity_matched")
         ),
         recorded_pass_count=passed, recorded_skipped_count=skipped,
         unresolved_stage_count=unresolved, stages=tuple(stages),
@@ -338,4 +358,5 @@ def compile_qualification_overview(
         pc_b_local_checks_required=pc_b_local,
         operator_review_required=review,
         readiness=report, action_plan=plan, pc_b_owner_evidence=correlation,
+        pc_b_survival_review=survival,
     )
