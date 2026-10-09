@@ -245,16 +245,16 @@ def correlate_pc_b_owner_report(
 
     node, cfg = primary
     try:
-        remote = owner_probe(node, cfg)
+        live_remote_owner = owner_probe(node, cfg)
         # Existing authenticated attestation channel; fresh=true prevents
         # using an old cached host identity. No remote process launch.
         att = attestation_probe(node, cfg, fresh=True, timeout_seconds=35.0)
     except (OSError, RuntimeError, ValueError, TypeError, httpx.HTTPError):
         return result("unavailable", "authenticated_pc_b_snapshot_unavailable")
 
-    live = remote.audit
+    live = live_remote_owner.audit
     if not (
-        remote.node_id == node and att.node_id == node
+        live_remote_owner.node_id == node and att.node_id == node
         and _fresh(live.captured_utc, current, window=_MAX_LIVE_AGE)
         and _fresh(att.created_at, current, window=_MAX_LIVE_AGE)
         and _stable(live)
