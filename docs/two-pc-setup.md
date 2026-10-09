@@ -125,6 +125,53 @@ is busy. The audit reports `restart_authorized=false` and
 `child_survival_qualified=false`; the real two-PC qualification remains
 required.
 
+## One-command PC-A / PC-B qualification readiness diagnosis
+
+Before creating a real qualification session, run this **read-only** command on
+PC-A, with the intended actual PC-B online:
+
+```powershell
+uv run artifex qualify readiness --config .\config\local.yaml --json
+
+# Optional: retain a new report for audit; an existing file is never overwritten.
+uv run artifex qualify readiness --config .\config\local.yaml --output .\readiness-report.json --json
+
+# Optional: see the 14 stages already *recorded* for an existing session.
+uv run artifex qualify readiness --config .\config\local.yaml --session-id SESSION_ID --json
+```
+
+The report groups actionable observations by `target: pc_a`,
+`target: pc_b` and `target: qualification`, with individual
+`pass`/`fail`/`unknown` states and specific `next_action` guidance.
+It reuses existing PC-A controller preflight (LLM endpoint, ComfyUI API,
+authenticated PC-B model inventory, clocks and configured model filenames)
+and the existing read-only authenticated PC-B owner audit (the Windows CIM
+process/launcher chain, Scheduler policy, receipt and TCP socket ownership).
+Controller-side Windows/uv/primary node/credential **presence only** and
+selected local GGUF file are also checked. The Bearer token **value** is
+never displayed or persisted. Every remote snapshot must be current and
+all nine mandatory ownership checks must pass. Unavailable probes remain
+unknown, never green.
+
+`environment_ready=true` means **only that the observed PC-A/PC-B
+environment prerequisites passed at this point in time**. Both
+`actual_machine_qualification_complete` and
+`actual_gpu_soak_verified` are *always false*. The optional
+`--session-id` reports recorded stage statuses without changing or
+independently revalidating them. Run `qualify verify` to revalidate the
+full 14-stage evidence; a recorded PASS is not accepted as proof by this
+readiness command. No Task Scheduler registration, ComfyUI launch/stop,
+GPU image generation, background daemon start or DB mutation occurs.
+Non-ready observations exit with a nonzero code while still returning
+structured JSON for automation. The optional JSON report output refuses
+existing paths and symlinks.
+
+Failures commonly indicate a missing PC-B authentication token, an
+unreachable LLM/ComfyUI service, wrong model names, a stopped Scheduler
+task, or an unverified ownership receipt. This command reports the
+next safe step rather than automatically repairing a possibly
+running GPU service.
+
 ## Continuous PC-B ownership surveillance during the eight-hour soak
 
 The existing `qualify soak-run` and `qualify soak-observe` commands on PC-A
