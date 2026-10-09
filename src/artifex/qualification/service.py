@@ -781,7 +781,12 @@ class QualificationService:
                     select(PackRow).where(PackRow.id.in_(pack_ids))
                 ).all()
                 if len(rows) != len(pack_ids) or any(
-                    row.created_at < since for row in rows
+                    (
+                        row.created_at
+                        if row.created_at.tzinfo is not None
+                        else row.created_at.replace(tzinfo=UTC)
+                    ) < since
+                    for row in rows
                 ):
                     raise ValueError(
                         "unattended_multi_pack contains a pre-session or missing Pack"
