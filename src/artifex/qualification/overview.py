@@ -22,6 +22,7 @@ from artifex.qualification.models import (
 )
 from artifex.qualification.owner_handoff import (
     PCBOwnerCorrelation,
+    correlate_live_pc_b_owner_report,
     correlate_pc_b_owner_report,
 )
 from artifex.qualification.readiness_action_plan import (
@@ -201,6 +202,7 @@ def compile_qualification_overview(
     controller_config: Path = Path("config/local.yaml"),
     renderer_config: Path = Path("config/render-node.yaml"),
     pc_b_owner_report: Path | None = None,
+    pc_b_owner_live: bool = False,
     readiness: QualificationReadiness | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
@@ -223,9 +225,14 @@ def compile_qualification_overview(
     )
     if readiness is not None and selected is not None and not report.recorded_stages:
         raise ValueError("Injected readiness does not include selected session stages")
+    if pc_b_owner_report is not None and pc_b_owner_live:
+        raise ValueError("Choose local PC-B JSON OR authenticated remote report")
     correlation = (
-        correlate_pc_b_owner_report(settings, pc_b_owner_report, now=current)
-        if pc_b_owner_report is not None else None
+        correlate_live_pc_b_owner_report(settings, now=current)
+        if pc_b_owner_live else (
+            correlate_pc_b_owner_report(settings, pc_b_owner_report, now=current)
+            if pc_b_owner_report is not None else None
+        )
     )
     plan = compile_qualification_action_plan(
         report, controller_config=controller_config,
@@ -310,9 +317,10 @@ def compile_qualification_overview(
         command = None
     if correlation is not None and correlation.status != "correlated_read_only":
         priority = (
-            "Transferred PC-B ownership evidence has not been correlated with "
-            "fresh authenticated observations. Inspect pc_b_owner_evidence "
-            "and gather a new local PC-B report without restarting ComfyUI."
+            "PC-B ownership evidence has not been correlated with fresh "
+            "authenticated observations. Inspect pc_b_owner_evidence and "
+            "check PC-B protection, cached fixture, or network without "
+            "restarting existing ComfyUI."
         )
         command = None
     return QualificationOverview(

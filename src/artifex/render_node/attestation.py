@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Event, Lock
+from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -25,6 +25,10 @@ from artifex.render_node.models import (
     RenderAssetDigest,
     RenderLoRAInventoryItem,
     RenderNodeAttestation,
+)
+from artifex.render_node.remote_owner_readiness import (
+    OwnerReadinessCache,
+    can_collect_owner_readiness,
 )
 
 
@@ -208,6 +212,12 @@ def serve_attestation(
             "render-node token is required but the configured environment variable is empty"
         )
 
+    # Background-only isolated launcher fixture. Protected GET requests only
+    # read a memory snapshot, never launch Python or submit GPU jobs.
+    owner_cache = OwnerReadinessCache(settings, owner_config=owner_config)
+    worker_stop = Event()
+    worker: Thread | None = None
+
     cache_lock = Lock()
     cached: tuple[float, RenderNodeAttestation] | None = None
 
@@ -257,8 +267,14 @@ def serve_attestation(
                     },
                 )
                 return
-            protected_path = url.path in {"/v1/owner-audit", "/v1/renderer-safety"}
-            if url.path not in {"/v1/attestation", "/v1/owner-audit", "/v1/renderer-safety"}:
+            protected_path = url.path in {
+                "/v1/owner-audit", "/v1/renderer-safety",
+                "/v1/owner-readiness-evidence",
+            }
+            if url.path not in {
+                "/v1/attestation", "/v1/owner-audit", "/v1/renderer-safety",
+                "/v1/owner-readiness-evidence",
+            }:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
             if (
@@ -268,6 +284,27 @@ def serve_attestation(
                 # /health and legacy attestation can be configured public,
                 # but owner and safety evidence always require a Bearer token.
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
+            if url.path == "/v1/owner-readiness-evidence":
+                if url.query or not can_collect_owner_readiness(settings, owner_config):
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "owner_readiness_unconfigured"},
+                    )
+                    return
+                # Read-only cache access. No Python subprocess is created
+                # by GET, even under repeated authenticated requests.
+                report = owner_cache.snapshot()
+                if report is None:
+                    self._json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {"error": "owner_readiness_not_sampled_or_stale"},
+                    )
+                    return
+                self._json(HTTPStatus.OK, {
+                    "node_id": settings.render_agent.node_id,
+                    "report": report,
+                })
                 return
             if url.path == "/v1/renderer-safety":
                 if (
@@ -335,6 +372,12 @@ def serve_attestation(
         Handler,
     )
     try:
+        if can_collect_owner_readiness(settings, owner_config):
+            worker = Thread(
+                target=owner_cache.run, args=(worker_stop,),
+                name="artifex-local-owner-evidence", daemon=True,
+            )
+            worker.start()
         if stop_event is None:
             server.serve_forever()
         else:
@@ -342,4 +385,7 @@ def serve_attestation(
             while not stop_event.is_set():
                 server.handle_request()
     finally:
+        worker_stop.set()
+        if worker is not None:
+            worker.join(timeout=2)
         server.server_close()

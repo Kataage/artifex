@@ -5,7 +5,11 @@ import os
 import httpx
 
 from artifex.config.models import RenderNodeConfig
-from artifex.render_node.models import RemoteRendererOwnerAudit, RenderNodeAttestation
+from artifex.render_node.models import (
+    RemoteOwnerReadinessEvidence,
+    RemoteRendererOwnerAudit,
+    RenderNodeAttestation,
+)
 from artifex.render_node.startup_inspection import RemoteRendererSafetyInspection
 
 
@@ -132,3 +136,42 @@ def fetch_renderer_safety_inspection(
     if observation.inspection.renderer_node_id != node_id:
         raise ValueError("remote safety inspection renderer ID mismatch")
     return observation
+
+
+def fetch_remote_owner_readiness(
+    node_id: str,
+    config: RenderNodeConfig,
+    *,
+    timeout_seconds: float = 35.0,
+    client: httpx.Client | None = None,
+) -> RemoteOwnerReadinessEvidence:
+    """Read memory-cached PC-B no-GPU evidence; never ask PC-B to run a probe."""
+    if not config.attestation_url:
+        raise ValueError("render node has no attestation_url configured")
+    if not config.attestation_token_env:
+        raise ValueError("remote owner evidence requires a configured token")
+    token = os.environ.get(config.attestation_token_env)
+    if not token:
+        raise ValueError("remote owner evidence Bearer token is missing")
+    url = config.attestation_url.rstrip("/") + "/v1/owner-readiness-evidence"
+    owns = client is None
+    http = client or httpx.Client(
+        timeout=httpx.Timeout(timeout_seconds),
+        follow_redirects=False,
+        trust_env=False,
+    )
+    try:
+        response = http.get(
+            url, headers={"Authorization": f"Bearer {token}"},
+            timeout=timeout_seconds, follow_redirects=False,
+        )
+        response.raise_for_status()
+        if len(response.content) > 128 * 1024:
+            raise ValueError("remote owner evidence exceeds response size bound")
+        evidence = RemoteOwnerReadinessEvidence.model_validate(response.json())
+    finally:
+        if owns:
+            http.close()
+    if evidence.node_id != node_id:
+        raise ValueError("remote owner evidence node ID mismatch")
+    return evidence

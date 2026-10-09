@@ -57,6 +57,46 @@ It is **never executed**. A report can be `configured` or `preview_ready`
 without being qualified; the separate 14-stage actual Windows/GPU/soak
 verification is mandatory.
 
+## PC-A automatic authenticated PC-B evidence (no manual JSON copy)
+
+After installing this version on both Windows PCs, the **protected** PC-B
+attestation service starts a bounded local background evidence sampler.
+Only on native Windows with a configured managed ComfyUI, enabled protected
+gateway, an existing non-symlinked PC-B YAML, and a configured Bearer token,
+the PC-B service runs PR #116's temporary **no-GPU** launcher fixture
+at startup and approximately every four minutes, observing actual
+ComfyUI ownership independently. The temporary fixture is never ComfyUI.
+The result is cached in RAM for up to ten minutes. If unconfigured,
+missing, blocked, or stale, the API fails closed. It changes no GPU job,
+Task Scheduler registration, renderer service, or ownership receipt.
+
+On PC-A, use just one command (no PC-B JSON transfer):
+
+```powershell
+uv run artifex qualify overview --config .\config\local.yaml --pc-b-owner-live --json
+```
+
+PC-A fetches the protected, Bearer-authenticated
+`GET /v1/owner-readiness-evidence` from the configured PC-B node, checks
+its bounded cached proof and node ID, and *independently* fetches fresh
+authenticated PC-B ownership plus fresh node attestation. It cross-checks
+host, listener PID, start timestamp, launcher PID, receipt schema and
+Task Scheduler state. **GET never launches Python or ComfyUI**; the
+temporary mock is run exclusively by the local PC-B worker, not by
+a remote request. An unauthorized endpoint request returns 401.
+
+`pc_b_owner_evidence.source_mode=authenticated_remote` indicates this
+transport; `remote_bearer_checked=true` indicates a matching authenticated
+PC-B endpoint response, not TLS encryption or proof that the remote
+snapshot was never tampered with by its originating machine. Saved
+provenance is still not independently trusted. Even a correlated snapshot
+does not authorize a restart, GPU job, Issue #93/#40 closure, or a stage PASS.
+
+The previous `--pc-b-owner-report` transferred-JSON path remains available
+when desired. Both flags together fail rather than choosing one silently.
+If PC-B has not yet collected a fixture, is on an older software version,
+or is unavailable, the live option returns a blocked/unavailable correlation;
+do not restart the running ComfyUI just to change this result.
 ## PC-A correlation of PC-B local owner evidence
 
 On the actual Windows PC-B, run the no-GPU, read-only combined diagnostic

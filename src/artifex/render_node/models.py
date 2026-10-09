@@ -66,3 +66,11 @@ class RendererOwnerAudit(RenderNodeModel):
 class RemoteRendererOwnerAudit(RenderNodeModel):
     node_id: str = Field(min_length=1)
     audit: RendererOwnerAudit
+
+
+class RemoteOwnerReadinessEvidence(RenderNodeModel):
+    """Bearer-gated PC-B memory snapshot; never authorization to change services."""
+
+    schema_version: Literal[1] = 1
+    node_id: str = Field(min_length=1)
+    report: dict[str, Any]

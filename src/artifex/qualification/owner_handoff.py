@@ -7,6 +7,7 @@ or prove a real GPU child survives supervisor loss.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,10 +19,12 @@ from pydantic import BaseModel, ConfigDict
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node.client import (
+    fetch_remote_owner_readiness,
     fetch_render_attestation,
     fetch_renderer_owner_audit,
 )
 from artifex.render_node.models import (
+    RemoteOwnerReadinessEvidence,
     RemoteRendererOwnerAudit,
     RendererOwnerAudit,
     RendererOwnerAuditCheck,
@@ -81,6 +84,10 @@ class PCBOwnerCorrelation(BaseModel):
     live_listener_pid: int | None = None
     remaining_real_machine_evidence: tuple[str, ...]
     file_source_authenticated: Literal[False] = False
+    source_mode: Literal["transferred_file", "authenticated_remote"] = "transferred_file"
+    # Bearer check authenticates the remote request, NOT the saved provenance,
+    # and does not imply that HTTP transport is encrypted.
+    remote_bearer_checked: bool = False
     launcher_fixture_is_real_comfyui: Literal[False] = False
     real_gpu_qualified: Literal[False] = False
     supervisor_loss_survival_qualified: Literal[False] = False
@@ -112,9 +119,13 @@ def _stable(report: RendererOwnerAudit) -> bool:
 
 def correlate_pc_b_owner_report(
     settings: ArtifexSettings,
-    source: Path,
+    source: Path | None,
     *,
+    remote: bool = False,
     now: datetime | None = None,
+    remote_probe: Callable[
+        [str, RenderNodeConfig], RemoteOwnerReadinessEvidence
+    ] = fetch_remote_owner_readiness,
     owner_probe: Callable[
         [str, RenderNodeConfig], RemoteRendererOwnerAudit
     ] = fetch_renderer_owner_audit,
@@ -159,21 +170,48 @@ def correlate_pc_b_owner_report(
             ),
             live_listener_pid=live_pid,
             remaining_real_machine_evidence=tuple(dict.fromkeys(outstanding)),
+            source_mode="authenticated_remote" if remote else "transferred_file",
+            remote_bearer_checked=bool(remote and report is not None),
         )
 
-    path = source.expanduser().absolute()
-    try:
-        if any(item.is_symlink() for item in (path, *path.parents)):
-            return result("blocked", "symlinked_pc_b_evidence_path")
-        if not path.is_file() or not 0 < path.stat().st_size <= _MAX_REPORT_BYTES:
-            return result("blocked", "pc_b_evidence_missing_empty_or_oversized")
-        raw = path.read_bytes()
-        if not 0 < len(raw) <= _MAX_REPORT_BYTES:
-            return result("blocked", "pc_b_evidence_invalid_size")
-        sha = hashlib.sha256(raw).hexdigest()
-        report = TransferredPCBOwnerReport.model_validate_json(raw)
-    except (OSError, ValueError, TypeError):
-        return result("blocked", "pc_b_evidence_invalid_schema_or_unreadable")
+    if remote:
+        # Bearer-authenticated endpoint serves a previously produced local
+        # cache. GET never launches even a disposable Python child.
+        if primary is None:
+            return result("blocked", "pc_a_primary_render_node_missing")
+        node, config = primary
+        try:
+            received = remote_probe(node, config)
+        except (OSError, RuntimeError, ValueError, TypeError, httpx.HTTPError):
+            return result("unavailable", "authenticated_pc_b_evidence_unavailable")
+        if received.node_id != node:
+            return result("blocked", "remote_pc_b_evidence_node_mismatch")
+        try:
+            raw = json.dumps(
+                received.report, ensure_ascii=False, sort_keys=True,
+            ).encode("utf-8")
+            if not 0 < len(raw) <= _MAX_REPORT_BYTES:
+                return result("blocked", "remote_pc_b_evidence_oversized")
+            report = TransferredPCBOwnerReport.model_validate(received.report)
+            sha = hashlib.sha256(raw).hexdigest()
+        except (ValueError, TypeError):
+            return result("blocked", "remote_pc_b_evidence_invalid_schema")
+    else:
+        if source is None:
+            return result("blocked", "pc_b_file_not_supplied")
+        path = source.expanduser().absolute()
+        try:
+            if any(item.is_symlink() for item in (path, *path.parents)):
+                return result("blocked", "symlinked_pc_b_evidence_path")
+            if not path.is_file() or not 0 < path.stat().st_size <= _MAX_REPORT_BYTES:
+                return result("blocked", "pc_b_evidence_missing_empty_or_oversized")
+            raw = path.read_bytes()
+            if not 0 < len(raw) <= _MAX_REPORT_BYTES:
+                return result("blocked", "pc_b_evidence_invalid_size")
+            sha = hashlib.sha256(raw).hexdigest()
+            report = TransferredPCBOwnerReport.model_validate_json(raw)
+        except (OSError, ValueError, TypeError):
+            return result("blocked", "pc_b_evidence_invalid_schema_or_unreadable")
 
     if primary is None:
         return result("blocked", "pc_a_primary_render_node_missing")
@@ -242,3 +280,13 @@ def correlate_pc_b_owner_report(
         "correlated_read_only", "same_host_and_renderer_observed_at_two_times",
         live_host=att.hostname, live_pid=live.actual_listener_pid,
     )
+
+
+
+def correlate_live_pc_b_owner_report(
+    settings: ArtifexSettings,
+    *,
+    now: datetime | None = None,
+) -> PCBOwnerCorrelation:
+    """PC-A one-command remote evidence check; no copy, no remote process start."""
+    return correlate_pc_b_owner_report(settings, None, remote=True, now=now)
