@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import json
 import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -1546,4 +1548,135 @@ def test_automatic_collection_rejects_unready_or_changed_baseline(
     # Turning collection off does not delete/alter the session or launch work.
     settings.qualification.auto_collect_enabled = False
     assert service.active_auto_collection_session_id() is None
+    database.dispose()
+
+
+
+def test_two_parallel_stage_writers_cannot_lose_each_others_evidence(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    single = _seed_pack(
+        database, tmp_path, "race-single",
+        character_ids=("char-2",),
+    )
+    duo = _seed_pack(
+        database, tmp_path, "race-duo",
+        character_ids=("char-1", "char-2"),
+    )
+    gate = threading.Barrier(3)
+
+    def save(stage: QualificationStage, pack_id: str) -> None:
+        gate.wait(timeout=5)
+        saved = service.record(
+            session.session_id, stage,
+            status=QualificationStatus.PASS, pack_ids=(pack_id,),
+        )
+        assert saved.stage(stage).status is QualificationStatus.PASS
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        one = pool.submit(save, QualificationStage.SINGLE_CHARACTER, single)
+        two = pool.submit(save, QualificationStage.DUO, duo)
+        gate.wait(timeout=5)
+        one.result(timeout=15)
+        two.result(timeout=15)
+
+    latest = service.load(session.session_id)
+    assert latest.stage(QualificationStage.SINGLE_CHARACTER).pack_ids == (single,)
+    assert latest.stage(QualificationStage.DUO).pack_ids == (duo,)
+    assert not list((tmp_path / "qualification" / session.session_id).glob("*.tmp"))
+    assert (tmp_path / "qualification" / session.session_id /
+            "qualification.lock").exists()
+    database.dispose()
+
+
+def test_competing_pass_records_are_immutable_and_idempotent(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    packs = tuple(
+        _seed_pack(
+            database, tmp_path, f"race-choice-{i}",
+            character_ids=("char-2",),
+        )
+        for i in range(2)
+    )
+    gate = threading.Barrier(3)
+
+    def save(pack_id: str) -> str:
+        gate.wait(timeout=5)
+        try:
+            service.record(
+                session.session_id, QualificationStage.SINGLE_CHARACTER,
+                status=QualificationStatus.PASS, pack_ids=(pack_id,),
+            )
+        except ValueError as exc:
+            assert "competing overwrite" in str(exc)
+            return "conflict"
+        return "accepted"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(save, pack_id) for pack_id in packs]
+        gate.wait(timeout=5)
+        outcomes = [future.result(timeout=15) for future in futures]
+    assert sorted(outcomes) == ["accepted", "conflict"]
+    saved = service.load(session.session_id).stage(QualificationStage.SINGLE_CHARACTER)
+    assert saved.status is QualificationStatus.PASS
+    assert saved.pack_ids in ((packs[0],), (packs[1],))
+
+    repeated = service.record(
+        session.session_id, QualificationStage.SINGLE_CHARACTER,
+        status=QualificationStatus.PASS, pack_ids=saved.pack_ids,
+    )
+    assert repeated.stage(QualificationStage.SINGLE_CHARACTER) == saved
+    assert service.load(session.session_id).stage(QualificationStage.SINGLE_CHARACTER) == saved
+    database.dispose()
+
+
+def test_auto_collector_conflict_observes_operator_record_instead_of_rewriting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    first = _seed_pack(
+        database, tmp_path, "race-collector-first",
+        character_ids=("char-2",),
+    )
+    chosen_by_operator = _seed_pack(
+        database, tmp_path, "race-collector-manual",
+        character_ids=("char-2",),
+    )
+    original = service.record
+    simulated_competitor = False
+
+    def competing_record(
+        session_id: str, stage: QualificationStage, *,
+        status: QualificationStatus, pack_ids: tuple[str, ...] = (),
+        **kwargs: object,
+    ) -> object:
+        nonlocal simulated_competitor
+        if stage is QualificationStage.SINGLE_CHARACTER and not simulated_competitor:
+            simulated_competitor = True
+            original(
+                session_id, stage, status=QualificationStatus.PASS,
+                pack_ids=(chosen_by_operator,),
+            )
+        return original(session_id, stage, status=status, pack_ids=pack_ids, **kwargs)
+
+    monkeypatch.setattr(service, "record", competing_record)
+    result = QualificationEvidenceCollector(service, database).collect(
+        session.session_id, apply=True,
+    )
+    entry = next(
+        row for row in result["stages"] if row["stage"] == "single_character"
+    )
+    assert first != chosen_by_operator
+    assert entry["state"] == "already_recorded"
+    assert entry["pack_ids"] == [chosen_by_operator]
+    assert service.load(session.session_id).stage(
+        QualificationStage.SINGLE_CHARACTER,
+    ).pack_ids == (chosen_by_operator,)
+    assert result["production_qualified"] is False
     database.dispose()
