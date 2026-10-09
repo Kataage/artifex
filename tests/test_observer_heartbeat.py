@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from artifex.render_node.observer_heartbeat import (
     inspect_observer_heartbeat,
     publish_observer_heartbeat,
 )
+from artifex.render_node.process_identity import WindowsProcessIdentity
 
 NOW = datetime(2026, 10, 10, 18, 30, tzinfo=UTC)
 
@@ -31,6 +33,20 @@ def _emit(settings: ArtifexSettings, *, when: datetime = NOW,
     publish_observer_heartbeat(
         settings, observed_utc=when,
         poll_seconds=poll, sample_count=count, state=state,
+    )
+
+
+def _writer(pid: int, config: Path, *, started: str = "2026-10-09T00:00:00Z",
+            exe: str = r"C:\\Python312\\python.exe",
+            extra: tuple[str, ...] | None = None) -> WindowsProcessIdentity:
+    argv = extra if extra is not None else (
+        "-m", "artifex.cli", "render-node", "survival-watch",
+        "--config", str(config.resolve()),
+    )
+    return WindowsProcessIdentity(
+        ProcessId=pid, ParentProcessId=200,
+        CreationDate=started, ExecutablePath=exe,
+        CommandLine=subprocess.list2cmdline([exe, *argv]),
     )
 
 
@@ -154,6 +170,7 @@ def test_pair_audit_rejects_running_scheduler_without_fresh_heartbeat(
     initial = inspect_renderer_installation(
         settings, owner_config=cfg, native_windows=True, now=NOW,
         probe=probe, verify=verify,
+        observer_process_probe=lambda pid: _writer(pid, cfg),
     )
     assert initial.renderer_task.status == "running"
     assert initial.survival_observer_task.status == "running"
@@ -163,6 +180,7 @@ def test_pair_audit_rejects_running_scheduler_without_fresh_heartbeat(
     active = inspect_renderer_installation(
         settings, owner_config=cfg, native_windows=True, now=NOW,
         probe=probe, verify=verify,
+        observer_process_probe=lambda pid: _writer(pid, cfg),
     )
     assert active.observer_heartbeat == "fresh"
     assert active.safe_for_passive_observation
@@ -170,6 +188,7 @@ def test_pair_audit_rejects_running_scheduler_without_fresh_heartbeat(
         settings, owner_config=cfg, native_windows=True,
         now=NOW + timedelta(minutes=4),
         probe=probe, verify=verify,
+        observer_process_probe=lambda pid: _writer(pid, cfg),
     )
     assert older.observer_heartbeat == "stale"
     assert not older.safe_for_passive_observation
@@ -203,6 +222,7 @@ def test_fresh_failed_sample_blocks_readiness_and_next_verified_recovers(
     report = inspect_renderer_installation(
         settings, owner_config=cfg, native_windows=True, now=NOW,
         probe=probe, verify=verify,
+        observer_process_probe=lambda pid: _writer(pid, cfg),
     )
     assert report.renderer_task.status == "running"
     assert report.survival_observer_task.status == "running"
@@ -215,7 +235,60 @@ def test_fresh_failed_sample_blocks_readiness_and_next_verified_recovers(
     recovered = inspect_renderer_installation(
         settings, owner_config=cfg, native_windows=True, now=NOW,
         probe=probe, verify=verify,
+        observer_process_probe=lambda pid: _writer(pid, cfg),
     )
     assert recovered.observer_heartbeat == "fresh"
     assert recovered.safe_for_passive_observation is True
     assert recovered.production_qualified is False
+
+
+@pytest.mark.parametrize(("scenario", "expected"), [
+    ("alive", "fresh"), ("exited", "process_missing"),
+    ("probe_error", "process_unavailable"),
+    ("reused", "process_mismatch"), ("foreign", "process_mismatch"),
+    ("other_exe", "process_mismatch"), ("other_pid", "process_mismatch"),
+])
+def test_observer_writer_pid_and_exact_command_are_checked(
+    tmp_path: Path, scenario: str, expected: str,
+) -> None:
+    settings = _settings(tmp_path)
+    config = tmp_path / "render-node.yaml"
+    config.write_text("{}")
+    _emit(settings)
+    def probe(pid: int) -> WindowsProcessIdentity | None:
+        if scenario == "exited":
+            return None
+        if scenario == "probe_error":
+            raise OSError("private process details")
+        if scenario == "reused":
+            return _writer(pid, config, started="2026-10-10T19:00:00Z")
+        if scenario == "foreign":
+            return _writer(pid, config, extra=("-m", "foreign.module"))
+        if scenario == "other_exe":
+            return _writer(pid, config, exe=r"C:\\Other\\malware.exe")
+        if scenario == "other_pid":
+            return _writer(pid + 1, config)
+        return _writer(pid, config)
+    assert inspect_observer_heartbeat(
+        settings, now=NOW, config=config, process_probe=probe,
+    ) == expected
+
+
+def test_blocked_or_stale_heartbeat_never_invokes_process_probe(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    config = tmp_path / "render-node.yaml"
+    config.write_text("{}")
+    called: list[int] = []
+    def probe(pid: int) -> WindowsProcessIdentity | None:
+        called.append(pid)
+        return _writer(pid, config)
+    _emit(settings, state="blocked")
+    assert inspect_observer_heartbeat(
+        settings, now=NOW, config=config, process_probe=probe,
+    ) == "blocked"
+    _emit(settings, state="verified")
+    assert inspect_observer_heartbeat(
+        settings, now=NOW + timedelta(minutes=4),
+        config=config, process_probe=probe,
+    ) == "stale"
+    assert not called

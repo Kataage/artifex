@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,6 +24,7 @@ from artifex.render_node.installation_audit import (
     inspect_spool,
 )
 from artifex.render_node.observer_heartbeat import SampleState, publish_observer_heartbeat
+from artifex.render_node.process_identity import WindowsProcessIdentity
 from artifex.windows_tasks import StartupTaskStatus
 
 NOW = datetime(2026, 10, 10, tzinfo=UTC)
@@ -74,12 +76,23 @@ def _remote(
         settings, observed_utc=time,
         poll_seconds=15, sample_count=1, state=sample_state,
     )
+    def writer(pid: int) -> WindowsProcessIdentity:
+        exe = r"C:\\Python312\\python.exe"
+        args = [
+            "-m", "artifex.cli", "render-node", "survival-watch",
+            "--config", str(config.resolve()),
+        ]
+        return WindowsProcessIdentity(
+            ProcessId=pid, ParentProcessId=200,
+            CreationDate="2026-10-09T00:00:00Z", ExecutablePath=exe,
+            CommandLine=subprocess.list2cmdline([exe, *args]),
+        )
     report = inspect_renderer_installation(
         settings, owner_config=config, native_windows=True, now=time,
         probe=lambda role: _task(
             role, state=renderer if role == "renderer" else observer
         ),
-        verify=_local_ok,
+        verify=_local_ok, observer_process_probe=writer,
     )
     return RemoteRendererInstallationAudit(
         node_id="gpu-b", audit=report,
@@ -162,6 +175,58 @@ def test_pc_a_rejects_fresh_failed_remote_watcher_sample(
     assert report.gpu_jobs_submitted is False
     assert report.remote_task_actions_executed is False
     assert report.production_qualified is False
+
+
+@pytest.mark.parametrize("failure", ["missing", "reused", "wrong_command", "unavailable"])
+def test_pc_a_rejects_nonmatching_observer_process(
+    tmp_path: Path, failure: str,
+) -> None:
+    settings = _settings(tmp_path)
+    local_cfg, remote_cfg = tmp_path / "pc-a.yaml", tmp_path / "pc-b.yaml"
+    local_cfg.write_text("{}")
+    remote_cfg.write_text("{}")
+    publish_observer_heartbeat(
+        settings, observed_utc=NOW, poll_seconds=15,
+        sample_count=3, state="verified",
+    )
+    def writer(pid: int) -> WindowsProcessIdentity | None:
+        if failure == "missing":
+            return None
+        if failure == "unavailable":
+            raise OSError("secret evidence")
+        exe = r"C:\\Python312\\python.exe"
+        args = (
+            "-m", "artifex.cli", "render-node", "survival-watch",
+            "--config", str(remote_cfg.resolve()),
+        )
+        if failure == "wrong_command":
+            args = ("-m", "foreign.worker")
+        return WindowsProcessIdentity(
+            ProcessId=pid, ParentProcessId=100,
+            CreationDate="2026-10-11T00:00:00Z" if failure == "reused"
+            else "2026-10-09T00:00:00Z", ExecutablePath=exe,
+            CommandLine=subprocess.list2cmdline([exe, *args]),
+        )
+    remote_audit = inspect_renderer_installation(
+        settings, owner_config=remote_cfg, native_windows=True, now=NOW,
+        probe=lambda role: _task(role), verify=_local_ok,
+        observer_process_probe=writer,
+    )
+    remote = RemoteRendererInstallationAudit(node_id="gpu-b", audit=remote_audit)
+    report = inspect_two_pc_installation(
+        settings, controller_config=local_cfg, now=NOW, native_windows=True,
+        local_probe=lambda role: _task(role), local_verify=_local_ok,
+        remote_probe=lambda node, node_cfg: remote,
+    )
+    expected = "process_missing" if failure == "missing" else (
+        "process_unavailable" if failure == "unavailable" else "process_mismatch"
+    )
+    assert report.status == "pc_b_needs_setup"
+    assert "pc_b_observer_heartbeat_" + expected in report.blockers
+    assert "secret" not in report.model_dump_json().lower()
+    assert report.production_qualified is False
+    assert report.remote_task_actions_executed is False
+    assert report.gpu_jobs_submitted is False
 
 
 def test_spool_rejects_symlink_and_excessive_inventory(
