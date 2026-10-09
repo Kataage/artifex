@@ -24,6 +24,41 @@ not prove job-object/process-tree, sign-out or shutdown survival.
 Test those separately on the actual PC-B, recording the original
 ComfyUI PID and an active GPU job before and after supervisor loss.
 
+## PC-B: inspect existing ComfyUI before any startup or reattachment
+
+After `onboard renderer-auto` has created a proposed PC-B configuration,
+run this **read-only live safety check** on actual native Windows PC-B:
+
+```powershell
+uv run artifex onboard renderer-safety --config .\config\render-node.yaml --json
+
+# Optional: save new evidence; never overwrite old evidence.
+uv run artifex onboard renderer-safety --config .\config\render-node.yaml --output .\renderer-safety.json --json
+```
+
+The command samples the native Windows TCP listener inventory **twice** for
+the configured ComfyUI upstream (normally 127.0.0.1:8188), attestation
+(8190) and protected gateway (8191). It detects absent, exposed, foreign
+or changing listener PIDs and addresses. When a ComfyUI listener exists,
+it reuses the established owner audit: native Windows CIM process identity,
+launcher ancestry, persistent receipt, TCP ownership and Task Scheduler
+policy. The result reports blockers and safe next actions, without
+raw command lines, auth tokens or changing any Windows services.
+
+A previously verified process is reported as `owned_observed` and should be
+**left running**. Unknown or foreign listeners must not be adopted. Even if
+a port is empty at one instant, that observation **does not authorize**
+a new process to start: it could become occupied later or a stale task or
+receipt might exist. The fields `launch_authorized`, `restart_authorized`,
+`reattach_authorized`, `mutated_services`, and `production_qualified` are
+unconditionally false. No background process, GPU job, download, Task
+Scheduler change, or ComfyUI service manipulation is performed.
+
+Actual original PID/launcher survival under reboot, a sustained eight-hour
+GPU soak and all 14 real-machine production qualification stages remain
+separate requirements. Use a safe maintenance window for any change to
+the existing ComfyUI process or its listen address.
+
 ## Prepare PC-B with existing ComfyUI automatically (preview first)
 
 On the actual native Windows PC-B, point Artifex at your existing ComfyUI or
