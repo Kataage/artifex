@@ -42,11 +42,11 @@ from artifex.qualification.models import (
     QualificationStageEvidence,
     QualificationStatus,
 )
-from artifex.qualification.session_lock import qualification_session_lock
 from artifex.qualification.renderer_owner_evidence import (
     persist_owner_observation,
     verify_owner_observation,
 )
+from artifex.qualification.session_lock import qualification_session_lock
 from artifex.qualification.soak_observer import (
     SoakEnd,
     SoakHeader,
