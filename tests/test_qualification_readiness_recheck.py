@@ -144,6 +144,33 @@ def test_pc_a_remote_safety_is_acknowledged_only_when_both_probes_return() -> No
     assert not blocked.latest_environment_ready
 
 
+def test_pc_a_local_preflight_never_masquerades_as_pc_b_connectivity() -> None:
+    from artifex.qualification.readiness_action_plan import RemediationStep
+
+    item = RemediationStep(
+        id="pc-b-connectivity", role="pc_b", safety="read_only",
+        blocked_checks=("pc_b:preflight:render_attestation",),
+        description="PC-A authenticated network observation",
+        argv=("not-executable",),
+    )
+    pc_a_only = _report(_check("pc_a", "preflight:llm_lan", "pass"))
+    assert _observed(item, pc_a_only).state == "unavailable"
+
+    checked_remote = _report(
+        _check("pc_b", "preflight:render_attestation", "fail"),
+    )
+    observed = _observed(item, checked_remote)
+    assert observed.state == "observed_live"
+    assert observed.cli_commands_executed is False
+    assert observed.check_names == item.blocked_checks
+
+    failed_probe = _report(
+        _check("pc_b", "preflight:render_attestation", "fail"),
+        _check("pc_a", "preflight:probe", "unknown"),
+    )
+    assert _observed(item, failed_probe).state == "unavailable"
+
+
 def test_remote_inventory_is_never_called_a_native_pc_b_preflight() -> None:
     previous = _report(
         _check("pc_b", "preflight:render_inventory", "fail"),
