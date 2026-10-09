@@ -2714,6 +2714,60 @@ def qualify_start(
         asyncio.run(core.close())
 
 
+@qualify_app.command("recheck")
+def qualify_recheck(
+    config: ConfigOption = None,
+    renderer_config: Annotated[
+        Path,
+        typer.Option("--renderer-config", help="PC-B path displayed only in the refreshed plan."),
+    ] = Path("config/render-node.yaml"),
+    report_path: Annotated[
+        Path | None,
+        typer.Option("--from-report", help="Compare with saved JSON, then recheck actual live PCs."),
+    ] = None,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Inspect recorded session stages, not independent PASS."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional new comparison JSON file; never overwrite."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Run only known in-process read-only probes and update the action plan."""
+    from artifex.qualification.readiness_diagnostics import load_saved_readiness
+    from artifex.qualification.readiness_recheck import reconcile_read_only_checks
+
+    selected = config or Path("config/local.yaml")
+    try:
+        if selected.is_symlink() or not selected.is_file():
+            raise ValueError("Existing non-symlinked PC-A configuration is required")
+        previous = load_saved_readiness(report_path) if report_path is not None else None
+        result = reconcile_read_only_checks(
+            _settings(selected), previous=previous,
+            controller_config=selected, renderer_config=renderer_config,
+            session_id=session_id,
+        )
+        payload = result.model_dump(mode="json")
+        if output is not None:
+            destination = output.expanduser().absolute()
+            if any(p.is_symlink() for p in (destination, *destination.parents)):
+                raise ValueError("Refusing symlinked comparison report destination")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+        if not result.latest_environment_ready:
+            raise typer.Exit(code=1)
+    except (OSError, TypeError, ValueError) as exc:
+        typer.echo(
+            f"qualification recheck error: {type(exc).__name__}: {exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+
 @qualify_app.command("plan")
 def qualify_plan(
     config: ConfigOption = None,
@@ -2736,7 +2790,6 @@ def qualify_plan(
         compile_qualification_action_plan,
     )
     from artifex.qualification.readiness_diagnostics import (
-        QualificationReadiness,
         diagnose_qualification_readiness,
     )
 
@@ -2749,12 +2802,9 @@ def qualify_plan(
             readiness = diagnose_qualification_readiness(_settings(chosen))
             source = "live"
         else:
-            source_file = report_path.expanduser().absolute()
-            if any(item.is_symlink() for item in (source_file, *source_file.parents)):
-                raise ValueError("Refusing symlinked readiness evidence path")
-            if not source_file.is_file() or source_file.stat().st_size > 1024 * 1024:
-                raise ValueError("Saved readiness JSON is missing or too large")
-            readiness = QualificationReadiness.model_validate_json(source_file.read_bytes())
+            from artifex.qualification.readiness_diagnostics import load_saved_readiness
+
+            readiness = load_saved_readiness(report_path)
             source = "saved"
         plan = compile_qualification_action_plan(
             readiness, source=source,
