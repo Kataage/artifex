@@ -694,6 +694,42 @@ tokens and environment variables. **Do not** record an Issue #40 PASS merely
 because this check succeeds; actual two-PC GPU, 14-stage and 8-hour soak
 evidence is still required.
 
+## PC-A correlation of PC-B local owner evidence
+
+On the actual Windows PC-B, run the no-GPU, read-only combined diagnostic
+with a NEW report destination. Never overwrite previously collected evidence:
+
+```powershell
+uv run artifex render-node owner-readiness --config .\config\render-node.yaml --output .\data\qualification\owner-readiness-pc-b-unique.json --json
+```
+
+Transfer this JSON to PC-A through the operator's trusted file-transfer path.
+On PC-A, use its existing authenticated controller configuration:
+
+```powershell
+uv run artifex qualify overview --config .\config\local.yaml --pc-b-owner-report .\data\pair\owner-readiness-pc-b-unique.json --json
+```
+
+The new `pc_b_owner_evidence` section is **optional**. The previous
+`qualify overview` behavior is unchanged without that option. With it,
+PC-A strictly parses the bounded, non-symlinked copied JSON and correlates
+the configured PC-B host, actual listener PID, process start timestamp,
+launcher PID, receipt schema and Task Scheduler state against a fresh
+authenticated `/v1/owner-audit` plus fresh renderer attestation.
+Never follow a URL specified in the copied JSON or execute a command
+on PC-B. A changed PID, stale/unreadable report, unknown ownership,
+hostname mismatch, or inaccessible service blocks the correlation.
+The resulting states are `correlated_read_only`, `blocked`, `stale`,
+`mismatch`, or `unavailable`. If requested correlation cannot be completed,
+the PC-A overview's `environment_ready` is false and it suggests gathering
+new evidence; it does not schedule a GPU job or register a stage PASS.
+
+**A copied JSON file is not cryptographically authenticated.** A match
+only establishes consistency of two observations, never authenticity of
+the file, ComfyUI child survival after supervisor loss, actual GPU
+performance, or Issue #93/#40 completion. `file_source_authenticated=false`,
+`stage_pass_registered=false`, `production_qualified=false`, and
+`renderer_restart_authorized=false` are hard-coded in the correlation.
 ## One-command read-only PC-B owner evidence reconciliation
 
 Run on the actual native Windows PC-B with the original ComfyUI still running:
