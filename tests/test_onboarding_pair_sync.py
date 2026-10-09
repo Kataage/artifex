@@ -148,9 +148,11 @@ def test_does_not_redirect_on_attestation_or_gateway(
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(302, headers={"location": "https://another-host.example"})
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
-        with pytest.raises(httpx.HTTPStatusError):
-            discover_controller_pair(ATTEST, now=NOW, client=http)
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as http,
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        discover_controller_pair(ATTEST, now=NOW, client=http)
 
 
 def test_explicit_apply_merges_without_overwriting_or_rendering(
