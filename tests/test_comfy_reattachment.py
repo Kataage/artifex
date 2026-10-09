@@ -179,6 +179,67 @@ def test_reattach_rejects_pid_reuse_launch_drift_and_foreign_socket(
     assert original.terminated == original.killed == 0
 
 
+def test_protected_launch_rechecks_receipt_under_held_lease_before_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A receipt appearing after initial startup checks must not be overwritten."""
+    settings = _settings(tmp_path)
+    store = ComfyReceiptStore(
+        settings.render_agent.comfyui_process.ownership_receipt_path,
+    )
+    foreign_receipt = expected_receipt(settings, _identity(settings, 404))
+    calls: list[str] = []
+
+    def no_spawn(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("A newly appeared receipt forbids all process launches")
+
+    manager = ManagedComfyUI(settings, process_factory=no_spawn)
+    monkeypatch.setattr(manager, "_healthy", lambda: False)
+
+    def free_upstream() -> None:
+        calls.append("checked")
+        if len(calls) == 1:
+            # Models a different writer leaving evidence between the
+            # initial free-port check and the actual launch boundary.
+            store.save(foreign_receipt)
+
+    monkeypatch.setattr(manager, "_require_free_upstream", free_upstream)
+    with pytest.raises(RuntimeError, match="receipt appeared before launch"):
+        manager.start(threading.Event())
+    assert calls == ["checked"]
+    assert store.load() == foreign_receipt
+    assert manager.process is None
+    assert not manager._supervisor_lease.held
+
+
+def test_protected_spawn_refuses_missing_supervisor_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+
+    def no_spawn(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("Unleased process launch must be impossible")
+
+    manager = ManagedComfyUI(settings, process_factory=no_spawn)
+    with pytest.raises(RuntimeError, match="exclusive supervisor lease"):
+        manager._start_owned()
+    assert manager.process is None
+
+def test_protected_receipt_publication_never_overwrites_existing_evidence(
+    tmp_path: Path,
+) -> None:
+    """The final file-system operation must itself be create-only."""
+    settings = _settings(tmp_path)
+    store = ComfyReceiptStore(
+        settings.render_agent.comfyui_process.ownership_receipt_path,
+    )
+    original = expected_receipt(settings, _identity(settings, 101))
+    replacement = expected_receipt(settings, _identity(settings, 202))
+    store.save(original, overwrite=False)
+    with pytest.raises(FileExistsError):
+        store.save(replacement, overwrite=False)
+    assert store.load() == original
+
 def test_stale_receipt_after_natural_death_allows_safe_new_spawn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

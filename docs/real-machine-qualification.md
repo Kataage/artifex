@@ -59,6 +59,31 @@ GPU soak and all 14 real-machine production qualification stages remain
 separate requirements. Use a safe maintenance window for any change to
 the existing ComfyUI process or its listen address.
 
+### Protected live launch gate (separate from diagnostic reports)
+
+A **live process spawn** is permitted only inside the managed supervisor's
+exclusive PC-B lease, after rechecking both a missing ownership receipt and
+a demonstrably unoccupied local upstream TCP port immediately at the launch
+boundary. Neither a free port in a `renderer-safety` report nor a passing
+owner audit authorizes a separate manual launch. If a receipt appears after
+the first check, or the supervisor lease is missing, the managed launcher
+refuses to spawn and does not erase that receipt.
+
+On native Windows, Artifex captures the original venv launcher CIM identity
+immediately after Popen where possible. If `python.exe` acts as a shim and
+exits before the real ComfyUI process becomes HTTP-ready, the *original*
+listener may be accepted only when the captured launcher PID, creation time,
+full executable and exact command line establish direct child ancestry,
+the real interpreter matches, and subsequent TCP and receipt checks pass.
+An uncaptured, replaced or unverifiable launcher instead fails closed; a
+responding HTTP endpoint or matching port is never sufficient. No unrelated
+ComfyUI process is terminated or automatically adopted.
+
+These checks protect the in-process launch/reattachment path but do not
+guarantee atomic exclusion of independent non-Artifex programs, Windows
+shutdown survival, a drained ComfyUI queue or real-GPU qualification.
+
+
 ## Prepare PC-B with existing ComfyUI automatically (preview first)
 
 On the actual native Windows PC-B, point Artifex at your existing ComfyUI or

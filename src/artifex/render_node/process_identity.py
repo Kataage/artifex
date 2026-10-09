@@ -108,7 +108,14 @@ class ComfyReceiptStore:
         except (ValidationError, UnicodeDecodeError, ValueError) as exc:
             raise ValueError("Invalid ComfyUI ownership receipt") from exc
 
-    def save(self, receipt: ComfyOwnershipReceipt) -> None:
+    def save(
+        self, receipt: ComfyOwnershipReceipt, *, overwrite: bool = True,
+    ) -> None:
+        """Atomically publish receipt bytes; non-overwrite is used for live launch.
+
+        os.link creates the final path only if absent, avoiding a check/write
+        race with other writers. If hard links are unsupported, fail closed.
+        """
         self._check()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._check()
@@ -126,7 +133,12 @@ class ComfyReceiptStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             self._check()
-            staging.replace(self.path)
+            if overwrite:
+                staging.replace(self.path)
+            else:
+                # The exact final name is created atomically only if absent.
+                # Unlike Path.replace this cannot clobber a raced-in receipt.
+                os.link(staging, self.path)
         finally:
             staging.unlink(missing_ok=True)
 
