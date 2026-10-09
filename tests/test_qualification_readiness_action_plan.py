@@ -73,11 +73,11 @@ def test_plan_groups_pc_a_pc_b_and_never_executes_or_qualifies() -> None:
     assert steps["pc-b-owner"].safety == "read_only"
     assert steps["pc-b-owner"].argv == (
         "uv", "run", "artifex", "render-node", "owner-audit",
-        "--config", "D:/AI/ComfyUI/render-node.yaml", "--json",
+        "--config", str(Path("D:/AI/ComfyUI/render-node.yaml")), "--json",
     )
     assert steps["pc-a-preflight"].argv is not None
     assert steps["pc-a-preflight"].argv[-2:] == (
-        "C:/Artifex folder/controller config.yaml", "--json",
+        str(Path("C:/Artifex folder/controller config.yaml")), "--json",
     )
     assert steps["14-stage-real-machine-evidence"].argv is None
     assert all(step.automatically_executed is False for step in plan.steps)
