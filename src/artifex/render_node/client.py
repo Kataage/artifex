@@ -5,6 +5,7 @@ import os
 import httpx
 
 from artifex.config.models import RenderNodeConfig
+from artifex.render_node.installation_audit import RemoteRendererInstallationAudit
 from artifex.render_node.models import (
     RemoteOwnerReadinessEvidence,
     RemoteRendererOwnerAudit,
@@ -233,10 +234,6 @@ def fetch_remote_installation_audit(
     client: httpx.Client | None = None,
 ) -> RemoteRendererInstallationAudit:
     """Read fixed protected PC-B task installation summary; no task actions."""
-    from artifex.render_node.installation_audit import (
-        RemoteRendererInstallationAudit,
-    )
-
     if not config.attestation_url or not config.attestation_token_env:
         raise ValueError("Remote installation audit requires protected node configuration")
     token = os.environ.get(config.attestation_token_env)
