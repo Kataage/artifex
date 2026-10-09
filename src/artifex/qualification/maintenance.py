@@ -17,6 +17,7 @@ from artifex.qualification.service import QualificationService
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
 
+
 _LOG = logging.getLogger(__name__)
 
 
