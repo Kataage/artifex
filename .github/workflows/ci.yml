@@ -48,6 +48,8 @@ jobs:
       - run: uv run pytest -q tests/test_qualification_readiness_recheck.py
       - run: uv run pytest -q tests/test_daemon.py tests/test_real_machine_qualification.py -k "unattended or collect_qualifications_uses_only"
       - run: uv run pytest -q tests/test_qualification_paged_collection.py tests/test_telemetry.py
+      - run: uv run pytest -q tests/test_qualification_session_lock.py
+      - run: uv run pytest -q tests/test_real_machine_qualification.py -k "parallel_stage_writers or competing_pass_records or auto_collector_conflict"
       - run: uv run pytest -q tests/test_real_machine_qualification.py -k "automatic_collection"
       - run: uv run pytest -q tests/test_onboarding_pair_sync.py
       - run: uv run pytest -q tests/test_onboarding_renderer_auto.py
