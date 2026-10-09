@@ -16,6 +16,7 @@ from artifex.render_node.gateway import make_gateway_server, serve_gateway
 from artifex.render_node.process_identity import (
     ComfyOwnershipReceipt,
     ComfyReceiptStore,
+    WindowsProcessIdentity,
     expected_receipt,
     matches_owned_process,
     verified_launcher_child,
@@ -69,6 +70,9 @@ class ManagedComfyUI:
         self._restarts = 0
         self._adopted: ComfyOwnershipReceipt | None = None
         self._current_receipt: ComfyOwnershipReceipt | None = None
+        # Capture the original Windows venv launcher before it can exit.
+        # Never infer launcher ancestry from a listener PID alone.
+        self._launch_snapshot: WindowsProcessIdentity | None = None
         self._receipts = ComfyReceiptStore(
             settings.render_agent.comfyui_process.ownership_receipt_path
         )
@@ -102,6 +106,18 @@ class ManagedComfyUI:
 
     def _start_owned(self) -> None:
         config = self.settings.render_agent.comfyui_process
+        if self.settings.render_agent.gateway.enabled:
+            # This is the *active launch path* gate, not a read-only
+            # renderer-safety report. Recheck under the held exclusive lease
+            # immediately before spawning, including after a natural exit.
+            if not self._supervisor_lease.held:
+                raise RuntimeError("Protected ComfyUI launch requires the exclusive supervisor lease")
+            if self._receipts.load() is not None:
+                raise RuntimeError(
+                    "A ComfyUI ownership receipt appeared before launch; "
+                    "refusing to replace or adopt its process"
+                )
+            self._require_free_upstream()
         if config.executable is None or config.working_directory is None:
             raise ValueError("ComfyUI executable and working_directory must be configured")
         executable = config.executable.expanduser().resolve(strict=True)
@@ -121,6 +137,7 @@ class ManagedComfyUI:
                 and any(word in key.upper() for word in ("TOKEN", "SECRET", "API_KEY"))
             )
         }
+        self._launch_snapshot = None
         self.process = self._factory(
             [str(executable), *config.arguments],
             cwd=str(working_directory),
@@ -133,6 +150,14 @@ class ManagedComfyUI:
             if os.name == "nt"
             else 0,
         )
+        if self.settings.render_agent.gateway.enabled:
+            try:
+                self._launch_snapshot = windows_process_identity(self.process.pid)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                # An early CIM miss is not ownership proof. We may retry once
+                # the process is healthy, but cannot claim an exited shim
+                # without an original, immutable launcher observation.
+                self._launch_snapshot = None
 
     def _wait_ready(self, stop: threading.Event) -> None:
         from time import monotonic
@@ -140,10 +165,19 @@ class ManagedComfyUI:
         config = self.settings.render_agent.comfyui_process
         deadline = monotonic() + config.startup_timeout_seconds
         while not stop.is_set() and monotonic() < deadline:
-            if self.process is None or self.process.poll() is not None:
+            if self.process is None:
+                raise RuntimeError("ComfyUI was not launched")
+            if self.process.poll() is not None and (
+                not self.settings.render_agent.gateway.enabled
+                or self._launch_snapshot is None
+            ):
                 raise RuntimeError(
-                    f"ComfyUI exited during startup; see {config.log_path}"
+                    "ComfyUI launcher exited without verified original identity; "
+                    f"refusing unowned reattachment; see {config.log_path}"
                 )
+            # Windows venv python.exe may exit after spawning the actual
+            # interpreter. Only a captured CIM launcher identity + direct
+            # child ancestry + stable TCP owner can establish that survivor.
             if self._healthy():
                 self._record_owned_process()
                 self._verify_owned_listener()
@@ -201,9 +235,23 @@ class ManagedComfyUI:
         if not self.settings.render_agent.gateway.enabled:
             return
         process = self.process
-        if process is None or process.poll() is not None:
-            raise RuntimeError("Cannot record an exited ComfyUI process")
-        launcher = windows_process_identity(process.pid)
+        if process is None:
+            raise RuntimeError("Cannot record an absent ComfyUI process")
+        observed_launcher = windows_process_identity(process.pid)
+        captured_launcher = self._launch_snapshot
+        if captured_launcher is not None:
+            if observed_launcher is not None and observed_launcher != captured_launcher:
+                raise RuntimeError(
+                    "ComfyUI launcher PID was reused or its identity changed"
+                )
+            launcher = captured_launcher
+        else:
+            if process.poll() is not None:
+                raise RuntimeError(
+                    "Original launcher exited before CIM identity capture; "
+                    "refusing to claim an unknown descendant"
+                )
+            launcher = observed_launcher
         if launcher is None:
             raise RuntimeError("Cannot prove ComfyUI launcher identity/start time")
         direct = expected_receipt(self.settings, launcher)
@@ -244,6 +292,10 @@ class ManagedComfyUI:
         # Prove the exact listener PID in a second socket inventory so a port
         # owner change between CIM and receipt creation fails closed.
         self._verify_listener_for(receipt.identity.pid)
+        # A new receipt between prelaunch and here is a conflict, never a
+        # reason to overwrite somebody else's ownership evidence.
+        if self._receipts.load() is not None:
+            raise RuntimeError("ComfyUI ownership receipt changed during launch")
         self._receipts.save(receipt)
         self._current_receipt = receipt
 
@@ -271,6 +323,10 @@ class ManagedComfyUI:
             raise RuntimeError(
                 "Verified original ComfyUI child remains alive but unhealthy; "
                 "refusing to interrupt GPU work"
+            )
+        if self._receipts.load() != receipt:
+            raise RuntimeError(
+                "ComfyUI ownership receipt changed during reattachment"
             )
         self._adopted = receipt
         self._current_receipt = receipt
