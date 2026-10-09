@@ -47,6 +47,7 @@ jobs:
       - run: uv run pytest -q tests/test_supervisor_survival.py
       - run: uv run pytest -q tests/test_survival_watcher.py
       - run: uv run pytest -q tests/test_pair_installation_audit.py
+      - run: uv run pytest -q tests/test_pair_install_remediation.py
       - run: uv run artifex qualify pair-install-audit --help
       - run: uv run artifex render-node survival-watch --help
       - run: uv run artifex startup observer-enable --help
