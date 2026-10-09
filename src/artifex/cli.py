@@ -3398,10 +3398,22 @@ def qualify_overview(
 @qualify_app.command("pair-install-audit")
 def qualify_pair_install_audit(
     config: ConfigOption = None,
+    renderer_config: Annotated[
+        Path, typer.Option(
+            "--renderer-config",
+            help="Only advisory PC-B config path; never used for remote commands.",
+        ),
+    ] = Path("config/render-node.yaml"),
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
-    """Read-only PC-A/PC-B installation audit; never install or start a task."""
-    from artifex.qualification.pair_installation import inspect_two_pc_installation
+    """Read-only PC-A/PC-B audit plus deterministic safe per-machine advice."""
+    from artifex.qualification.pair_install_remediation import (
+        compile_pair_install_remediation,
+    )
+    from artifex.qualification.pair_installation import (
+        TwoPCInstallationAudit,
+        inspect_two_pc_installation,
+    )
 
     selected = config or Path("config/local.yaml")
     try:
@@ -3413,7 +3425,15 @@ def qualify_pair_install_audit(
         report = inspect_two_pc_installation(
             _settings(selected), controller_config=selected,
         )
-        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+        payload = report.model_dump(mode="json")
+        if isinstance(report, TwoPCInstallationAudit):
+            guidance = compile_pair_install_remediation(
+                report,
+                controller_config=selected,
+                renderer_config=renderer_config,
+            )
+            payload["remediation_plan"] = guidance.model_dump(mode="json")
+        _print_payload(payload, as_json=json_output)
     except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
         typer.echo(f"pair-install-audit error: {type(exc).__name__}", err=True)
         raise typer.Exit(code=1) from exc

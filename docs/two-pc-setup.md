@@ -879,6 +879,38 @@ current PC-B, handoff cannot recommend a qualification session start.
 While this release removes manual reconstruction of the report, securely
 transporting a trace from PC-B to PC-A is still required. Never stop a
 live ComfyUI task solely to create a survival trace.
+## PC-A pair installation audit: safe, per-machine next steps
+
+The existing read-only two-PC check now also returns a structured
+`remediation_plan` with PC-A and PC-B roles, relevant blockers,
+configuration key names and advisory argv arrays:
+
+```powershell
+uv run artifex qualify pair-install-audit --config .\config\local.yaml --renderer-config .\config\render-node.yaml --json
+```
+
+The `--renderer-config` path is the **operator's PC-B-local config path**
+used only to prepare example instructions; PC-A does not try to read it,
+transfer it, or execute it remotely. IP addresses, model paths and token
+values remain configurable and are never guessed.
+
+Generated `read_only_argv` steps point to existing safe tools such as
+`onboard first-run`, `startup status`, `startup audit`, or
+`startup observer-enable` without `--apply`. None is ever executed.
+
+An `operator_approved_apply_argv` is included **only** for PC-B's
+separate survival-observer task when a consistent PC-B report verifies
+the managed Windows renderer is running and the observer is either
+missing or already safely stopped. It is NOT authorization to start,
+restart, stop or reparent ComfyUI, replace any renderer task or change
+a foreign Windows Task Scheduler entry.
+
+If ownership, task policy, process identity or timestamps are unknown,
+stale or unsafe, only review instructions appear (never `--apply`).
+An empty survival spool means no natural supervisor exit has been seen;
+it does not prove production readiness. No advisory changes YAML, GPU
+jobs, task settings or services. This is a plan, NOT a remote auto-fix.
+
 ## PC-A + PC-B read-only installation audit (Issue #93 / #40)
 
 Use the ONE read-only PC-A command below to check whether the two real
