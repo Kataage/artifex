@@ -195,6 +195,55 @@ def test_readiness_fails_closed_for_pc_b_evidence(
     assert report.actual_machine_qualification_complete is False
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("missing_services", "safety:three_ports"),
+        ("not_owned", "safety:overall"),
+        ("unknown_owner_check", "safety:overall"),
+        ("changed_pid", "safety:pid_consistency"),
+        ("stale", "safety:freshness"),
+        ("future", "safety:freshness"),
+        ("remote_down", "safety:remote_probe"),
+        ("wrong_node", "safety:remote_probe"),
+    ],
+)
+def test_unsafe_remote_three_port_evidence_never_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mode: str, expected: str,
+) -> None:
+    _prepare(monkeypatch)
+
+    def safety_probe(
+        node_id: str, config: RenderNodeConfig,
+    ) -> RemoteRendererSafetyInspection:
+        if mode == "remote_down":
+            raise httpx.ConnectError("unreachable")
+        if mode == "wrong_node":
+            raise ValueError("remote safety node ID mismatch")
+        return _safety(
+            status="service_ports_blocked" if mode == "not_owned" else "owned_observed",
+            service_coherent=mode != "missing_services",
+            checks_pass=mode != "unknown_owner_check",
+            pid=405 if mode == "changed_pid" else 404,
+            age_seconds=200 if mode == "stale" else -120 if mode == "future" else 0,
+        )
+
+    report = diagnose_qualification_readiness(
+        _settings(tmp_path), now=NOW,
+        controller_probe=_preflight,
+        owner_probe=lambda *args: _remote(),
+        safety_probe=safety_probe,
+    )
+    assert report.environment_ready is False
+    bad_check = next(x for x in report.checks if x.name == expected)
+    assert bad_check.status in {"fail", "unknown"}
+    assert bad_check.next_action
+    assert report.actual_machine_qualification_complete is False
+    assert report.actual_gpu_soak_verified is False
+    assert report.mutated_services is False
+
+
 def test_absent_auth_never_calls_remote_owner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
