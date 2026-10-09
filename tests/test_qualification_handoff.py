@@ -221,8 +221,8 @@ async def test_live_orchestrator_only_calls_existing_read_only_entry_points() ->
 def test_cli_handoff_json_exclusive_report_and_blocked_exit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    import artifex.cli as cli
-    import artifex.qualification.handoff as handoff
+    from artifex import cli
+    from artifex.qualification import handoff
 
     config = tmp_path / "local.yaml"
     config.write_text("{}\n", encoding="utf-8")
