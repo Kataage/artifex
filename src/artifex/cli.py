@@ -907,6 +907,69 @@ def onboard_inspect(
         raise typer.Exit(code=1) from exc
 
 
+@onboard_app.command("first-run")
+def onboard_first_run(
+    role: Annotated[
+        str, typer.Option("--role", help="This machine: controller (PC-A) or renderer (PC-B)."),
+    ] = "controller",
+    config: ConfigOption = None,
+    comfy_root: Annotated[
+        Path | None,
+        typer.Option("--comfy-root", help="Known local ComfyUI root for PC-B; never guessed."),
+    ] = None,
+    attestation_url: Annotated[
+        str | None,
+        typer.Option(
+            "--attestation-url",
+            help="Optional exact PC-B LAN URL; performs only authenticated, bounded GETs.",
+        ),
+    ] = None,
+    gateway_port: Annotated[
+        int, typer.Option("--gateway-port", min=1, max=65535),
+    ] = 8191,
+    token_env: Annotated[
+        str, typer.Option("--token-env", help="Environment variable name, never its value."),
+    ] = "ARTIFEX_RENDER_NODE_TOKEN",
+    report_path: Annotated[
+        Path | None,
+        typer.Option("--report-path", help="Optional new guide JSON file; never overwritten."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Preview native two-PC first-run work even before either YAML exists."""
+    from artifex.first_run import compile_first_run_guide
+
+    if role not in {"controller", "renderer"}:
+        typer.echo("onboard first-run error: invalid --role (controller or renderer)", err=True)
+        raise typer.Exit(code=1)
+    target = config or Path(
+        "config/local.yaml" if role == "controller" else "config/render-node.yaml"
+    )
+    try:
+        guide = compile_first_run_guide(
+            role=cast(Literal["controller", "renderer"], role),
+            config=target,
+            comfy_root=comfy_root,
+            attestation_url=attestation_url,
+            gateway_port=gateway_port,
+            token_env=token_env,
+        )
+        payload = guide.model_dump(mode="json")
+        if report_path is not None:
+            destination = report_path.expanduser().absolute()
+            if any(x.is_symlink() for x in (destination, *destination.parents)):
+                raise ValueError("Refusing symlinked guide report destination")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
+        # Error categories are sufficient for CLI automation; never render a
+        # Bearer token, potentially sensitive remote URL or response body.
+        typer.echo(f"onboard first-run error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @onboard_app.command("pair-sync")
 def onboard_pair_sync(
     attestation_url: Annotated[
