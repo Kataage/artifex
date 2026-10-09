@@ -129,10 +129,11 @@ def diagnose_qualification_readiness(
         "PC-A must be native Windows for real target-machine qualification",
         "Run on the actual native Windows PC-A.",
     ))
+    uv_found = shutil.which("uv") is not None
     checks.append(_check(
         "pc_a", "uv_available",
-        "pass" if shutil.which("uv") is not None else "fail",
-        "uv package runner available" if shutil.which("uv") is not None
+        "pass" if uv_found else "fail",
+        "uv package runner available" if uv_found
         else "uv executable not found on PC-A PATH",
         "Install/configure uv on PC-A without Docker.",
     ))
@@ -168,11 +169,16 @@ def diagnose_qualification_readiness(
     try:
         preflight = controller_probe(settings)
         for item in preflight.checks:
+            # A missing PC-A model selection is a PC-A problem; a
+            # missing item in PC-B's inventory is a PC-B problem.
+            controller_gap = (
+                item.name in {"renderer_configuration", "render_token"}
+                or "not configured on PC-A" in item.detail
+            )
             target: Target = (
-                "pc_b" if item.name.startswith(
+                "pc_b" if not controller_gap and item.name.startswith(
                     ("render_", "asset_", "comfyui_")
-                ) and item.name != "render_token"
-                else "pc_a"
+                ) else "pc_a"
             )
             action = _PREFLIGHT_ACTIONS.get(
                 item.name,
