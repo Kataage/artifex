@@ -8,6 +8,7 @@ decide whether a pending stage may be recorded.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 from artifex.db import Database
@@ -68,7 +69,7 @@ class QualificationEvidenceMaintenance:
                     {"error_type": type(exc).__name__},
                 )
             except Exception:  # noqa: BLE001 - never take down production
-                pass
+                logging.warning("Qualification failure telemetry could not be stored")
             return None
         if report is not None:
             stages = report.get("stages", [])
@@ -91,5 +92,5 @@ class QualificationEvidenceMaintenance:
                         },
                     )
                 except Exception:  # noqa: BLE001 - no telemetry failure may stop daemon
-                    pass
+                    logging.warning("Qualification success telemetry could not be stored")
         return report
