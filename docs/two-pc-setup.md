@@ -7,6 +7,33 @@ Artifex supports a split native-Windows deployment where the controller and rend
 
 No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A is required.
 
+## One-command PC-A qualification overview (read-only)
+
+From **PC-A**, get current authenticated PC-B safety, PC-A preflight,
+a grouped action plan and all 14 **saved** stage statuses in one report:
+
+```powershell
+uv run artifex qualify overview --config .\\config\\local.yaml --json
+```
+
+The command selects the newest properly named local qualification session if
+`--session-id` is omitted. This is labelled `latest_saved`, **not**
+a verified active auto-collection binding. Supply `--session-id ID` to
+choose a specific session; if the newest session is corrupt, foreign or
+symlinked, the command refuses to silently reuse an earlier one.
+
+The response includes `recorded_pass_count`, `unresolved_stage_count`,
+stage-specific next actions, `action_plan` grouped by PC, and one
+`next_safe_command` in structured argv form when a suitable observational
+command exists. Suggested commands are **not executed**. A `qualify collect`
+recommendation is preview-only (there is no `--apply`).
+
+`production_qualified=false`, `commands_executed=false` and
+`mutated_services=false` are explicit: **stored PASS is not independent
+revalidation**. Use `qualify verify SESSION_ID` for authoritative acceptance
+after actual real-machine 14-stage verification and eight-hour soak. The
+overview never launches ComfyUI, restarts PC-B or submits GPU work.
+
 ## Native dependency diagnosis and verified llama.cpp binary installation
 
 Artifex separates read-only dependency checks from opt-in installation. No
