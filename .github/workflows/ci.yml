@@ -47,6 +47,8 @@ jobs:
       - run: uv run pytest -q tests/test_qualification_readiness_recheck.py
       - run: uv run pytest -q tests/test_onboarding_pair_sync.py
       - run: uv run pytest -q tests/test_onboarding_renderer_auto.py
+      - run: uv run pytest -q tests/test_renderer_startup_inspection.py
+      - run: uv run artifex onboard renderer-safety --help
       - run: uv run artifex onboard renderer-auto --help
       - run: uv run artifex onboard pair-sync --help
       - run: uv run artifex qualify recheck --help
