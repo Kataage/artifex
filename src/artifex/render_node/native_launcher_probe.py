@@ -218,3 +218,16 @@ def inspect_native_python_listener(
                 child.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 pass
+            # The Windows venv shim may exit first, leaving its actual
+            # interpreter briefly holding the temporary working directory.
+            # Wait for OUR mock to exit naturally, never kill a PID.
+            observed_pid = report.get("listener_pid")
+            if isinstance(observed_pid, int) and observed_pid != child.pid:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    try:
+                        if windows_process_identity(observed_pid) is None:
+                            break
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        break
+                    time.sleep(.1)
