@@ -79,7 +79,9 @@ def _audit(
         "checked_utc": NOW,
         "status": status,
         "pc_a_controller_task": _task("controller", local),
-        "pc_b_node_id": "gpu-b" if remote else None,
+        "pc_b_node_id": (
+            None if "pc_b_primary_node_unconfigured" in blockers else "gpu-b"
+        ),
         "pc_b": pc_b,
         "blockers": blockers,
         "next_actions": [],
@@ -184,7 +186,12 @@ def test_offline_or_unconfigured_pc_b_never_leads_to_task_mutations(
 def test_custom_config_paths_are_advisory_and_never_echo_secrets() -> None:
     result = _plan(_audit())
     serialized = result.model_dump_json()
-    assert str(B_PATH) in serialized
+    parsed = json.loads(serialized)
+    assert any(
+        str(B_PATH) in step["read_only_argv"]
+        for step in parsed["steps"]
+        if step["read_only_argv"] is not None
+    )
     assert "ARTIFEX_RENDER_NODE_TOKEN=" not in serialized
     assert "http://127.0.0.1:8190" not in serialized
     assert "powershell.exe" not in serialized
