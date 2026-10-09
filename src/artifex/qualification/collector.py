@@ -10,6 +10,7 @@ from artifex.db import Database
 from artifex.db.models import PackRow
 from artifex.domain import PackState
 from artifex.qualification.models import (
+    QualificationSession,
     QualificationStage,
     QualificationStatus,
 )
@@ -157,16 +158,14 @@ class QualificationEvidenceCollector:
                     failure_reason = str(exc)
                 else:
                     if apply:
-                        qualification = self._service.record(
-                            session_id, stage, status=QualificationStatus.PASS
+                        qualification, outcome = self._apply_stage(
+                            session_id, stage, (),
                         )
-                    statuses.append(
-                        {
-                            "stage": stage.value,
-                            "state": "recorded" if apply else "ready",
-                            "pack_ids": [],
-                        }
-                    )
+                        statuses.append(outcome)
+                    else:
+                        statuses.append({
+                            "stage": stage.value, "state": "ready", "pack_ids": [],
+                        })
                     continue
 
             if not chosen:
@@ -180,21 +179,17 @@ class QualificationEvidenceCollector:
                 )
                 continue
             if apply:
-                # The authoritative service revalidates everything before
-                # writing; this is not a shortcut around record().
-                qualification = self._service.record(
-                    session_id,
-                    stage,
-                    status=QualificationStatus.PASS,
-                    pack_ids=chosen,
+                # A competing operator/daemon may have registered the stage
+                # between discovery and record. Never rewrite that result.
+                qualification, outcome = self._apply_stage(
+                    session_id, stage, chosen,
                 )
-            statuses.append(
-                {
-                    "stage": stage.value,
-                    "state": "recorded" if apply else "ready",
+                statuses.append(outcome)
+            else:
+                statuses.append({
+                    "stage": stage.value, "state": "ready",
                     "pack_ids": list(chosen),
-                }
-            )
+                })
 
         return {
             "session_id": session_id,
@@ -213,6 +208,36 @@ class QualificationEvidenceCollector:
             ],
             # Only qualify verify can assess the complete 14-stage ladder.
             "production_qualified": False,
+        }
+
+    def _apply_stage(
+        self, session_id: str, stage: QualificationStage,
+        pack_ids: tuple[str, ...],
+    ) -> tuple[QualificationSession, dict[str, object]]:
+        try:
+            updated = self._service.record(
+                session_id, stage,
+                status=QualificationStatus.PASS, pack_ids=pack_ids,
+            )
+        except ValueError:
+            # A concurrent human or periodic collector may have finished the
+            # stage while this scan ran. Observe their authoritative result,
+            # never convert a conflicting FAIL or different PASS into our PASS.
+            latest = self._service.load(session_id)
+            existing = latest.stage(stage)
+            if existing.status is QualificationStatus.PENDING:
+                raise
+            return latest, {
+                "stage": stage.value,
+                "state": "already_recorded",
+                "status": existing.status.value,
+                "pack_ids": list(existing.pack_ids),
+            }
+        recorded = updated.stage(stage)
+        return updated, {
+            "stage": stage.value,
+            "state": "recorded",
+            "pack_ids": list(recorded.pack_ids),
         }
 
     @staticmethod
