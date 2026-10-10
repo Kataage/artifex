@@ -325,6 +325,37 @@ An empty survival spool means no natural supervisor exit has been seen;
 it does not prove production readiness. No advisory changes YAML, GPU
 jobs, task settings or services. This is a plan, NOT a remote auto-fix.
 
+## Review saved dual-snapshot owner evidence safely (PC-A)
+
+After `qualify owner-pair-check --save`, PC-A can review the newest
+saved report and cross-check its execution PID, start time, original
+launcher PID and receipt schema against a **fresh, Bearer-authenticated
+read-only** PC-B owner-audit:
+
+```powershell
+uv run artifex qualify owner-pair-review --config .\\config\\local.yaml --json
+# Or select an exact previous report:
+uv run artifex qualify owner-pair-review --config .\\config\\local.yaml --report .\\data\\qualification\\owner-pair\\REPORT.json --json
+# Local-only, unauthenticated interpretation (never counts as live correlation):
+uv run artifex qualify owner-pair-review --config .\\config\\local.yaml --offline --json
+```
+
+The command reads only a bounded, non-symlinked JSON file (newest
+lexicographic filename under configurable `qualification.evidence_dir/owner-pair`
+unless `--report` is supplied). It rejects stale or future-dated
+records, incomplete/failed mandatory ownership checks, inconsistent
+timestamps, launcher PID drift, receipt-schema inconsistency and mismatch
+against the **current** PC-B observation. Unknown, malformed, replayed,
+unavailable, or missing evidence fails closed. The report includes a SHA-256
+of the local file for comparison but **a hash does not authenticate who
+generated it**. `correlated_read_only` only means the saved point-in-time
+identity matches a fresh remotely authenticated snapshot; `saved_only`
+is explicitly unauthenticated and exits nonzero. Neither status proves
+original Windows process ancestry, uninterrupted supervisor-loss survival,
+real GPU generation, 14-stage qualification or the eight-hour soak; Issue
+#93 and #40 remain OPEN until target-PC evidence establishes those conditions.
+This review never starts/stops ComfyUI, mutates tasks or submits GPU work.
+
 ## PC-A read-only dual owner snapshot check (Issue #93)
 
 After configuring the protected PC-B attestation service, PC-A can verify
