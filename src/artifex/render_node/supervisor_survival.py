@@ -368,11 +368,17 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
             else:
                 status, reason = "blocked", "unsupported_task_state"
                 break
+    # A valid prefix cannot redeem a later contradictory observation.
+    # Report positive flags only for a fully accepted trace, never when a
+    # subsequent sample made the terminal verdict blocked/inconclusive.
+    fully_observed = (
+        status == "observed_after_supervisor_absence" and found and absent
+    )
     return SurvivalAssessment(
         host=baseline.host, node_id=baseline.node_id,
         status=status, reason=reason, samples=samples,
-        same_comfyui_seen_before_and_after=found,
-        supervisor_absence_observed=absent,
+        same_comfyui_seen_before_and_after=fully_observed,
+        supervisor_absence_observed=fully_observed,
     )
 
 
