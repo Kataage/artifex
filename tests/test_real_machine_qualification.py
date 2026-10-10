@@ -1052,6 +1052,44 @@ def test_qualification_rejects_unvalidated_new_production_lora(
     database.dispose()
 
 
+def test_verify_rejects_imported_session_from_another_controller(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    service._write(session.model_copy(update={"hostname": "foreign-pc-a"}))
+    verified = service.verify(session.session_id)
+    assert verified["ready"] is False
+    assert any("another controller" in issue for issue in verified["issues"])
+    assert service.load(session.session_id).hostname == "foreign-pc-a"
+    database.dispose()
+
+
+@pytest.mark.parametrize("status", [
+    QualificationStatus.PASS,
+    QualificationStatus.FAIL,
+    QualificationStatus.SKIPPED,
+])
+def test_stage_record_never_writes_into_foreign_controller_session(
+    tmp_path: Path, status: QualificationStatus,
+) -> None:
+    service, database, _, _, _, _ = _service(tmp_path)
+    session = service.start(_doctor())
+    foreign = session.model_copy(update={"hostname": "foreign-pc-a"})
+    service._write(foreign)
+    before = service._path(session.session_id).read_bytes()
+    with pytest.raises(ValueError, match="another controller"):
+        service.record(
+            session.session_id, QualificationStage.SINGLE_CHARACTER,
+            status=status,
+        )
+    assert service._path(session.session_id).read_bytes() == before
+    assert service.load(session.session_id).stage(
+        QualificationStage.SINGLE_CHARACTER
+    ).status is QualificationStatus.PENDING
+    database.dispose()
+
+
 def test_verify_rejects_qualification_policy_downgrade(tmp_path: Path) -> None:
     service, database, _, _, settings, _ = _service(tmp_path)
     session = service.start(_doctor())
