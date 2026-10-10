@@ -373,6 +373,13 @@ contradicts an earlier successful segment of the same trace, the complete
 verdict becomes `blocked` and both survival-success flags are false; a good
 prefix never overrides an untrusted final observation.
 
+If a bounded Windows Task Scheduler, CIM supervisor inventory, owner-audit,
+or original-supervisor PID inspection times out, the passive sample fails closed:
+it does not claim that the original supervisor disappeared. A hung native
+read must not terminate the independent observer or authorize any renderer
+start/stop/restart. Investigate Windows event logs and collect fresh evidence
+instead of reusing an older apparent success.
+
 ## Isolated OS-level supervisor-loss / reattachment regression (Windows CI)
 
 In addition to the in-process `ManagedComfyUI.close()` test, CI runs
