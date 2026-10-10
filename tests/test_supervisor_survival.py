@@ -504,7 +504,7 @@ def test_native_survival_probe_timeout_is_fail_closed_not_an_observer_crash(
     import artifex.render_node.supervisor_survival as module
 
     cfg = tmp_path / "render-node.yaml"
-    cfg.write_text("{}\\n", encoding="utf-8")
+    cfg.write_text("{}\n", encoding="utf-8")
     task = StartupTaskStatus(
         role="renderer", task_name="Artifex-Renderer",
         installed=True, managed=True, state="Ready",
@@ -577,14 +577,12 @@ def test_native_survival_probe_timeout_is_fail_closed_not_an_observer_crash(
         now=lambda: _BASE + timedelta(seconds=10),
     )
     assert "audit" in probes
-    assert sample.original_supervisor_pids_absent is False or (
-        timed_out_probe != "original_supervisor_pid"
-    )
     assert sample.state == (
         "verified" if timed_out_probe == "original_supervisor_pid"
         else "blocked"
     )
     if timed_out_probe == "original_supervisor_pid":
+        assert sample.original_supervisor_pids_absent is False
         # An otherwise healthy Ready/ComfyUI snapshot cannot count as
         # original supervisor absence after a CIM lookup timed out.
         after = sample.model_copy(update={"host": "pc-b", "node_id": "gpu-b"})
@@ -595,9 +593,6 @@ def test_native_survival_probe_timeout_is_fail_closed_not_an_observer_crash(
         assert report.status == "blocked"
         assert report.reason == "original_supervisor_not_proven_absent"
         assert not report.same_comfyui_seen_before_and_after
-    assert not sample.original_supervisor_pids_absent or (
-        timed_out_probe != "original_supervisor_pid"
-    )
 
 
 def test_cim_inventory_matches_full_task_arguments_without_shell_injection(
