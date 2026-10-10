@@ -84,7 +84,10 @@ def _latest_evidence(directory: Path) -> Path | None:
             if not _safe_path(path) or not path.is_file():
                 raise ValueError("unsafe_evidence_candidate")
             choices.append(path)
-    return max(choices, key=lambda x: x.name) if choices else None
+    # A second-resolution filename plus a random suffix is not a reliable
+    # chronology when two captures happen in the same second. Prefer actual
+    # file modification time; use the filename only to break a genuine tie.
+    return max(choices, key=lambda x: (x.stat().st_mtime_ns, x.name)) if choices else None
 
 
 def _valid_saved_pair(report: OwnerPairObservation, checked: datetime) -> tuple[bool, bool]:
