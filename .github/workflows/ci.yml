@@ -43,6 +43,10 @@ jobs:
       # an isolated loopback-only HTTP fixture; no ComfyUI or GPU is touched.
       - run: uv run pytest -q tests/test_native_managed_comfy_lifecycle.py
         timeout-minutes: 4
+      # TWO independent temporary Windows supervisors; the first exits
+      # without cleanup, the second reattaches the same no-GPU mock child.
+      - run: uv run pytest -q tests/test_native_supervisor_process_loss.py
+        timeout-minutes: 5
       - run: uv run pytest -q tests/test_native_launcher_probe.py
       - run: uv run pytest -q tests/test_owner_readiness.py
       - run: uv run artifex render-node owner-readiness --help
