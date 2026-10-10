@@ -1082,6 +1082,27 @@ flag, `issue93-status` is unchanged and does not write local evidence.
 Standard newest-file selection also prefers the latest file write time
 rather than a random filename suffix.
 
+### Configurable, non-executing real-machine field plan
+
+The same `issue93-status` JSON now includes a `field_plan` with exact
+`argv` vectors, each labeled `pc_a` or `pc_b`. Custom YAML paths remain
+configurable and the PC-B path is **advisory only** on PC-A:
+
+```powershell
+uv run artifex qualify issue93-status --config "D:/Artifex/pc-a/local.yaml" --renderer-config "E:/Artifex/pc-b/render-node.yaml" --json
+```
+
+Review `field_plan.steps` to see the next appropriate diagnostics for missing
+launcher/owner evidence, a fresh owner pair, or a natural-exit trace. Each
+command is a **structured argument list**, never a remotely executed shell
+string, and none is run by `issue93-status`. The effect label distinguishes
+pure `read_only` inspections, a PC-B `disposable_no_gpu_probe` (temporary
+loopback Python fixture, never production ComfyUI), and a PC-A
+`local_evidence_write` (fresh authenticated GETs and an exclusively created
+local JSON). **No suggested argv contains `--apply`**; even an apparent
+cross-evidence match leaves physical PC-B, GPU and eight-hour production
+qualification false. Never force a supervisor exit to generate a PASS.
+
 On PC-B, the existing no-GPU `render-node owner-readiness --config
 .\\config\\render-node.yaml --json` combines the disposable venv Python
 fixture with a separate read-only inspection of the *already running*

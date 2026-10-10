@@ -3458,12 +3458,19 @@ def qualify_issue93_status(
     pair_gap_seconds: Annotated[
         float, typer.Option("--pair-gap-seconds", min=1, max=60),
     ] = 5.0,
+    renderer_config: Annotated[
+        Path, typer.Option(
+            "--renderer-config",
+            help="Advisory PC-B-local config path in safe next commands; never opened remotely.",
+        ),
+    ] = Path("config/render-node.yaml"),
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
     """PC-A: read-only Issue #93 checks; optional safe local evidence refresh."""
     from datetime import UTC, datetime
 
     from artifex.qualification.issue93_checklist import compile_issue93_checklist
+    from artifex.qualification.issue93_field_plan import compile_issue93_field_plan
     from artifex.qualification.owner_pair import inspect_remote_owner_pair
     from artifex.qualification.owner_pair_review import review_owner_pair_evidence
     from artifex.render_node.owner_audit import save_owner_observation
@@ -3498,6 +3505,9 @@ def qualify_issue93_status(
         else:
             result = compile_issue93_checklist(settings)
         payload = result.model_dump(mode="json")
+        payload["field_plan"] = compile_issue93_field_plan(
+            result, controller_config=selected, renderer_config=renderer_config,
+        ).model_dump(mode="json")
         if refreshed is not None:
             payload["fresh_owner_pair"] = {
                 "status": refreshed.status,
