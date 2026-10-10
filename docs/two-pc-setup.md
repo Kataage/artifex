@@ -2969,6 +2969,26 @@ production:
 
 `output_mode: api` makes PC-A retrieve completed images through ComfyUI's `/view` API. The renderer's output directory therefore does not need to be mounted on PC-A.
 
+## Completed ComfyUI image files must be accessible to PC-A
+
+In the recommended **two-PC** setup, use `render_nodes.nodes.<PC-B>.output_mode:
+api` so PC-A downloads finished files using the authenticated renderer path.
+This does not require mounting PC-B's Windows output directory on PC-A.
+
+If intentionally using `output_mode: filesystem` with a **shared Windows
+folder**, `comfyui.output_dir` must point to the existing share **as seen
+from PC-A** (not a private path that exists only on PC-B). Before a completed
+ComfyUI prompt is accepted as a successful generated image, Artifex now
+requires every declared output image to be a **nonempty regular file inside
+that configured root**. Windows drive/UNC path injection, traversal via
+`..`, directory escapes, symlinked files/folders, absent mounts and empty
+outputs are rejected. A missing shared image is a non-retryable delivery
+failure: Artifex must not blindly submit a duplicate expensive GPU job
+just because PC-A cannot read the original completed image. The result
+remains unqualified and goes to infrastructure/operator review rather
+than downstream image quality acceptance. The `api` download path is
+unchanged. Neither mode needs Docker.
+
 The legacy `comfyui:` configuration remains supported. When `render_nodes.primary` is configured, the primary node overlays the connection/output transport fields while existing sampling/workflow settings remain in `comfyui:`.
 
 ## LLM bootstrap on PC-A

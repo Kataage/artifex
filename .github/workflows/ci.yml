@@ -107,6 +107,7 @@ jobs:
       - run: uv run pytest -q tests/test_supervisor_lease.py
       - run: uv run pytest -q tests/test_renderer_socket_audit.py tests/test_comfy_reattachment.py
       - run: uv run artifex render-node serve --help
+      - run: uv run pytest -q tests/test_production_output_files.py
       - run: uv run pytest -q tests/test_renderer_gateway.py tests/test_submission_fence.py tests/test_comfy_client.py
       - run: uv run artifex maintenance pair --help
       - run: uv run pytest -q tests/test_pair_maintenance.py

@@ -16,6 +16,7 @@ from artifex.comfy import (
 )
 from artifex.config.models import ComfyUiConfig, ProductionConfig
 from artifex.loras import LoRAPlan
+from artifex.production.output_files import resolve_existing_comfy_outputs
 from artifex.prompts import CompiledPrompt
 
 
@@ -184,11 +185,11 @@ class ComfyGenerationBackend:
                 )
             else:
                 assert output_dir is not None
-                root = output_dir.expanduser().resolve()
-                paths = tuple(
-                    root / output.subfolder / output.filename
-                    for output in output_items
-                )
+                # The remote /history response must not nominate arbitrary
+                # PC-A paths or mark a missing/empty shared image as complete.
+                # Missing shared storage is non-retryable: do not duplicate a
+                # finished GPU prompt just because PC-A cannot see its image.
+                paths = resolve_existing_comfy_outputs(output_dir, output_items)
             return GeneratedBatch(
                 prompt_id=receipt.prompt_id,
                 output_paths=paths,
