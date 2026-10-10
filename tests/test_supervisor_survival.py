@@ -562,7 +562,6 @@ def test_native_survival_probe_timeout_is_fail_closed_not_an_observer_crash(
         assert pid == 123
         if timed_out_probe == "original_supervisor_pid":
             failure()
-        return None
 
     monkeypatch.setattr(module, "task_status", scheduler)
     monkeypatch.setattr(module, "task_configuration_matches", matching)
