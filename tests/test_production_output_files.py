@@ -283,3 +283,56 @@ async def test_post_receipt_download_error_resumes_existing_result_not_gpu(
     assert submitted == ["one-gpu-prompt"]
     assert calls == 2
     assert recovered.output_paths[0].read_bytes() == b"API response bytes"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["filesystem", "api"])
+async def test_restarted_controller_recovers_completed_images_without_new_gpu_job(
+    tmp_path: Path, mode: str,
+) -> None:
+    folder = tmp_path / "ARTIFEX" / "pack-1"
+    folder.mkdir(parents=True)
+    (folder / "scene.png").write_bytes(b"previous ComfyUI completed image")
+    backend, client = _backend(tmp_path, mode=mode)
+    restored = await backend.recover_completed(
+        prompt_id="persisted-remote-prompt",
+        scene_id="scene-a",
+        attempt_id="attempt-1",
+        outputs=[_output().model_dump(mode="json")],
+    )
+    assert restored.prompt_id == "persisted-remote-prompt"
+    assert len(restored.output_paths) == 1
+    assert restored.output_paths[0].is_file()
+    assert client.submissions == 0
+    assert client.downloads == (1 if mode == "api" else 0)
+
+
+@pytest.mark.asyncio
+async def test_restarted_controller_refuses_invalid_saved_image_refs_without_resubmit(
+    tmp_path: Path,
+) -> None:
+    backend, client = _backend(tmp_path, mode="api")
+    with pytest.raises(ComfyUIProtocolError, match="malformed"):
+        await backend.recover_completed(
+            prompt_id="persisted-remote-prompt",
+            scene_id="scene-a",
+            attempt_id="attempt-1",
+            outputs=[{"filename": "image.png", "not_a_comfy_field": True}],
+        )
+    assert client.submissions == 0
+    assert client.downloads == 0
+
+
+@pytest.mark.asyncio
+async def test_restarted_controller_refuses_empty_saved_outputs_without_resubmit(
+    tmp_path: Path,
+) -> None:
+    backend, client = _backend(tmp_path, mode="api")
+    with pytest.raises(ComfyUIExecutionError, match="no output-type images"):
+        await backend.recover_completed(
+            prompt_id="persisted-remote-prompt",
+            scene_id="scene-a",
+            attempt_id="attempt-1",
+            outputs=[],
+        )
+    assert client.submissions == 0
