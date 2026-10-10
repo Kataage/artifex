@@ -136,6 +136,80 @@ def test_qualification_never_accepts_unproven_owner(
     assert result is not None
 
 
+@pytest.mark.parametrize(("process_start", "message"), [
+    ("malformed-date", "creation timestamp is invalid"),
+    ("2026-10-09T00:00:00", "creation timestamp is invalid"),
+    ("", "creation timestamp is invalid"),
+    (None, "lacks actual renderer identity"),
+])
+def test_owner_snapshot_rejects_invalid_or_timezone_naive_native_creation(
+    tmp_path: Path, process_start: str | None, message: str,
+) -> None:
+    now = datetime.now(UTC)
+    observed = _observation(captured=now)
+    observed["audit"]["actual_process_started_utc"] = process_start
+    entries = _record(tmp_path, observed)
+    problem = verify_owner_observation(
+        tmp_path, "test-session", "gpu-b", entries,
+        created_at=now - timedelta(minutes=1), now=now,
+    )
+    assert problem is not None and message in problem
+
+
+def test_owner_snapshot_rejects_native_process_created_after_its_observation(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(UTC)
+    observed = _observation(captured=now)
+    observed["audit"]["actual_process_started_utc"] = (
+        now + timedelta(seconds=1)
+    ).isoformat()
+    entries = _record(tmp_path, observed)
+    problem = verify_owner_observation(
+        tmp_path, "test-session", "gpu-b", entries,
+        created_at=now - timedelta(minutes=1), now=now,
+    )
+    assert problem is not None and "after observation" in problem
+
+
+@pytest.mark.parametrize("offset", [
+    "2026-10-09T00:00:00Z",
+    "2026-10-09T09:00:00+09:00",
+    "2026-10-08T17:00:00-07:00",
+])
+def test_owner_snapshot_accepts_timezone_aware_equivalent_native_creation(
+    tmp_path: Path, offset: str,
+) -> None:
+    now = datetime.now(UTC)
+    observed = _observation(captured=now)
+    observed["audit"]["actual_process_started_utc"] = offset
+    entries = _record(tmp_path, observed)
+    assert verify_owner_observation(
+        tmp_path, "test-session", "gpu-b", entries,
+        created_at=now - timedelta(minutes=1), now=now,
+    ) is None
+
+
+@pytest.mark.parametrize(("field", "replacement", "message"), [
+    ("captured_utc", "2026-10-09T01:00:00+00:00", "capture timestamp"),
+    ("captured_utc", "not-a-time", "capture timestamp"),
+    ("status", "blocked", "reference status"),
+])
+def test_owner_snapshot_rejects_tampered_session_reference_metadata(
+    tmp_path: Path, field: str, replacement: str, message: str,
+) -> None:
+    now = datetime.now(UTC)
+    entries = _record(tmp_path, _observation(captured=now))
+    # Mutate only the session JSON binding, not the hashed owner evidence.
+    # The final verifier must reject this mismatch independently of SHA-256.
+    entries[0][field] = replacement
+    problem = verify_owner_observation(
+        tmp_path, "test-session", "gpu-b", entries,
+        created_at=now - timedelta(minutes=1), now=now,
+    )
+    assert problem is not None and message in problem
+
+
 def test_most_recent_observation_cannot_fall_back_to_old_success(tmp_path: Path) -> None:
     now = datetime.now(UTC)
     previous = _record(tmp_path, _observation(captured=now))

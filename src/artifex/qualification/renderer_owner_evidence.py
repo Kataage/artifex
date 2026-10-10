@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.render_node.models import RemoteRendererOwnerAudit
 
 _OBSERVATION_NAME = re.compile(r"^owner-observation-[0-9a-f]{32}\.json$")
@@ -118,8 +119,30 @@ def verify_owner_observation(
     captured = audit.captured_utc
     start = created_at
     current = now or datetime.now(UTC)
-    if captured.tzinfo is None or start.tzinfo is None or current.tzinfo is None:
+    if any(
+        stamp.tzinfo is None or stamp.utcoffset() is None
+        for stamp in (captured, start, current)
+    ):
         return "PC-B evidence timestamps lack timezone"
+
+    # A successful Windows owner audit must identify a real process created
+    # no later than the authenticated sampling instant. An ISO string's mere
+    # presence is not enough: naive, malformed and future timestamps must
+    # not become final production acceptance evidence.
+    native_start = native_creation_instant(audit.actual_process_started_utc)
+    if native_start is None:
+        return "PC-B owner process creation timestamp is invalid or lacks timezone"
+    if native_start > captured:
+        return "PC-B owner process creation timestamp is after observation"
+
+    # Metadata on the qualification-session reference is independently
+    # mutable; ensure it still agrees with the hash-bound evidence payload.
+    # The digest alone does not authenticate these reference fields.
+    if latest.get("captured_utc") != captured.isoformat():
+        return "PC-B owner reference capture timestamp disagrees with evidence"
+    if latest.get("status") != audit.status:
+        return "PC-B owner reference status disagrees with evidence"
+
     if captured < start - timedelta(seconds=30):
         return "PC-B evidence predates the qualification session"
     if captured > current + timedelta(seconds=30):
