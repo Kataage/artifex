@@ -48,13 +48,32 @@ def latest_survival_trace(settings: ArtifexSettings) -> tuple[str, str]:
                 raise ValueError("Survival evidence spool inventory exceeds bound")
     if not entries:
         raise FileNotFoundError("No saved native survival evidence")
-    newest = max(entries, key=lambda path: path.name)
+    # The filename contains only second-resolution UTC and a random UUID.
+    # Lexical ordering can select an older PASS over a new blocked report
+    # written in the same second. Compare actual write times instead.
+    # On equal timestamps, fail closed: UUID order is not a time order.
+    timed = [(path.lstat().st_mtime_ns, path) for path in entries]
+    most_recent = max(stamp for stamp, _ in timed)
+    latest = [path for stamp, path in timed if stamp == most_recent]
+    if len(latest) != 1:
+        raise ValueError("Survival evidence newest write time is ambiguous")
+    newest = latest[0]
     if newest.is_symlink() or not newest.is_file():
         raise ValueError("Newest survival evidence file is unsafe")
-    if not 0 < newest.stat().st_size <= _MAX_BYTES:
+    before = newest.stat()
+    if not 0 < before.st_size <= _MAX_BYTES:
         raise ValueError("Newest survival evidence size invalid")
     raw = newest.read_bytes()
-    if not 0 < len(raw) <= _MAX_BYTES:
-        raise ValueError("Newest survival evidence exceeds hard limit")
+    # A concurrent observer may still be writing an exclusively created
+    # file. Never return partial/inconsistent contents or an older PASS.
+    after = newest.stat()
+    if (
+        newest.is_symlink()
+        or before.st_mtime_ns != after.st_mtime_ns
+        or before.st_size != after.st_size
+        or len(raw) != after.st_size
+        or not 0 < len(raw) <= _MAX_BYTES
+    ):
+        raise ValueError("Newest survival evidence changed during read")
     # Never expose arbitrary paths/command strings from the source directory.
     return hashlib.sha256(raw).hexdigest(), raw.decode("utf-8")
