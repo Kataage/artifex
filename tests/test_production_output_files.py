@@ -44,6 +44,8 @@ def test_shared_comfy_output_accepts_nonempty_nested_image(tmp_path: Path) -> No
     ("nested/scene.png", ""),
     ("scene.png", r"\\server\secret"),
     ("scene.png", "ARTIFEX/./pack-1"),
+    ("scene.png:secret", ""),
+    ("scene.png", "ARTIFEX:alternate"),
 ])
 def test_remote_history_cannot_escape_configured_shared_directory(
     tmp_path: Path, filename: str, subfolder: str,
