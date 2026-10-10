@@ -3446,6 +3446,30 @@ def qualify_owner_pair_check(
         raise typer.Exit(code=1)
 
 
+@qualify_app.command("issue93-status")
+def qualify_issue93_status(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: read-only collection of outstanding real PC-B Issue #93 proofs."""
+    from artifex.qualification.issue93_checklist import compile_issue93_checklist
+
+    selected = config or Path("config/local.yaml")
+    try:
+        if (
+            not selected.is_file()
+            or any(item.is_symlink() for item in (selected, *selected.parents))
+        ):
+            raise ValueError("Existing non-symlinked PC-A YAML required")
+        result = compile_issue93_checklist(_settings(selected))
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        typer.echo(f"issue93-status error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if result.status != "observations_correlated":
+        raise typer.Exit(code=1)
+
+
 @qualify_app.command("owner-pair-review")
 def qualify_owner_pair_review(
     config: ConfigOption = None,
