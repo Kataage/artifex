@@ -255,3 +255,131 @@ def test_cross_source_full_process_identity_and_hostname(
         assert report.current_comfyui_listener_pid == 441
         assert report.current_comfyui_started_utc == "2026-10-10T00:00:00+00:00"
         assert report.current_pc_b_hostname == "pc-b"
+
+
+@pytest.mark.parametrize(("pair_status", "checklist_status", "expected_exit"), [
+    ("consistent_samples", "observations_correlated", 0),
+    ("blocked", "needs_evidence", 1),
+    # A buggy/overridden checklist cannot turn a failed fresh sample into success.
+    ("blocked", "observations_correlated", 1),
+])
+def test_issue93_cli_refresh_binds_newly_saved_pair_and_never_uses_old_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    pair_status: str, checklist_status: str, expected_exit: int,
+) -> None:
+    import artifex.qualification.issue93_checklist as checklist_module
+    import artifex.qualification.owner_pair as pair_module
+    import artifex.qualification.owner_pair_review as review_module
+    from artifex import cli
+    from artifex.qualification.issue93_checklist import Issue93EvidenceChecklist
+    from artifex.qualification.owner_pair import OwnerPairObservation
+    from artifex.qualification.owner_pair_review import OwnerPairReview
+
+    config = tmp_path / "pc-a.yaml"
+    config.write_text("{}", encoding="utf-8")
+    settings = _settings()
+    settings.qualification.evidence_dir = tmp_path / "qualification"
+    folder = settings.qualification.evidence_dir / "owner-pair"
+    folder.mkdir(parents=True, exist_ok=True)
+    # Deliberately lexicographically newer than any actual refreshed filename.
+    (folder / "99999999-old-pass.json").write_text(
+        '{"status":"consistent_samples"}', encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "_settings", lambda _: settings)
+    observed: list[float] = []
+    used: list[Path] = []
+
+    def probe(s: ArtifexSettings, *, gap_seconds: float) -> OwnerPairObservation:
+        assert s is settings
+        observed.append(gap_seconds)
+        return OwnerPairObservation(
+            status=pair_status, reason="fixture_result", node_id="gpu-b",
+            checked_utc=NOW, sample_count=2 if pair_status == "consistent_samples" else 1,
+            requested_gap_seconds=gap_seconds, elapsed_between_samples_seconds=gap_seconds,
+        )
+
+    def review(s: ArtifexSettings, *, report_path: Path) -> OwnerPairReview:
+        assert s is settings
+        used.append(report_path)
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+        assert data["status"] == pair_status
+        assert report_path.name != "99999999-old-pass.json"
+        return OwnerPairReview(
+            checked_utc=NOW, node_id="gpu-b",
+            status="correlated_read_only" if pair_status == "consistent_samples" else "blocked",
+            reason="reviewed_only_selected_new_file",
+        )
+
+    def compile(
+        s: ArtifexSettings, *, pair_fetch,
+    ) -> Issue93EvidenceChecklist:
+        checked = pair_fetch(s)
+        assert checked.reason == "reviewed_only_selected_new_file"
+        return Issue93EvidenceChecklist(
+            checked_utc=NOW, node_id="gpu-b", status=checklist_status,
+            checks=(), observed_checks=0, missing_checks=0, conflicting_checks=0,
+            owner_readiness_status="observed",
+            saved_owner_pair_status=checked.status,
+            natural_exit_trace_status="observed",
+            next_safe_actions=("real physical PC-B checks still required",),
+        )
+
+    monkeypatch.setattr(pair_module, "inspect_remote_owner_pair", probe)
+    monkeypatch.setattr(review_module, "review_owner_pair_evidence", review)
+    monkeypatch.setattr(checklist_module, "compile_issue93_checklist", compile)
+    result = CliRunner().invoke(app, [
+        "qualify", "issue93-status", "--config", str(config),
+        "--refresh-owner-pair", "--pair-gap-seconds", "3", "--json",
+    ])
+    assert result.exit_code == expected_exit, result.output
+    assert observed == [3.0]
+    assert len(used) == 1
+    saved = list(folder.glob("*.json"))
+    assert len(saved) == 2
+    payload = json.loads(result.stdout)
+    assert payload["fresh_owner_pair"]["status"] == pair_status
+    assert payload["fresh_owner_pair"]["evidence_saved"] is True
+    assert payload["fresh_owner_pair"]["saved_filename"] == used[0].name
+    assert payload["fresh_owner_pair"]["production_qualified"] is False
+    assert payload["production_qualified"] is False
+    assert payload["issue_93_closure_authorized"] is False
+    assert payload["task_actions_executed"] is False
+
+
+def test_issue93_cli_refresh_refuses_symlinked_evidence_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.qualification.issue93_checklist as checklist_module
+    import artifex.qualification.owner_pair as pair_module
+    from artifex import cli
+    from artifex.qualification.owner_pair import OwnerPairObservation
+
+    actual = tmp_path / "real-evidence"
+    actual.mkdir()
+    link = tmp_path / "symlink-evidence"
+    try:
+        link.symlink_to(actual, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this Windows configuration")
+    settings = _settings()
+    settings.qualification.evidence_dir = link
+    config = tmp_path / "local.yaml"
+    config.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli, "_settings", lambda _: settings)
+    monkeypatch.setattr(
+        pair_module, "inspect_remote_owner_pair", lambda *a, **k:
+        OwnerPairObservation(
+            status="blocked", reason="refused", node_id="gpu-b", checked_utc=NOW,
+            sample_count=1, requested_gap_seconds=5, elapsed_between_samples_seconds=0,
+        ),
+    )
+    monkeypatch.setattr(
+        checklist_module, "compile_issue93_checklist",
+        lambda *a, **k: pytest.fail("Never compile using unsafely saved evidence"),
+    )
+    outcome = CliRunner().invoke(app, [
+        "qualify", "issue93-status", "--config", str(config),
+        "--refresh-owner-pair", "--json",
+    ])
+    assert outcome.exit_code == 1
+    assert not list(actual.iterdir())

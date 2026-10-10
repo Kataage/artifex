@@ -979,8 +979,32 @@ configured, use this **read-only** PC-A command to collect the status of all
 existing proof paths at once:
 
 ```powershell
+# Default: inspect existing evidence without writing new files.
 uv run artifex qualify issue93-status --config .\\config\\local.yaml --json
+
+# Recommended on PC-A for a fresh diagnostic with one command:
+uv run artifex qualify issue93-status --config .\\config\\local.yaml --refresh-owner-pair --pair-gap-seconds 5 --json
 ```
+
+With `--refresh-owner-pair`, PC-A obtains **two fresh authenticated owner-audit
+GET snapshots** separated by a configurable 1–60-second gap, stores a new
+exclusive-create JSON under `qualification.evidence_dir/owner-pair`, then
+evaluates that **exact newly written file** against current PC-B evidence.
+No older successful report can mask a newly blocked or unavailable
+observation, including when two files are created in the same second. The
+optional JSON `fresh_owner_pair` field includes the safe reason, sample
+count and saved filename. The command returns nonzero if the new capture
+failed, even if another diagnostic mistakenly suggests a match. Without the
+flag, `issue93-status` is unchanged and does not write local evidence.
+Standard newest-file selection also prefers the latest file write time
+rather than a random filename suffix.
+
+On PC-B, the existing no-GPU `render-node owner-readiness --config
+.\\config\\render-node.yaml --json` combines the disposable venv Python
+fixture with a separate read-only inspection of the *already running*
+ComfyUI. Neither PC-A command creates a real ComfyUI process, changes
+Task Scheduler, submits GPU work, or certifies uninterrupted supervisor
+survival. Do not force a supervisor failure to generate evidence.
 
 The checklist calls the existing protected `owner-readiness-evidence`,
 `owner-audit`, `attestation` and `survival-trace` GETs and reads PC-A's

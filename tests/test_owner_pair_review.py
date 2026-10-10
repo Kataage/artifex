@@ -255,3 +255,24 @@ def test_cli_review_json_and_failure_exit(
     data = json.loads(result.stdout)
     assert data["status"] == "saved_only"
     assert not data["issue_93_closure_authorized"]
+
+
+def test_newest_owner_evidence_uses_file_write_time_not_random_filename_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from artifex.qualification.owner_pair_review import _latest_evidence
+
+    settings = _settings(tmp_path)
+    previous = _save(
+        settings, _pair(state="blocked"), filename="20261010T060000Z-zzzz.json",
+    )
+    newest = _save(
+        settings, _pair(), filename="20261010T060000Z-aaaa.json",
+    )
+    # Same-second filenames sort in the wrong order lexicographically.
+    os.utime(previous, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(newest, ns=(2_000_000_000, 2_000_000_000))
+    selected = _latest_evidence(settings.qualification.evidence_dir / "owner-pair")
+    assert selected == newest
