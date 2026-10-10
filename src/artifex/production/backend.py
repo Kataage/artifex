@@ -151,6 +151,10 @@ class ComfyGenerationBackend:
             upscale_denoise=self._comfy_config.upscale_denoise,
             loras=loras,
         )
+        # A timeout after /prompt does not mean ComfyUI stopped rendering.
+        # Never send /free to a potentially active or ambiguously submitted
+        # job; only release cached models once remote completion is confirmed.
+        remote_completed = False
         try:
             graph = template.patch(patch)
             if request.resume_prompt_id is not None:
@@ -162,6 +166,7 @@ class ComfyGenerationBackend:
                 on_submitted(receipt.prompt_id)
                 prompt_id = receipt.prompt_id
             result = await self._client.wait_for_completion(prompt_id)
+            remote_completed = result.completed
             if not result.outputs:
                 raise ComfyUIExecutionError(
                     f"ComfyUI completed without image outputs: {prompt_id}",
@@ -209,13 +214,14 @@ class ComfyGenerationBackend:
             )
         except Exception:
             if (
-                self._comfy_config.release_vram_on_error
+                remote_completed
+                and self._comfy_config.release_vram_on_error
                 and not self._comfy_config.release_vram_after_attempt
             ):
                 await self._release_vram_best_effort()
             raise
         finally:
-            if self._comfy_config.release_vram_after_attempt:
+            if remote_completed and self._comfy_config.release_vram_after_attempt:
                 await self._release_vram_best_effort()
 
     async def _release_vram_best_effort(self) -> None:
