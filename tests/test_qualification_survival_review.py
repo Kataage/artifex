@@ -193,6 +193,100 @@ def test_untrusted_or_inconsistent_trace_never_promotes(
     assert not report.production_qualified
 
 
+@pytest.mark.parametrize("failure", (
+    "blocked_status_only",
+    "inconclusive_status_only",
+    "missing_native_windows",
+    "missing_protected_configuration",
+    "scheduler_policy_failed",
+    "scheduler_not_running",
+    "receipt_failed",
+    "missing_snapshot_consistency",
+    "unverified_process",
+    "naive_creation_time",
+    "malformed_creation_time",
+))
+def test_survival_review_rejects_partially_good_current_owner(
+    tmp_path: Path, failure: str,
+) -> None:
+    """Five passing process checks cannot redeem an unsafe owner audit."""
+    path = tmp_path / "survival.json"
+    _trace(path)
+    real_probe, attest = _probes()
+
+    def degraded_owner(node: str, cfg: RenderNodeConfig) -> RemoteRendererOwnerAudit:
+        response = real_probe(node, cfg)
+        audit = response.audit
+        updates: dict[str, object] = {}
+        if failure in {"blocked_status_only", "inconclusive_status_only"}:
+            updates["status"] = (
+                "blocked" if failure == "blocked_status_only" else "inconclusive"
+            )
+        elif failure == "unverified_process":
+            updates["process_observation_verified"] = False
+        elif failure in {"naive_creation_time", "malformed_creation_time"}:
+            updates["actual_process_started_utc"] = (
+                "2026-10-10T19:00:00" if failure == "naive_creation_time"
+                else "not a datetime"
+            )
+        else:
+            checks = dict(audit.checks)
+            key = {
+                "missing_native_windows": "native_windows",
+                "missing_protected_configuration": "protected_configuration",
+                "scheduler_policy_failed": "scheduler_policy",
+                "scheduler_not_running": "scheduler_running",
+                "receipt_failed": "receipt",
+                "missing_snapshot_consistency": "snapshot_consistency",
+            }[failure]
+            if failure in {
+                "missing_native_windows", "missing_protected_configuration",
+                "missing_snapshot_consistency",
+            }:
+                checks.pop(key)
+            else:
+                checks[key] = checks[key].model_copy(
+                    update={"status": (
+                        "unknown" if failure == "scheduler_not_running" else "fail"
+                    )}
+                )
+            updates["checks"] = checks
+        return response.model_copy(update={"audit": audit.model_copy(update=updates)})
+
+    report = review_pc_b_survival_evidence(
+        _settings(), path, now=NOW,
+        owner_probe=degraded_owner, attestation_probe=attest,
+    )
+    assert report.trace_replayed
+    assert report.status == "blocked"
+    assert report.reason == "live_pc_b_identity_cannot_be_authenticated"
+    assert not report.independent_supervisor_survival_qualified
+    assert not report.historical_event_authenticated
+    assert not report.issue_93_closure_authorized
+    assert not report.production_qualified
+
+
+def test_survival_review_requires_live_observation_after_trace_end(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "survival.json"
+    _trace(path)
+    # The trace finishes 30 seconds after START. A fresh authenticated
+    # owner snapshot at 15 seconds cannot corroborate an event at 30 seconds,
+    # even when clock-skew allowances would accept both timestamps.
+    premature = _START + timedelta(seconds=15)
+    owner, attest = _probes(at=premature)
+    report = review_pc_b_survival_evidence(
+        _settings(), path, now=premature,
+        owner_probe=owner, attestation_probe=attest,
+    )
+    assert report.trace_replayed
+    assert report.status == "blocked"
+    assert report.reason == "live_pc_b_identity_cannot_be_authenticated"
+    assert not report.historical_event_authenticated
+    assert not report.production_qualified
+
+
 def test_live_unavailable_keeps_replayed_trace_untrusted(tmp_path: Path) -> None:
     path = tmp_path / "survival.json"
     _trace(path)
