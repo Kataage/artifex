@@ -214,8 +214,9 @@ def test_bad_file_never_triggers_probe(tmp_path: Path, problem: str) -> None:
     elif problem == "invalid":
         path.write_text("not a JSON payload")
     else:
-        import artifex.qualification.owner_pair_review as module
         from unittest.mock import patch
+
+        import artifex.qualification.owner_pair_review as module
         with patch.object(module, "_safe_path", return_value=False):
             report = review_owner_pair_evidence(settings, now=lambda: NOW)
             assert report.status == "blocked"
