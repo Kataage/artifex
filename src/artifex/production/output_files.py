@@ -30,6 +30,8 @@ def _safe_relative_output(output: ComfyOutput) -> Path:
         or "\\" in filename
         or "\x00" in filename
         or "\x00" in subfolder
+        or ":" in filename
+        or ":" in subfolder
         or PureWindowsPath(filename).drive
         or PureWindowsPath(subfolder).drive
         or subfolder.startswith("/")
