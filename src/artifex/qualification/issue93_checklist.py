@@ -93,14 +93,14 @@ _ACTIONS = {
     ),
 }
 _ALWAYS_PENDING = (
-    "Verify the physical PC-B native launcher and real managed ComfyUI "
-    "ancestry using protected, on-host read-only diagnostics.",
-    "Authenticate the actual historical supervisor-loss observation "
-    "independently; a saved/cached trace and its SHA do not prove its origin.",
-    "Witness safe reattachment after a natural supervisor exit without "
-    "restarting or interrupting the existing ComfyUI process.",
-    "Complete real PC-A/PC-B GPU production, all fourteen stages and "
-    "eight-hour unattended resource/quality qualification (Issue #40).",
+    ("Verify the physical PC-B native launcher and real managed ComfyUI "
+     "ancestry using protected, on-host read-only diagnostics."),
+    ("Authenticate the actual historical supervisor-loss observation "
+     "independently; a saved/cached trace and its SHA do not prove its origin."),
+    ("Witness safe reattachment after a natural supervisor exit without "
+     "restarting or interrupting the existing ComfyUI process."),
+    ("Complete real PC-A/PC-B GPU production, all fourteen stages and "
+     "eight-hour unattended resource/quality qualification (Issue #40)."),
 )
 
 
