@@ -683,6 +683,16 @@ erase a previous outage. A surviving Task Scheduler supervisor alone
 does not demonstrate child survival and never overrides a failed owner
 audit.
 
+The eight-hour owner-continuity comparison uses the **exact native Windows
+process creation instant normalized to UTC**, rather than the original
+ISO-8601 text. An identical ComfyUI PID/start instant remains stable when
+a PC-B CIM reader formats it as `Z`, `+00:00` or `+09:00`;
+a genuinely different creation instant (including PID reuse) still fails.
+A missing, malformed, timezone-naive or future-dated process start and a
+timezone-naive trace clock also fail closed. This prevents an otherwise
+healthy real eight-hour run from failing only because PC-B changed its
+timestamp formatting, without weakening evidence requirements.
+
 Review an existing trace safely on PC-A:
 
 ```powershell
