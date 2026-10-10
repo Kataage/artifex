@@ -2969,6 +2969,29 @@ production:
 
 `output_mode: api` makes PC-A retrieve completed images through ComfyUI's `/view` API. The renderer's output directory therefore does not need to be mounted on PC-A.
 
+## Recover finished image delivery after PC-A restart
+
+If PC-A stops after it has **persisted ComfyUI's prompt ID** but before
+receiving the output image, `recover_pack` checks PC-B's existing ComfyUI
+history. A completed result stores its original prompt and output references;
+it does **not** submit another GPU job. The production coordinator then
+retrieves those existing image references via the same authenticated `/view`
+API or safely verified shared-folder path used during normal generation.
+Only after the file is accessible and nonempty does evaluation run and the
+Pack proceed toward archiving. The original GenerationAttempt, seed and
+`prompt_id` are preserved.
+
+If the image download temporarily fails, the scene remains `evaluating`
+and later recovery retries **only image delivery**, not `POST /prompt`.
+Malformed/missing source references are blocked for review. The recovery
+also handles an earlier `evaluating` state whose saved output path is
+missing, rather than silently treating it as a successful image.
+Recovery may depend on the ComfyUI history remaining available after
+a renderer restart; losing both the original history and the queue is a
+separate unresolved-disposition case, never proof of a successful render.
+This behavior is tested using mock history and images, not yet certified
+on the operator's GPU.
+
 ## Never resubmit an accepted ComfyUI GPU prompt after a transient failure
 
 ComfyUI `POST /prompt` is **not idempotent**. The request may be accepted

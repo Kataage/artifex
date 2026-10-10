@@ -4,12 +4,14 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from artifex.comfy import (
+    ComfyOutput,
     ComfyUIClient,
     ComfyUIError,
     ComfyUIExecutionError,
+    ComfyUIProtocolError,
     WorkflowLoRA,
     WorkflowPatchRequest,
     WorkflowTemplateRegistry,
@@ -173,37 +175,11 @@ class ComfyGenerationBackend:
                     retryable=False,
                 )
 
-            output_items = tuple(
-                output
-                for output in result.outputs
-                if output.output_type == "output"
+            paths = await self._materialize_outputs(
+                result.outputs,
+                scene_id=request.scene_id,
+                attempt_id=request.attempt_id,
             )
-            if not output_items:
-                raise ComfyUIExecutionError(
-                    f"ComfyUI returned no output-type images: {prompt_id}",
-                    retryable=False,
-                )
-
-            if self._comfy_config.output_mode == "api":
-                destination = (
-                    self._comfy_config.download_dir
-                    / self._comfy_config.render_node_id
-                    / request.scene_id
-                    / request.attempt_id
-                )
-                paths = tuple(
-                    [
-                        await self._client.download_output(output, destination)
-                        for output in output_items
-                    ]
-                )
-            else:
-                assert output_dir is not None
-                # The remote /history response must not nominate arbitrary
-                # PC-A paths or mark a missing/empty shared image as complete.
-                # Missing shared storage is non-retryable: do not duplicate a
-                # finished GPU prompt just because PC-A cannot see its image.
-                paths = resolve_existing_comfy_outputs(output_dir, output_items)
             return GeneratedBatch(
                 prompt_id=prompt_id,
                 output_paths=paths,
@@ -223,6 +199,72 @@ class ComfyGenerationBackend:
         finally:
             if remote_completed and self._comfy_config.release_vram_after_attempt:
                 await self._release_vram_best_effort()
+
+    async def recover_completed(
+        self,
+        *,
+        prompt_id: str,
+        scene_id: str,
+        attempt_id: str,
+        outputs: list[dict[str, Any]],
+    ) -> GeneratedBatch:
+        """Recover confirmed ComfyUI history outputs, never issuing /prompt.
+
+        RecoveryManager has already checked the completed remote prompt and
+        persisted its output references. This step materializes the same
+        output images after PC-A restart, using the normal API/shared-folder
+        transport and path safety checks.
+        """
+        if not prompt_id:
+            raise ComfyUIProtocolError("completed recovery lacks prompt ID")
+        try:
+            saved = tuple(ComfyOutput.model_validate(item) for item in outputs)
+        except (ValueError, TypeError, ValidationError) as exc:
+            raise ComfyUIProtocolError(
+                "recovered ComfyUI output references are malformed"
+            ) from exc
+        paths = await self._materialize_outputs(
+            saved, scene_id=scene_id, attempt_id=attempt_id,
+        )
+        return GeneratedBatch(
+            prompt_id=prompt_id,
+            output_paths=paths,
+            outputs=tuple(output.model_dump(mode="json") for output in saved),
+        )
+
+    async def _materialize_outputs(
+        self,
+        outputs: tuple[ComfyOutput, ...],
+        *,
+        scene_id: str,
+        attempt_id: str,
+    ) -> tuple[Path, ...]:
+        selected = tuple(
+            item for item in outputs if item.output_type == "output"
+        )
+        if not selected:
+            raise ComfyUIExecutionError(
+                "completed ComfyUI prompt has no output-type images",
+                retryable=False,
+            )
+        if self._comfy_config.output_mode == "api":
+            destination = (
+                self._comfy_config.download_dir
+                / self._comfy_config.render_node_id
+                / scene_id
+                / attempt_id
+            )
+            return tuple([
+                await self._client.download_output(item, destination)
+                for item in selected
+            ])
+        root = self._comfy_config.output_dir
+        if root is None:
+            raise ComfyUIExecutionError(
+                "shared ComfyUI output_dir is not configured",
+                retryable=False,
+            )
+        return resolve_existing_comfy_outputs(root, selected)
 
     async def _release_vram_best_effort(self) -> None:
         try:
