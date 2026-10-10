@@ -348,6 +348,42 @@ def test_passive_survival_rejects_nonfinite_elapsed_even_in_model_copy(
     assert not report.production_qualified
 
 
+@pytest.mark.parametrize("difference_seconds,expected", (
+    (0, "observed_after_supervisor_absence"),
+    (1, "blocked"),
+))
+def test_mixed_utc_and_japan_native_creation_offsets_preserve_exact_identity(
+    difference_seconds: int, expected: str,
+) -> None:
+    # Both listener and supervisor CIM creation dates may be serialized
+    # using a different offset on successive Windows observations.
+    baseline = _sample(0).model_copy(update={
+        "actual_listener_started_utc": "2026-10-10T07:00:00+09:00",
+        "supervisor_identities": ((123, "2026-10-10T09:00:00+09:00"),),
+    })
+    running = _sample(10).model_copy(update={
+        "supervisor_identities": ((123, "2026-10-10T00:00:00Z"),),
+    })
+    after = _sample(20, task_state="Ready").model_copy(update={
+        "actual_listener_started_utc": (
+            _BASE - timedelta(hours=2) + timedelta(seconds=difference_seconds)
+        ).isoformat(),
+    })
+    # Here _BASE - 2 hours = 2026-10-09T22:00Z, which is the
+    # same instant as 2026-10-10T07:00+09:00 when difference is zero.
+    final = _sample(30, task_state="Ready")
+    result = assess_survival(
+        (baseline, running, after, final),
+        min_separation_seconds=10,
+    )
+    assert result.status == expected
+    assert result.same_comfyui_seen_before_and_after is (
+        difference_seconds == 0
+    )
+    assert not result.issue_93_closure_authorized
+    assert not result.production_qualified
+
+
 def test_valid_timezone_offsets_normalize_to_same_native_timeline() -> None:
     from datetime import timezone
 
