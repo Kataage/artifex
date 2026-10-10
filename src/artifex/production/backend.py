@@ -32,6 +32,9 @@ class GenerationRequest(ProductionBackendModel):
     seed: int = Field(ge=0)
     output_prefix: str
     workflow_template_id: str | None = None
+    # Reuse the persisted ComfyUI prompt after a transport error. Never
+    # re-submit an already accepted GPU job just to wait/download again.
+    resume_prompt_id: str | None = Field(default=None, min_length=1)
 
 
 class GeneratedBatch(ProductionBackendModel):
@@ -150,12 +153,18 @@ class ComfyGenerationBackend:
         )
         try:
             graph = template.patch(patch)
-            receipt = await self._client.submit(graph)
-            on_submitted(receipt.prompt_id)
-            result = await self._client.wait_for_completion(receipt.prompt_id)
+            if request.resume_prompt_id is not None:
+                # A receipt was already durably recorded by the coordinator.
+                # Resuming must not enter /prompt or change ComfyUI's queue.
+                prompt_id = request.resume_prompt_id
+            else:
+                receipt = await self._client.submit(graph)
+                on_submitted(receipt.prompt_id)
+                prompt_id = receipt.prompt_id
+            result = await self._client.wait_for_completion(prompt_id)
             if not result.outputs:
                 raise ComfyUIExecutionError(
-                    f"ComfyUI completed without image outputs: {receipt.prompt_id}",
+                    f"ComfyUI completed without image outputs: {prompt_id}",
                     retryable=False,
                 )
 
@@ -166,7 +175,7 @@ class ComfyGenerationBackend:
             )
             if not output_items:
                 raise ComfyUIExecutionError(
-                    f"ComfyUI returned no output-type images: {receipt.prompt_id}",
+                    f"ComfyUI returned no output-type images: {prompt_id}",
                     retryable=False,
                 )
 
@@ -191,7 +200,7 @@ class ComfyGenerationBackend:
                 # finished GPU prompt just because PC-A cannot see its image.
                 paths = resolve_existing_comfy_outputs(output_dir, output_items)
             return GeneratedBatch(
-                prompt_id=receipt.prompt_id,
+                prompt_id=prompt_id,
                 output_paths=paths,
                 outputs=tuple(
                     output.model_dump(mode="json")
