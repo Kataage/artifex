@@ -164,7 +164,7 @@ def test_unbounded_or_invalid_gap_refused(gap: float) -> None:
 def test_cli_exposes_safe_json_and_never_performs_remote_actions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import artifex.cli as cli
+    from artifex import cli
     import artifex.qualification.owner_pair as pair
 
     config = tmp_path / "pc-a.yaml"
