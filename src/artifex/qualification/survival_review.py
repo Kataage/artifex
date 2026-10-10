@@ -27,6 +27,7 @@ from artifex.render_node.models import (
     RenderNodeAttestation,
 )
 from artifex.render_node.supervisor_survival import (
+    MAX_SURVIVAL_CLOCK_DRIFT_SECONDS,
     SurvivalAssessment,
     assess_survival,
 )
@@ -198,7 +199,7 @@ def review_pc_b_survival_evidence(
             or abs(
                 (item.observed_utc - start).total_seconds()
                 - (item.elapsed_seconds - recorded.samples[0].elapsed_seconds)
-            ) > 30
+            ) > MAX_SURVIVAL_CLOCK_DRIFT_SECONDS
         ):
             return result("blocked", "trace_time_identity_or_monotonicity_invalid")
         previous_at = item.observed_utc
