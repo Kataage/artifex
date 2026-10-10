@@ -1253,6 +1253,23 @@ task, or an unverified ownership receipt. This command reports the
 next safe step rather than automatically repairing a possibly
 running GPU service.
 
+### Fresh PC-B owner proof in final qualification
+
+The final `qualify verify SESSION_ID` does not trust a previously saved
+"observed_stable" label by itself. The latest SHA-256-bound PC-B owner
+snapshot must have all required checks passing, a fresh authenticated
+capture time, a real listener PID **and a valid timezone-aware native Windows
+process creation timestamp that is not later than the capture**. Missing,
+malformed, timezone-naive or future-dated process creation times fail closed.
+The saved session reference's capture timestamp and status must also match
+the actual hash-bound observation bytes; changing reference metadata alone
+cannot turn a blocked or stale observation into a verified one.
+
+UTC and JST representations of the **same** native process creation instant
+are accepted, and the physical process can have started before the current
+qualification session. This confirms snapshot consistency, not true
+supervisor-loss survival or the fourteen real GPU stages.
+
 ## Continuous PC-B ownership surveillance during the eight-hour soak
 
 The existing `qualify soak-run` and `qualify soak-observe` commands on PC-A
