@@ -7,8 +7,8 @@ from PIL import Image
 from sqlalchemy import func, select
 
 from artifex.archive import PackArchive
-from artifex.comfy.errors import ComfyUITimeoutError
 from artifex.characters import CharacterRegistry
+from artifex.comfy.errors import ComfyUITimeoutError
 from artifex.config.models import (
     AgentConfig,
     CharacterRegistryConfig,
