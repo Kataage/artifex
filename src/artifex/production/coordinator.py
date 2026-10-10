@@ -705,15 +705,78 @@ class ProductionCoordinator:
         if attempt is None or attempt.backend_status != "completed":
             return
         paths = self._output_paths(attempt)
-        if not paths:
-            self._runtime.transition_scene(scene_id, SceneState.REVIEW)
-            self._ensure_review(
-                "scene",
-                scene_id,
-                "recovered attempt has no persisted output path",
-                {"attempt_id": attempt.id},
+        # RecoveryManager persists completed ComfyUI /history references, but
+        # the controller may have crashed before /view download or before
+        # persisting a shared file path. A completed remote GPU job must be
+        # recovered, not silently classified as missing local output.
+        try:
+            local_images_ready = bool(paths) and all(
+                path.is_file() and path.stat().st_size > 0 for path in paths
             )
-            return
+        except OSError:
+            local_images_ready = False
+        if not local_images_ready:
+            provenance = attempt.provenance_json
+            prompt_id = provenance.get("comfy_prompt_id")
+            raw_outputs = provenance.get("comfy_outputs") or provenance.get(
+                "backend_outputs"
+            )
+            recover = getattr(self._backend, "recover_completed", None)
+            if (
+                not callable(recover)
+                or not isinstance(prompt_id, str)
+                or not prompt_id
+                or not isinstance(raw_outputs, list)
+                or not raw_outputs
+            ):
+                self._runtime.transition_scene(scene_id, SceneState.REVIEW)
+                self._ensure_review(
+                    "scene",
+                    scene_id,
+                    "completed attempt cannot recover image: "
+                    "missing verified ComfyUI output references",
+                    {"attempt_id": attempt.id},
+                )
+                return
+            try:
+                recovered = await recover(
+                    prompt_id=prompt_id,
+                    scene_id=scene_id,
+                    attempt_id=attempt.id,
+                    outputs=raw_outputs,
+                )
+            except ComfyUIError as exc:
+                self._telemetry.record(
+                    "generation.completed_image_recovery_error",
+                    EventSeverity.WARNING,
+                    {
+                        "scene_id": scene_id,
+                        "attempt_id": attempt.id,
+                        "prompt_id": prompt_id,
+                        "kind": exc.kind.value,
+                        "retryable": exc.retryable,
+                    },
+                )
+                if not exc.retryable:
+                    self._runtime.transition_scene(scene_id, SceneState.REVIEW)
+                    self._ensure_review(
+                        "scene", scene_id,
+                        "completed ComfyUI image delivery needs review: "
+                        + str(exc),
+                        {"attempt_id": attempt.id, "prompt_id": prompt_id},
+                    )
+                # For a transient /view failure, leave EVALUATING intact:
+                # scheduler will retry recovery, not create a new GPU job.
+                return
+            paths = recovered.output_paths
+            self._attempts.patch_provenance(
+                attempt.id,
+                {
+                    "output_paths": [str(path) for path in paths],
+                    "backend_outputs": list(recovered.outputs),
+                    "recovered_image_delivery": True,
+                },
+            )
         result = await self._evaluate_attempt(scene_id, attempt.id, paths[0])
         if result.state is ResultState.ACCEPTED:
             self._handle_accepted_result(scene_id, attempt.id, result)
