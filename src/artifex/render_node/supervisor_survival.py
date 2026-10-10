@@ -164,11 +164,11 @@ def sample_supervisor_survival(
         )
         if matching:
             supervisor = supervisor_process_identities(task)
-    except (OSError, RuntimeError, ValueError, TypeError):
+    except (OSError, RuntimeError, ValueError, TypeError, subprocess.TimeoutExpired):
         matching = False
     try:
         audit = observe_renderer_owner(settings, config=config)
-    except (OSError, RuntimeError, ValueError, TypeError):
+    except (OSError, RuntimeError, ValueError, TypeError, subprocess.TimeoutExpired):
         audit = {}
     checks = audit.get("checks")
     values = (
@@ -199,7 +199,7 @@ def sample_supervisor_survival(
                 windows_process_identity(pid) is None
                 for pid in original_supervisor_ids
             )
-        except (OSError, RuntimeError, ValueError, TypeError):
+        except (OSError, RuntimeError, ValueError, TypeError, subprocess.TimeoutExpired):
             original_pids_absent = False
     state: Literal["verified", "blocked", "unsupported"] = (
         "verified" if matching and ownership_ok and task_state in {"Running", "Ready"}
