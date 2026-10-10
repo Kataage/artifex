@@ -29,16 +29,17 @@ from artifex.qualification.survival_review import (
 
 State = Literal["observations_correlated", "needs_evidence", "conflict", "unconfigured"]
 CheckState = Literal["observed", "missing", "conflict"]
+CheckName = Literal[
+    "isolated_launcher_and_live_owner",
+    "two_time_separated_owner_samples",
+    "natural_exit_survival_trace",
+    "cross_evidence_listener_identity",
+]
 
 
 class Issue93Check(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    name: Literal[
-        "isolated_launcher_and_live_owner",
-        "two_time_separated_owner_samples",
-        "natural_exit_survival_trace",
-        "cross_evidence_listener_identity",
-    ]
+    name: CheckName
     state: CheckState
     reason: str
 
@@ -172,7 +173,7 @@ def compile_issue93_checklist(
         and survival.node_id == node
         and survival.current_listener_pid is not None
     )
-    values: tuple[tuple[str, bool, str], ...] = (
+    values: tuple[tuple[CheckName, bool, str], ...] = (
         ("isolated_launcher_and_live_owner", owner_ok, statuses["owner"]),
         ("two_time_separated_owner_samples", pair_ok, statuses["pair"]),
         ("natural_exit_survival_trace", survival_ok, statuses["survival"]),
