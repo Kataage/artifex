@@ -209,9 +209,18 @@ against the fresh owner audit/attestation if the service is available.
 
 **Bearer-authenticated transport is not independently signed evidence
 of what happened on PC-B.** A valid remote response can still carry
-tampered historical observations. Even `replayed_and_live_identity_matched`
-does not establish that a natural exit really occurred and never
-authorizes a restart, production GPU job, stage PASS or Issue #93/#40 closure.
+tampered historical observations. The live owner corroboration now
+requires the **entire native Windows owner audit** to be `observed_stable`:
+all nine mandatory ownership/scheduler checks must pass, the managed
+process and native creation time must be verified, Task Scheduler must be
+Running, and the authenticated live owner snapshot must have been captured
+**after the final sample** of the saved supervisor-loss trace. An apparently
+good listener/receipt subset is not sufficient if another owner check is
+blocked, unknown, missing, or the live snapshot predates the claimed event.
+
+Even `replayed_and_live_identity_matched` does not establish that a natural
+exit really occurred and never authorizes a restart, production GPU job,
+stage PASS or Issue #93/#40 closure.
 If there is no naturally observed exit, the newest report remains
 `inconclusive` and the reviewer must not silently use an older success.
 ## PC-A review of saved PC-B natural-exit evidence (Issue #93)
