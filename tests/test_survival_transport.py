@@ -155,7 +155,9 @@ def test_symlink_and_inventory_fail_closed(tmp_path: Path) -> None:
         latest.symlink_to(root / _FIRST)
     except (OSError, NotImplementedError):
         pytest.skip("Native Windows permissions disallow symlink creation")
-    with pytest.raises(ValueError, match="unsafe"):
+    # Symlink and a coarse-resolution ambiguous newest timestamp both
+    # fail closed. Neither case may return the older apparently good trace.
+    with pytest.raises(ValueError, match="unsafe|ambiguous"):
         latest_survival_trace(settings)
     latest.unlink()
     for i in range(513):
