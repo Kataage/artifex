@@ -144,6 +144,25 @@ def test_venv_shim_receipt_fails_closed_on_identity_drift(
     assert not matches_owned_process(settings, receipt, candidate)
 
 
+@pytest.mark.parametrize(("side", "timestamp"), [
+    ("launcher", "2026-10-09T01:00:00"),
+    ("child", "2026-10-09T01:00:01"),
+    ("launcher", "not-a-date"),
+    ("child", "not-a-date"),
+    ("child", "2026-10-08T23:00:00Z"),
+])
+def test_venv_launcher_creation_time_must_be_valid_utc(
+    tmp_path: Path, side: str, timestamp: str,
+) -> None:
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    if side == "launcher":
+        launcher = launcher.model_copy(update={"started_utc": timestamp})
+    else:
+        child = child.model_copy(update={"started_utc": timestamp})
+    assert verified_launcher_child(settings, launcher, child) is False
+
+
 def test_venv_receipt_config_drift_fails_after_supervisor_crash(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     launcher, child = _identities(settings)

@@ -1083,6 +1083,15 @@ PID, immutable creation time, executable, command line and recorded parent
 rather than trusting a possibly exited/reused launcher PID. An unknown,
 foreign, reordered or ambiguous chain blocks automatic ownership/restart.
 
+An additional read-only consistency guard now checks the venv launcher's
+Windows CIM identity **again after** the real listener and TCP/receipt
+rechecks. An exited original launcher remains valid, but a recycled launcher
+PID (or an uninspectable second observation) prevents an
+`observed_stable` verdict. Both launcher/child creation dates must have
+timezone-aware Windows CIM timestamps; naive or malformed values fail
+closed. This hardening does not start, stop or restart ComfyUI, does not
+register qualification PASS, and still requires verification on the real PC-B.
+
 The native Windows CI tests launch only a temporary loopback Python listener,
 not ComfyUI or a GPU workload. They prove identity checking on a disposable
 venv launcher but **do not** qualify the production PC-B, GPU process,

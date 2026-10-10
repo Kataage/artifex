@@ -194,14 +194,37 @@ def observe_renderer_owner(
             receipt is not None
             and ComfyReceiptStore(receipt_path).load() == receipt
         )
+        launcher_stable = True
+        if receipt is not None and receipt.launcher_identity is not None:
+            # The original venv shim may have exited naturally, but its PID
+            # could also have been reused *during* our two TCP inspections.
+            # A single earlier CIM result cannot establish final consistency.
+            launcher_after = windows_process_identity(receipt.launcher_identity.pid)
+            launcher_stable = (
+                launcher_after is None or launcher_after == receipt.launcher_identity
+            )
+            if not launcher_stable:
+                _check(
+                    checks, "launcher_identity", "fail",
+                    "launcher PID was reused during the owner observation",
+                )
+        consistent = stable_identity and stable_receipt and launcher_stable
         _check(
             checks, "snapshot_consistency",
-            "pass" if stable_identity and stable_receipt else "fail",
-            "receipt and process unchanged during read-only observation"
-            if stable_identity and stable_receipt
-            else "receipt or process changed/disappeared during observation",
+            "pass" if consistent else "fail",
+            "receipt, execution process and launcher unchanged during observation"
+            if consistent else
+            "receipt, execution process or launcher changed during observation",
         )
     except (OSError, ValueError, RuntimeError, TypeError) as exc:
+        if (
+            receipt is not None and receipt.launcher_identity is not None
+            and checks["launcher_identity"]["status"] == "pass"
+        ):
+            _check(
+                checks, "launcher_identity", "unknown",
+                "launcher stability could not be rechecked",
+            )
         _check(
             checks, "snapshot_consistency", "unknown",
             f"consistency check failed: {type(exc).__name__}",
