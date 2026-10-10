@@ -176,6 +176,7 @@ def test_cli_exposes_safe_json_and_never_performs_remote_actions(
             status="consistent_samples", reason="two_point_observation",
             node_id="gpu-b", checked_utc=BASE,
             sample_count=2, requested_gap_seconds=3.0,
+            elapsed_between_samples_seconds=3.0,
         )
     ))
     result = CliRunner().invoke(app, [
