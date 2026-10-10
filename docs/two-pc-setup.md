@@ -989,6 +989,24 @@ mean `needs_evidence`, never false `observations_correlated`.
 This is only point-in-time correlation, not uninterrupted real PC-B survival,
 real GPU success or permission to restart an existing renderer.
 
+## Isolated OS-level supervisor-loss / reattachment regression (Windows CI)
+
+In addition to the in-process `ManagedComfyUI.close()` test, CI runs
+`tests/test_native_supervisor_process_loss.py`. It starts an **isolated**
+native Windows supervisor process that manages a temporary Python
+`/system_stats` mock on a unique 127.0.0.1 port. That temporary supervisor
+exits without calling `close()`; the OS must release the file lock while
+the fixture child remains alive. A **second independent Python supervisor
+process** then proves the existing receipt and exact original listener
+identity and reattaches *without spawning another renderer*. The mock
+exits by its private release flag or a bounded self-imposed deadline;
+no real ComfyUI, GPU, Task Scheduler process or production data is touched.
+
+This is a CI-level controlled supervisor-loss simulation, **not evidence of
+an actual natural supervisor failure on PC-B**. Physical PC-B ownership,
+reattachment and sustained production GPU behavior still require the operator's
+real-machine validation for Issues #93 and #40.
+
 ## Native Windows integration of the actual protected renderer manager (no GPU)
 
 Windows CI now runs `tests/test_native_managed_comfy_lifecycle.py` to exercise
