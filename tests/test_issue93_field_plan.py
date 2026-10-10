@@ -10,10 +10,7 @@ from typer.testing import CliRunner
 
 from artifex.cli import app
 from artifex.config.models import ArtifexSettings
-from artifex.qualification.issue93_checklist import (
-    Issue93Check,
-    Issue93EvidenceChecklist,
-)
+from artifex.qualification.issue93_checklist import Issue93EvidenceChecklist
 from artifex.qualification.issue93_field_plan import compile_issue93_field_plan
 
 PC_A = Path("D:/Artifex/PC A/controller custom.yaml")
