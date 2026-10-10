@@ -11,7 +11,10 @@ Do not manually repeat it until the original prompt is accounted for.
 When PC-A **has already received and persisted** a `prompt_id`, a
 transient completion-poll or `/view` image-download failure retries
 waiting and downloading from the **same prompt ID**. The attempt remains
-the same and no second GPU job is enqueued. If attempts are exhausted,
+the same and no second GPU job is enqueued. A timeout is also **not**
+proof that PC-B is idle: Artifex does not issue ComfyUI `/free` while a
+submitted prompt may still be running. It requests optional cached-model
+release only once remote completion has been confirmed. If attempts are exhausted,
 the existing review/recovery mechanism records the failure rather than
 silently calling `/prompt` again. A separate true image-quality retry,
 after actual evaluation, remains a legitimate new GenerationAttempt.
