@@ -492,6 +492,114 @@ def test_sample_probes_are_read_only_and_require_actual_comfy_identity(
     ]
 
 
+@pytest.mark.parametrize("timed_out_probe", (
+    "scheduler",
+    "supervisor_inventory",
+    "owner_audit",
+    "original_supervisor_pid",
+))
+def test_native_survival_probe_timeout_is_fail_closed_not_an_observer_crash(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, timed_out_probe: str,
+) -> None:
+    import artifex.render_node.supervisor_survival as module
+
+    cfg = tmp_path / "render-node.yaml"
+    cfg.write_text("{}\\n", encoding="utf-8")
+    task = StartupTaskStatus(
+        role="renderer", task_name="Artifex-Renderer",
+        installed=True, managed=True, state="Ready",
+        arguments=r'-m artifex.cli render-node serve --config "C:\\AI\\renderer.yaml"',
+    )
+    monkeypatch.setattr(module, "os", SimpleNamespace(name="nt"))
+    probes: list[str] = []
+
+    def failure() -> None:
+        raise module.subprocess.TimeoutExpired(
+            cmd=["powershell.exe"], timeout=15,
+        )
+
+    def scheduler(role: str) -> StartupTaskStatus:
+        probes.append("scheduler")
+        if timed_out_probe == "scheduler":
+            failure()
+        return task
+
+    def matching(role: str, *, config: Path, status: StartupTaskStatus):
+        probes.append("policy")
+        return True, ()
+
+    def inventory(status: StartupTaskStatus):
+        probes.append("inventory")
+        if timed_out_probe == "supervisor_inventory":
+            failure()
+        return ()
+
+    def audit(settings: ArtifexSettings, *, config: Path) -> dict[str, Any]:
+        probes.append("audit")
+        if timed_out_probe == "owner_audit":
+            failure()
+        return {
+            "status": "inconclusive",
+            "checks": {
+                key: {"status": (
+                    "unknown" if key == "scheduler_running" else "pass"
+                )}
+                for key in _REQ
+            },
+            "process_observation_verified": True,
+            "receipt_schema": 2,
+            "actual_listener_pid": 400,
+            "actual_process_started_utc": "2026-10-09T22:00:00Z",
+            "launcher_pid": 399,
+            "restart_authorized": False,
+            "child_survival_qualified": False,
+            "production_qualified": False,
+            "mutated_services": False,
+        }
+
+    def pid_identity(pid: int) -> None:
+        probes.append("original_pid")
+        assert pid == 123
+        if timed_out_probe == "original_supervisor_pid":
+            failure()
+        return None
+
+    monkeypatch.setattr(module, "task_status", scheduler)
+    monkeypatch.setattr(module, "task_configuration_matches", matching)
+    monkeypatch.setattr(module, "supervisor_process_identities", inventory)
+    monkeypatch.setattr(module, "observe_renderer_owner", audit)
+    monkeypatch.setattr(module, "windows_process_identity", pid_identity)
+
+    sample = sample_supervisor_survival(
+        ArtifexSettings(),
+        config=cfg, elapsed_seconds=10.0,
+        original_supervisor_ids=(123,),
+        now=lambda: _BASE + timedelta(seconds=10),
+    )
+    assert "audit" in probes
+    assert sample.original_supervisor_pids_absent is False or (
+        timed_out_probe != "original_supervisor_pid"
+    )
+    assert sample.state == (
+        "verified" if timed_out_probe == "original_supervisor_pid"
+        else "blocked"
+    )
+    if timed_out_probe == "original_supervisor_pid":
+        # An otherwise healthy Ready/ComfyUI snapshot cannot count as
+        # original supervisor absence after a CIM lookup timed out.
+        after = sample.model_copy(update={"host": "pc-b", "node_id": "gpu-b"})
+        report = assess_survival(
+            (_sample(0), after, _sample(20, task_state="Ready")),
+            min_separation_seconds=10,
+        )
+        assert report.status == "blocked"
+        assert report.reason == "original_supervisor_not_proven_absent"
+        assert not report.same_comfyui_seen_before_and_after
+    assert not sample.original_supervisor_pids_absent or (
+        timed_out_probe != "original_supervisor_pid"
+    )
+
+
 def test_cim_inventory_matches_full_task_arguments_without_shell_injection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
