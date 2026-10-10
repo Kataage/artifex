@@ -221,7 +221,7 @@ def sample_supervisor_survival(
     )
 
 
-def _aware_native_time(value: str) -> datetime | None:
+def parse_native_creation_utc(value: str) -> datetime | None:
     """Reject malformed/naive Windows CIM creation timestamps."""
     try:
         stamp = datetime.fromisoformat(value)
@@ -241,7 +241,7 @@ def _valid_sample_time(sample: SurvivalSample) -> bool:
         return False
     if sample.actual_listener_pid is None or sample.actual_listener_pid <= 0:
         return False
-    started = _aware_native_time(sample.actual_listener_started_utc or "")
+    started = parse_native_creation_utc(sample.actual_listener_started_utc or "")
     if started is None or started > observed.astimezone(UTC):
         return False
     if len({pid for pid, _ in sample.supervisor_identities}) != len(
@@ -249,7 +249,7 @@ def _valid_sample_time(sample: SurvivalSample) -> bool:
     ):
         return False
     return all(
-        pid > 0 and (process_start := _aware_native_time(utc)) is not None
+        pid > 0 and (process_start := parse_native_creation_utc(utc)) is not None
         and process_start <= observed.astimezone(UTC)
         for pid, utc in sample.supervisor_identities
     )
@@ -273,9 +273,15 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
     reason = "natural_supervisor_transition_not_observed"
     found = False
     absent = False
-    initial_supervisors = set(baseline.supervisor_identities)
+    # Compare Windows CIM creation *instants*, not ISO-8601 spellings.
+    # The same native timestamp can be emitted as UTC or +09:00.
+    initial_supervisors = {
+        (pid, parse_native_creation_utc(start))
+        for pid, start in baseline.supervisor_identities
+    }
     base_identity = (
-        baseline.actual_listener_pid, baseline.actual_listener_started_utc,
+        baseline.actual_listener_pid,
+        parse_native_creation_utc(baseline.actual_listener_started_utc or ""),
         baseline.launcher_pid, baseline.receipt_schema,
     )
     if (
@@ -317,7 +323,8 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
             same = (
                 item.host == baseline.host and item.node_id == baseline.node_id
                 and (
-                    item.actual_listener_pid, item.actual_listener_started_utc,
+                    item.actual_listener_pid,
+                    parse_native_creation_utc(item.actual_listener_started_utc or ""),
                     item.launcher_pid, item.receipt_schema,
                 ) == base_identity
             )
@@ -338,7 +345,11 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
                 status, reason = "blocked", "live_comfyui_identity_or_receipt_unverified"
                 break
             if item.task_state == "Running":
-                if not item.supervisor_identities or set(item.supervisor_identities) != initial_supervisors:
+                observed_supervisors = {
+                    (pid, parse_native_creation_utc(start))
+                    for pid, start in item.supervisor_identities
+                }
+                if not observed_supervisors or observed_supervisors != initial_supervisors:
                     status, reason = "blocked", "supervisor_identity_changed"
                     break
                 if first_absent is not None:
