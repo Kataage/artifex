@@ -7,6 +7,42 @@ Artifex supports a split native-Windows deployment where the controller and rend
 
 No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A is required.
 
+
+## Single PC-A native field preflight (read-only)
+
+For the real two-Windows-PC installation, inspect all three existing gates
+without repeating separate commands: Task Scheduler/observer installation,
+Issue #93's authenticated owner evidence and saved natural-exit trace, and
+the production workflow/LLM deployment handoff. All probes run **serially**,
+avoiding concurrent Windows CIM inspection. This does **not** start services,
+change Task Scheduler, generate GPU images or register any qualification PASS.
+
+```powershell
+uv run artifex qualify field-preflight --config .\\config\\local.yaml --renderer-config .\\config\\render-node.yaml --json
+```
+
+Both paths are configurable. The renderer YAML path is **advice only** on PC-A,
+never a remotely opened or executed file. Add `--output
+data/qualification/field-preflight.json` to save a new local JSON result;
+existing files and symlinked output paths are refused. The command returns
+nonzero if any observational gate is unavailable, contradictory or unverified,
+but still prints diagnostic JSON. Failures are summarized by exception class,
+not private LAN URL, command line or Bearer token contents. Each independent
+probe continues after a recoverable error in another.
+
+The report exposes the `installation_status`, `issue93_status`,
+`handoff_state`, unresolved blockers and a role-labeled `recommended_field_plan`
+containing safe, non-executed argv. It additionally checks that the latest
+PC-B listener identity from the owner handoff and the Issue #93 checklist has
+the **same node, hostname, PID and timezone-normalized creation instant**.
+Any mismatch blocks even an advisory session-start suggestion.
+
+`observational_gates_aligned` means **only** three read-only evidence
+systems agreed; it never verifies actual native ComfyUI reattachment, an
+authentic historic supervisor-loss event, real GPU generation, the fourteen
+production stages or the eight-hour soak. Issues #93 and #40 must remain open
+until on-host acceptance independently proves those requirements.
+
 ## First-run guide before either PC has a YAML (read-only)
 
 You can inspect **PC-A or PC-B without creating a config file, starting a
