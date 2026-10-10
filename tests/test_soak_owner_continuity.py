@@ -225,7 +225,7 @@ def test_soak_trace_with_timezone_naive_observation_fails_without_exception(
     else:
         second["observed_at"] = "2026-10-09T01:00:00"
     lines[2] = json.dumps(second)
-    trace.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+    trace.write_text("\n".join(lines) + "\n", encoding="utf-8")
     assessment = verify_soak_evidence(trace, require_owner_observation=True)
     assert not assessment.ready_for_soak_review
     assert assessment.owner_incidents >= 1
