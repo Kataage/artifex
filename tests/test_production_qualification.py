@@ -7,6 +7,7 @@ from PIL import Image
 from sqlalchemy import func, select
 
 from artifex.archive import PackArchive
+from artifex.comfy.errors import ComfyUITimeoutError
 from artifex.characters import CharacterRegistry
 from artifex.config.models import (
     AgentConfig,
@@ -385,6 +386,59 @@ async def test_single_duo_and_group_run_end_to_end(tmp_path: Path) -> None:
             assert scene.payload_json["content_rating"] == "general"
 
     assert backend.calls == 3
+    assert reviews.list_open() == ()
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_infrastructure_retry_resumes_persisted_prompt_without_reenqueue(
+    tmp_path: Path,
+) -> None:
+    database, _, _, packs, reviews, coordinator, backend = _qualification(tmp_path)
+    record = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)), concept_id=None
+    )
+    submissions: list[str] = []
+    received: list[GenerationRequest] = []
+
+    async def flaky_generate(
+        request: GenerationRequest, *, on_submitted,
+    ) -> GeneratedBatch:
+        received.append(request)
+        if len(received) == 1:
+            assert request.resume_prompt_id is None
+            submissions.append("persisted-prompt-a")
+            on_submitted("persisted-prompt-a")
+            raise ComfyUITimeoutError(
+                "PC-A lost completion response, ComfyUI may still be running"
+            )
+        assert request.resume_prompt_id == "persisted-prompt-a"
+        # Simulate waiting for the already-running job; no second submit.
+        path = tmp_path / f"{request.scene_id}-{request.attempt_id}.png"
+        Image.new("RGB", (32, 32), (45, 67, 89)).save(path)
+        return GeneratedBatch(
+            prompt_id="persisted-prompt-a",
+            output_paths=(path,),
+            outputs=(
+                {
+                    "node_id": "7", "filename": path.name,
+                    "subfolder": "", "output_type": "output",
+                },
+            ),
+        )
+
+    backend.generate = flaky_generate  # type: ignore[method-assign]
+    await coordinator.run_pack(record.pack_id)
+    assert packs.require(record.pack_id).state is PackState.FINALIZED
+    assert len(submissions) == 1
+    assert len(received) == 2
+    assert received[0].attempt_id == received[1].attempt_id
+    with database.session() as db:
+        rows = db.scalars(select(GenerationAttemptRow)).all()
+        assert len(rows) == 1
+        provenance = rows[0].provenance_json
+        assert provenance["comfy_prompt_id"] == "persisted-prompt-a"
+        assert provenance["comfy_prompt_ids"] == ["persisted-prompt-a"]
     assert reviews.list_open() == ()
     database.dispose()
 
