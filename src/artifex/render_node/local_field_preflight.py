@@ -105,22 +105,26 @@ def compile_local_renderer_field_preflight(
     fixture_status = check_status("disposable_launcher_fixture")
     owner_status = check_status("live_comfyui_owner")
     pid = local_owner.get("actual_listener_pid")
+    safe_owner_state = owner_readiness.get("status") if isinstance(
+        owner_readiness, dict,
+    ) else None
     parsed_start = native_creation_instant(
         local_owner.get("actual_process_started_utc"),
     )
     pid_valid = isinstance(pid, int) and not isinstance(pid, bool) and pid > 0
     owner_verified = bool(
         owner_readiness is not None
-        and owner_readiness.get("status") == "observed_independently"
-        and owner_readiness.get("host") == (
-            installation.hostname if installation else None
-        )
+        and safe_owner_state == "observed_independently"
+        and isinstance(owner_readiness.get("host"), str)
+        and installation is not None
+        and owner_readiness["host"].casefold() == installation.hostname.casefold()
         and fixture_status == "pass"
         and owner_status == "pass"
         and local_owner.get("status") == "observed_stable"
         and pid_valid
         and parsed_start is not None
         and installation is not None
+        and installation.captured_utc.tzinfo is not None
         and parsed_start <= installation.captured_utc
     )
     blockers: list[str] = []
@@ -176,12 +180,10 @@ def compile_local_renderer_field_preflight(
         observer_heartbeat_status=heartbeat,
         survival_spool_status=spool,
         owner_readiness_status=(
-            str(owner_readiness.get("status", "unavailable"))
-            if owner_readiness is not None
+            safe_owner_state if isinstance(safe_owner_state, str)
+            and safe_owner_state in {"observed_independently", "blocked", "unsupported"}
             else "unavailable"
-        ) if owner_readiness is not None and owner_readiness.get(
-            "status"
-        ) in {"observed_independently", "blocked", "unsupported"} else "unavailable",
+        ),
         launcher_fixture_status=fixture_status,
         real_comfyui_owner_status=owner_status,
         listener_pid=pid if owner_verified else None,
