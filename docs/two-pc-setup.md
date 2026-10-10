@@ -962,6 +962,34 @@ An empty survival spool means no natural supervisor exit has been seen;
 it does not prove production readiness. No advisory changes YAML, GPU
 jobs, task settings or services. This is a plan, NOT a remote auto-fix.
 
+## Issue #93: one-command passive observation checklist (PC-A)
+
+After the PC-B attestation service and independent survival observer have been
+configured, use this **read-only** PC-A command to collect the status of all
+existing proof paths at once:
+
+```powershell
+uv run artifex qualify issue93-status --config .\\config\\local.yaml --json
+```
+
+The checklist calls the existing protected `owner-readiness-evidence`,
+`owner-audit`, `attestation` and `survival-trace` GETs and reads PC-A's
+newest saved `qualification.evidence_dir/owner-pair` JSON. It correlates
+the disposable Python launch fixture and current ComfyUI owner, two saved
+independent owner snapshots, and any naturally observed supervisor exit. It
+also checks that each authenticated current listener PID agrees across the
+three evidence paths. A missing Bearer token triggers **no** remote requests;
+unavailable, stale, failed, mismatched, or missing proofs are reported as
+`needs_evidence` or `conflict`, not silently upgraded. No remote commands,
+process restarts, ComfyUI operations, task changes or GPU requests occur.
+
+Even an `observations_correlated` result is **not** Issue #93 acceptance:
+the historical natural-exit event still lacks independently authenticated
+physical PC-B provenance, and safe ComfyUI reattachment has not been witnessed.
+The native PC-B launcher identity, real GPU production/14-stage qualifications
+and eight-hour soak also require separate real-machine evidence. Every
+qualification/issue-closure authorization flag remains false.
+
 ## Review saved dual-snapshot owner evidence safely (PC-A)
 
 After `qualify owner-pair-check --save`, PC-A can review the newest
