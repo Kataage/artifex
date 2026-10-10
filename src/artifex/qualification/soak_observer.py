@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import make_url
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node import fetch_render_attestation
 from artifex.render_node.client import fetch_renderer_owner_audit
@@ -446,7 +447,9 @@ def verify_soak_evidence(
         problems.append("Trace does not declare mandatory authenticated owner monitoring")
     owner_observed_samples = 0
     owner_incidents = 0
-    original_process: tuple[int, str] | None = None
+    # Compare native Windows process *instants*, never their ISO spellings.
+    # Windows CIM may return Z/UTC or +09:00 for the same physical process.
+    original_process: tuple[int, datetime] | None = None
     if tail.stopped_early:
         problems.append("Monitor stopped early due to initial failure or sample limit")
     if tail.elapsed_seconds < minimum_hours * 3600:
@@ -489,18 +492,38 @@ def verify_soak_evidence(
                     issue = "ComfyUI ownership audit blocked or incomplete"
                 elif owner.actual_listener_pid is None or not owner.actual_process_started_utc:
                     issue = "owned renderer execution identity missing"
-                elif owner.captured_utc.tzinfo is None or (
-                    abs((item.observed_at - owner.captured_utc).total_seconds()) > 90
-                ):
-                    issue = "PC-B owner observation missing timestamp or stale"
                 else:
-                    identity = (
-                        owner.actual_listener_pid, owner.actual_process_started_utc
+                    # Never accept a missing timezone, a malformed/naive
+                    # creation time, or a process born after its own snapshot.
+                    # A PID reused with a genuinely different start instant
+                    # must continue to fail the entire eight-hour review.
+                    started = native_creation_instant(
+                        owner.actual_process_started_utc,
                     )
-                    if original_process is None:
-                        original_process = identity
-                    elif original_process != identity:
-                        issue = "ComfyUI PID or creation time changed during unattended run"
+                    if (
+                        owner.captured_utc.tzinfo is None
+                        or owner.captured_utc.utcoffset() is None
+                        or item.observed_at.tzinfo is None
+                        or item.observed_at.utcoffset() is None
+                        or abs(
+                            (item.observed_at - owner.captured_utc).total_seconds()
+                        ) > 90
+                    ):
+                        issue = "PC-B owner observation missing timestamp or stale"
+                    elif started is None or started > owner.captured_utc:
+                        issue = (
+                            "owned renderer creation timestamp invalid "
+                            "or after authenticated observation"
+                        )
+                    else:
+                        identity = (owner.actual_listener_pid, started)
+                        if original_process is None:
+                            original_process = identity
+                        elif original_process != identity:
+                            issue = (
+                                "ComfyUI PID or creation time changed "
+                                "during unattended run"
+                            )
             if issue is not None:
                 owner_incidents += 1
                 problems.append(f"Sample {index}: {issue}")
