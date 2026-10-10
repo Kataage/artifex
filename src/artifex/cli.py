@@ -3610,6 +3610,55 @@ def qualify_pair_install_audit(
         raise typer.Exit(code=1)
 
 
+@qualify_app.command("field-preflight")
+def qualify_field_preflight(
+    config: ConfigOption = None,
+    renderer_config: Annotated[
+        Path, typer.Option(
+            "--renderer-config",
+            help="PC-B-local YAML path for advisory commands only; not read on PC-A.",
+        ),
+    ] = Path("config/render-node.yaml"),
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Optional new local JSON diagnostics; never overwrite.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: serial no-GPU installation, Issue #93, and production preflight."""
+    from artifex.qualification.native_field_preflight import (
+        inspect_native_field_preflight,
+    )
+
+    chosen = config or Path("config/local.yaml")
+    try:
+        if (
+            not chosen.is_file()
+            or any(x.is_symlink() for x in (chosen, *chosen.parents))
+        ):
+            raise ValueError("Existing non-symlinked PC-A YAML is required")
+        report = asyncio.run(inspect_native_field_preflight(
+            _settings(chosen), controller_config=chosen,
+            renderer_config=renderer_config,
+        ))
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            destination = output.expanduser().absolute()
+            if any(x.is_symlink() for x in (destination, *destination.parents)):
+                raise ValueError("Refusing symlinked field report destination")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
+        # Errors must not display token-bearing URLs or private subprocess args.
+        typer.echo(f"field-preflight error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.status != "observational_gates_aligned":
+        raise typer.Exit(code=1)
+
+
 @qualify_app.command("handoff")
 def qualify_handoff(
     config: ConfigOption = None,
