@@ -151,6 +151,49 @@ def test_rejects_unproven_or_contradictory_lifecycle(
     assert report.child_survival_qualified is False
 
 
+@pytest.mark.parametrize("failure", (
+    "later_blocked_owner",
+    "supervisor_reappeared",
+    "listener_replaced",
+    "invalid_creation_time",
+    "replayed_observation",
+))
+def test_later_contradiction_clears_prior_survival_success_flags(
+    failure: str,
+) -> None:
+    prefix = (
+        _sample(0),
+        _sample(10, task_state="Ready"),
+        _sample(20, task_state="Ready"),
+    )
+    accepted = assess_survival(prefix, min_separation_seconds=10)
+    assert accepted.status == "observed_after_supervisor_absence"
+    assert accepted.same_comfyui_seen_before_and_after
+    assert accepted.supervisor_absence_observed
+
+    last = _sample(30, task_state="Ready")
+    if failure == "later_blocked_owner":
+        last = last.model_copy(update={"owner_process_verified": False})
+    elif failure == "supervisor_reappeared":
+        last = _sample(30)
+    elif failure == "listener_replaced":
+        last = last.model_copy(update={"actual_listener_pid": 401})
+    elif failure == "invalid_creation_time":
+        last = last.model_copy(update={
+            "actual_listener_started_utc": "not a datetime",
+        })
+    else:
+        last = last.model_copy(update={
+            "observed_utc": _BASE + timedelta(seconds=20),
+        })
+    invalidated = assess_survival((*prefix, last), min_separation_seconds=10)
+    assert invalidated.status == "blocked"
+    assert not invalidated.same_comfyui_seen_before_and_after
+    assert not invalidated.supervisor_absence_observed
+    assert not invalidated.issue_93_closure_authorized
+    assert not invalidated.production_qualified
+
+
 @pytest.mark.parametrize("case", (
     "naive_baseline_observed",
     "naive_later_observed",

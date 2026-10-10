@@ -1005,7 +1005,10 @@ rejected. Equivalent timezone-aware ISO timestamps are normalized before
 validating creation-time ordering. Failures are `blocked` evidence, never
 proof that an actual natural supervisor loss took place. Clock corrections
 or incomplete Windows CIM information therefore require fresh observation,
-not an automatic reattachment or renderer restart.
+not an automatic reattachment or renderer restart. If later evidence
+contradicts an earlier successful segment of the same trace, the complete
+verdict becomes `blocked` and both survival-success flags are false; a good
+prefix never overrides an untrusted final observation.
 
 ## Isolated OS-level supervisor-loss / reattachment regression (Windows CI)
 
