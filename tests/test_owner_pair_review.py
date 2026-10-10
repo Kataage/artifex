@@ -276,3 +276,77 @@ def test_newest_owner_evidence_uses_file_write_time_not_random_filename_suffix(
     os.utime(newest, ns=(2_000_000_000, 2_000_000_000))
     selected = _latest_evidence(settings.qualification.evidence_dir / "owner-pair")
     assert selected == newest
+
+
+def test_owner_pair_same_write_timestamp_fails_closed_before_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    settings = _settings(tmp_path)
+    old = _save(
+        settings, _pair(), filename="20261010T060000Z-zzzz.json",
+    )
+    newer = _save(
+        settings, _pair(state="blocked"), filename="20261010T060000Z-aaaa.json",
+    )
+    # With filesystem ties, lexical/random suffixes cannot tell which was
+    # actually written last. No older PASS must be silently selected.
+    os.utime(old, ns=(3_000_000_000, 3_000_000_000))
+    os.utime(newer, ns=(3_000_000_000, 3_000_000_000))
+    def no_network(*args: object) -> RemoteRendererOwnerAudit:
+        pytest.fail("Ambiguous local evidence must not contact PC-B")
+    report = review_owner_pair_evidence(
+        settings, owner_probe=no_network, now=lambda: NOW,
+    )
+    assert report.status == "blocked"
+    assert report.reason == "invalid_or_unreadable_saved_evidence"
+    assert not report.live_pc_b_owner_correlated
+    assert not report.remote_bearer_checked
+
+
+def test_owner_pair_read_time_change_fails_closed_before_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    saved = _save(settings, _pair())
+    original = Path.read_bytes
+
+    def mutate_after_read(path: Path) -> bytes:
+        raw = original(path)
+        if path == saved:
+            with path.open("ab") as handle:
+                handle.write(b"later")
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", mutate_after_read)
+    def no_network(*args: object) -> RemoteRendererOwnerAudit:
+        pytest.fail("Incomplete local evidence must not contact PC-B")
+    report = review_owner_pair_evidence(
+        settings, report_path=saved, owner_probe=no_network, now=lambda: NOW,
+    )
+    assert report.status == "blocked"
+    assert report.reason == "saved_evidence_changed_during_read"
+    assert not report.remote_bearer_checked
+    assert not report.production_qualified
+
+
+def test_owner_pair_bad_newest_does_not_fall_back_to_older_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    settings = _settings(tmp_path)
+    good = _save(settings, _pair(), filename="20261010T060000Z-zzzz.json")
+    bad = _save(settings, _pair(state="blocked"), filename="20261010T060000Z-aaaa.json")
+    os.utime(good, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(bad, ns=(2_000_000_000, 2_000_000_000))
+    def no_network(*args: object) -> RemoteRendererOwnerAudit:
+        pytest.fail("Blocked newest evidence must not fall back to old PASS")
+    report = review_owner_pair_evidence(
+        settings, owner_probe=no_network, now=lambda: NOW,
+    )
+    assert report.status == "blocked"
+    assert report.saved_report_sha256 is not None
+    assert report.saved_sample_count == 2
+    assert not report.live_pc_b_owner_correlated

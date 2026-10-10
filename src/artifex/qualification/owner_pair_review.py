@@ -84,10 +84,18 @@ def _latest_evidence(directory: Path) -> Path | None:
             if not _safe_path(path) or not path.is_file():
                 raise ValueError("unsafe_evidence_candidate")
             choices.append(path)
-    # A second-resolution filename plus a random suffix is not a reliable
-    # chronology when two captures happen in the same second. Prefer actual
-    # file modification time; use the filename only to break a genuine tie.
-    return max(choices, key=lambda x: (x.stat().st_mtime_ns, x.name)) if choices else None
+    # Even the current timestamp format has a random suffix; filesystem
+    # modification times are the actual available ordering evidence.
+    # A tie is ambiguous (e.g., coarse-resolution Windows/SMB timestamps).
+    # Do NOT use the random name to pick an older apparent PASS.
+    if not choices:
+        return None
+    stamped = [(candidate.lstat().st_mtime_ns, candidate) for candidate in choices]
+    newest_time = max(mtime for mtime, _ in stamped)
+    newest = [candidate for mtime, candidate in stamped if mtime == newest_time]
+    if len(newest) != 1:
+        raise ValueError("owner_pair_latest_evidence_ambiguous")
+    return newest[0]
 
 
 def _valid_saved_pair(report: OwnerPairObservation, checked: datetime) -> tuple[bool, bool]:
@@ -178,12 +186,21 @@ def review_owner_pair_evidence(
         selected = selected.expanduser().absolute()
         if not _safe_path(selected) or not selected.is_file():
             return result("blocked", "unsafe_or_missing_evidence_path")
-        size = selected.stat().st_size
-        if not 0 < size <= _MAX_BYTES:
+        before = selected.stat()
+        if not 0 < before.st_size <= _MAX_BYTES:
             return result("blocked", "empty_or_oversized_saved_evidence")
         raw = selected.read_bytes()
-        if not 0 < len(raw) <= _MAX_BYTES:
-            return result("blocked", "invalid_saved_evidence_size")
+        after = selected.stat()
+        if (
+            not _safe_path(selected)
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or len(raw) != after.st_size
+            or not 0 < len(raw) <= _MAX_BYTES
+        ):
+            # A writer may have replaced or extended the file while it
+            # was being read. Refuse the report before contacting PC-B.
+            return result("blocked", "saved_evidence_changed_during_read")
         digest = hashlib.sha256(raw).hexdigest()
         saved = OwnerPairObservation.model_validate_json(raw)
     except (OSError, ValueError, TypeError):
