@@ -8,7 +8,8 @@ from sqlalchemy import func, select
 
 from artifex.archive import PackArchive
 from artifex.characters import CharacterRegistry
-from artifex.comfy.errors import ComfyUITimeoutError
+from artifex.comfy import ComfyExecutionResult, ComfyOutput
+from artifex.comfy.errors import ComfyErrorKind, ComfyUIError, ComfyUITimeoutError
 from artifex.config.models import (
     AgentConfig,
     CharacterRegistryConfig,
@@ -439,6 +440,105 @@ async def test_infrastructure_retry_resumes_persisted_prompt_without_reenqueue(
         provenance = rows[0].provenance_json
         assert provenance["comfy_prompt_id"] == "persisted-prompt-a"
         assert provenance["comfy_prompt_ids"] == ["persisted-prompt-a"]
+    assert reviews.list_open() == ()
+    database.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transient_delivery_failure", [False, True])
+async def test_restart_recovers_completed_comfy_image_and_finalizes_same_pack(
+    tmp_path: Path, transient_delivery_failure: bool,
+) -> None:
+    database, _, _, packs, reviews, coordinator, backend = _qualification(tmp_path)
+    planned = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)), concept_id=None,
+    )
+    remote_submissions: list[str] = []
+
+    async def simulate_pc_a_crash(
+        request: GenerationRequest, *, on_submitted,
+    ) -> GeneratedBatch:
+        assert request.resume_prompt_id is None
+        remote_submissions.append("original-prompt")
+        on_submitted("original-prompt")
+        # Simulate hard process death after the durable /prompt receipt,
+        # before image downloading, quality evaluation or archive.
+        raise SystemExit("controller process stopped after /prompt")
+
+    backend.generate = simulate_pc_a_crash  # type: ignore[method-assign]
+    with pytest.raises(SystemExit, match="controller process stopped"):
+        await coordinator.run_pack(planned.pack_id)
+
+    with database.session() as db:
+        assert db.scalar(select(GenerationAttemptRow)) is not None
+        scene = db.scalar(select(SceneRow))
+        assert scene is not None
+        assert scene.state == "generating"
+
+    class FinishedComfyHistory:
+        async def get_history(self, prompt_id: str) -> ComfyExecutionResult:
+            assert prompt_id == "original-prompt"
+            return ComfyExecutionResult(
+                prompt_id=prompt_id,
+                completed=True,
+                status="success",
+                outputs=(ComfyOutput(node_id="7", filename="completed.png"),),
+            )
+
+        async def queue_snapshot(self) -> dict[str, object]:
+            raise AssertionError("completed prompt must not query the queue")
+
+    coordinator._recovery._comfy = FinishedComfyHistory()  # type: ignore[assignment]
+
+    recover_calls: list[str] = []
+
+    async def recover_completed(
+        *, prompt_id: str, scene_id: str, attempt_id: str,
+        outputs: list[dict[str, object]],
+    ) -> GeneratedBatch:
+        assert prompt_id == "original-prompt"
+        assert outputs[0]["filename"] == "completed.png"
+        recover_calls.append(prompt_id)
+        if transient_delivery_failure and len(recover_calls) == 1:
+            raise ComfyUIError(
+                ComfyErrorKind.CONNECTION,
+                "PC-A cannot reach /view yet",
+                retryable=True,
+            )
+        image = tmp_path / f"{scene_id}-{attempt_id}-recovered.png"
+        Image.new("RGB", (32, 32), (60, 80, 90)).save(image)
+        return GeneratedBatch(
+            prompt_id=prompt_id,
+            output_paths=(image,),
+            outputs=tuple(outputs),
+        )
+
+    backend.recover_completed = recover_completed  # type: ignore[attr-defined]
+    await coordinator.recover_pack(planned.pack_id)
+    if transient_delivery_failure:
+        assert packs.require(planned.pack_id).state is PackState.EVALUATING
+        with database.session() as db:
+            scene = db.scalar(select(SceneRow))
+            assert scene is not None
+            assert scene.state == "evaluating"
+        assert reviews.list_open() == ()
+        await coordinator.recover_pack(planned.pack_id)
+
+    assert packs.require(planned.pack_id).state is PackState.FINALIZED
+    assert remote_submissions == ["original-prompt"]
+    assert recover_calls == (
+        ["original-prompt", "original-prompt"]
+        if transient_delivery_failure else ["original-prompt"]
+    )
+    with database.session() as db:
+        attempts = db.scalars(select(GenerationAttemptRow)).all()
+        assert len(attempts) == 1
+        assert attempts[0].provenance_json["comfy_prompt_id"] == "original-prompt"
+        assert attempts[0].provenance_json["recovered_image_delivery"] is True
+        assert Path(attempts[0].provenance_json["output_paths"][0]).is_file()
+        pack = db.get(PackRow, planned.pack_id)
+        assert pack is not None
+        assert pack.checkpoint_json["archive_complete"] is True
     assert reviews.list_open() == ()
     database.dispose()
 
