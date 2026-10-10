@@ -39,6 +39,10 @@ jobs:
       - run: uv run pytest -q tests/test_windows_task_safety.py
       - run: uv run pytest -q tests/test_windows_task_native_integration.py
       - run: uv run pytest -q tests/test_windows_venv_renderer_identity.py
+      # Exercises actual protected ManagedComfyUI.start/close/reattach using
+      # an isolated loopback-only HTTP fixture; no ComfyUI or GPU is touched.
+      - run: uv run pytest -q tests/test_native_managed_comfy_lifecycle.py
+        timeout-minutes: 4
       - run: uv run pytest -q tests/test_native_launcher_probe.py
       - run: uv run pytest -q tests/test_owner_readiness.py
       - run: uv run artifex render-node owner-readiness --help
