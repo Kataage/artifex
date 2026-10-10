@@ -7,11 +7,11 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from artifex.comfy import (
+    ComfyOutput,
     ComfyUIClient,
     ComfyUIError,
     ComfyUIExecutionError,
     ComfyUIProtocolError,
-    ComfyOutput,
     WorkflowLoRA,
     WorkflowPatchRequest,
     WorkflowTemplateRegistry,
