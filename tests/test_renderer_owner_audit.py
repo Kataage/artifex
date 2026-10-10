@@ -209,6 +209,75 @@ def test_owner_audit_ignores_dead_launcher_but_blocks_reused_launcher(
     assert reused["checks"]["launcher_identity"]["status"] == "fail"
 
 
+@pytest.mark.parametrize(
+    ("second_launcher", "expected", "launcher_check"),
+    [
+        ("original", "observed_stable", "pass"),
+        ("naturally_exited", "observed_stable", "pass"),
+        ("pid_reused", "blocked", "fail"),
+        ("cim_unavailable", "inconclusive", "unknown"),
+    ],
+)
+def test_launcher_reuse_during_owner_audit_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    second_launcher: str, expected: str, launcher_check: str,
+) -> None:
+    import artifex.render_node.owner_audit as module
+
+    settings, identity = _settings(tmp_path)
+    cfg = settings.render_agent.comfyui_process
+    assert cfg.executable is not None
+    launcher = identity.model_copy(update={
+        "pid": 101, "parent_pid": 17,
+        "started_utc": "2026-10-08T23:59:59Z",
+        "executable": str(cfg.executable),
+        "command_line": subprocess.list2cmdline([str(cfg.executable), *cfg.arguments]),
+    })
+    child = identity.model_copy(update={
+        "parent_pid": launcher.pid,
+        "executable": r"C:\\Python312\\python.exe",
+        "command_line": subprocess.list2cmdline([
+            r"C:\\Python312\\python.exe", *cfg.arguments,
+        ]),
+    })
+    ComfyReceiptStore(cfg.ownership_receipt_path).save(
+        expected_receipt(settings, child, launcher_identity=launcher)
+    )
+    counts = _mock_probes(monkeypatch, identity)
+    launches = 0
+
+    def inspect(pid: int) -> WindowsProcessIdentity | None:
+        nonlocal launches
+        if pid == child.pid:
+            return child
+        assert pid == launcher.pid
+        launches += 1
+        if launches == 1 or second_launcher == "original":
+            return launcher
+        if second_launcher == "naturally_exited":
+            return None
+        if second_launcher == "cim_unavailable":
+            raise OSError("private CIM failure; never leak details")
+        return launcher.model_copy(update={
+            "started_utc": "2026-10-09T02:00:00Z",
+        })
+
+    monkeypatch.setattr(module, "windows_process_identity", inspect)
+    report = observe_renderer_owner(settings, config=tmp_path / "render-node.yaml")
+    assert launches == 2
+    assert counts["socket"] == 2
+    assert report["status"] == expected
+    assert report["checks"]["launcher_identity"]["status"] == launcher_check
+    assert report["checks"]["snapshot_consistency"]["status"] == (
+        "pass" if expected == "observed_stable"
+        else "unknown" if expected == "inconclusive" else "fail"
+    )
+    assert "private CIM" not in str(report)
+    assert report["restart_authorized"] is False
+    assert report["production_qualified"] is False
+    assert report["mutated_services"] is False
+
+
 def test_snapshot_process_drift_is_never_stable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:

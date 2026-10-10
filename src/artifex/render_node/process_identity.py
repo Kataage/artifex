@@ -183,8 +183,12 @@ def _started_not_before(process: WindowsProcessIdentity, launcher: WindowsProces
     try:
         child_time = datetime.fromisoformat(process.started_utc)
         launch_time = datetime.fromisoformat(launcher.started_utc)
+        # Windows CIM emits UTC offsets. Naive/mixed timestamps cannot prove
+        # ancestry; comparisons must fail closed instead of raising TypeError.
+        if child_time.tzinfo is None or launch_time.tzinfo is None:
+            return False
         return child_time >= launch_time
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
 
