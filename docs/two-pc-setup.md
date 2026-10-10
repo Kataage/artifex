@@ -8,6 +8,37 @@ Artifex supports a split native-Windows deployment where the controller and rend
 No Docker, WSL, shared SMB output folder, or duplicate LoRA/model copy on PC-A is required.
 
 
+## Single PC-B local field preflight (no production GPU work)
+
+On **PC-B**, run this once after configuring the renderer YAML:
+
+```powershell
+uv run artifex render-node field-preflight --config .\\config\\render-node.yaml --json
+```
+
+It serially inspects local Task Scheduler renderer/independent-observer
+registration, observer heartbeat, survival-evidence spool and the existing
+**disposable, loopback-only Python launcher fixture** plus a separate
+read-only live ComfyUI owner audit. The disposable fixture is a short-lived,
+no-GPU Python process; **it is not the production ComfyUI process** and
+cannot establish genuine supervisor-loss provenance by itself.
+
+The bounded response deliberately omits process command lines, executable
+paths, network URLs, Bearer tokens and raw exception messages. It includes
+redacted status codes, a verified listener PID/UTC creation instant when
+available, missing prerequisites, and the next host to inspect. The optional
+`--output "D:/Artifex/evidence/pc-b-field.json"` writes a new report only,
+without overwriting existing evidence or following symlinked paths.
+Missing evidence returns nonzero while preserving JSON diagnostic output.
+
+`passive_observation_ready` **does not mean** Issue #93 closed, safe
+production reattachment, GPU generation or fourteen-stage/eight-hour
+production qualification. A blocked result may suggest a dry-run
+`startup observer-enable` command **without `--apply`**; do not stop,
+restart, adopt or deliberately crash a running ComfyUI. Then on **PC-A**
+use the `qualify field-preflight` command below to verify independent
+authenticated observations.
+
 ## Single PC-A native field preflight (read-only)
 
 For the real two-Windows-PC installation, inspect all three existing gates
