@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import threading
 from pathlib import Path
@@ -66,6 +67,84 @@ def test_latest_is_deterministic_and_does_not_fallback(
         latest_survival_trace(settings)
 
 
+def test_same_second_uuid_order_never_hides_newer_blocked_trace(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    root = settings.render_agent.survival_evidence_dir
+    root.mkdir()
+    old = root / "survival-20261010T100000Z-ffffffffffffffffffffffffffffffff.json"
+    newer = root / "survival-20261010T100000Z-00000000000000000000000000000000.json"
+    old.write_text('{"status":"old-success"}', encoding="utf-8")
+    newer.write_text('{"status":"new-blocked"}', encoding="utf-8")
+    os.utime(old, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+    digest, content = latest_survival_trace(settings)
+    assert content == '{"status":"new-blocked"}'
+    assert digest == hashlib.sha256(content.encode("utf-8")).hexdigest()
+    # The newest corrupt or oversized evidence must block rather than
+    # silently falling back to the older successful observation.
+    newer.write_bytes(b"x" * (12 * 1024 * 1024 + 1))
+    with pytest.raises(ValueError, match="size invalid"):
+        latest_survival_trace(settings)
+
+
+def test_survival_spool_same_mtime_is_ambiguous_not_uuid_ordered(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    root = settings.render_agent.survival_evidence_dir
+    root.mkdir()
+    first = root / _FIRST
+    second = root / _SECOND
+    first.write_text('{"status":"old-success"}', encoding="utf-8")
+    second.write_text('{"status":"new-blocked"}', encoding="utf-8")
+    # Coarse-grained filesystems may not distinguish write order even when
+    # the clock/name values differ. Do not promote an arbitrary old PASS.
+    os.utime(first, ns=(3_000_000_000, 3_000_000_000))
+    os.utime(second, ns=(3_000_000_000, 3_000_000_000))
+    with pytest.raises(ValueError, match="ambiguous"):
+        latest_survival_trace(settings)
+
+
+def test_survival_spool_write_time_beats_future_dated_filename(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    root = settings.render_agent.survival_evidence_dir
+    root.mkdir()
+    misleading = root / "survival-20991231T235959Z-ffffffffffffffffffffffffffffffff.json"
+    actual_newest = root / _FIRST
+    misleading.write_text('{"status":"old-success"}', encoding="utf-8")
+    actual_newest.write_text('{"status":"new-blocked"}', encoding="utf-8")
+    os.utime(misleading, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(actual_newest, ns=(2_000_000_000, 2_000_000_000))
+    _digest, content = latest_survival_trace(settings)
+    assert content == '{"status":"new-blocked"}'
+
+
+def test_survival_spool_concurrent_write_never_returns_partial_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    root = settings.render_agent.survival_evidence_dir
+    root.mkdir()
+    latest = root / _FIRST
+    latest.write_text('{"status":"blocked"}', encoding="utf-8")
+    original = Path.read_bytes
+
+    def read_and_change(path: Path) -> bytes:
+        raw = original(path)
+        if path == latest:
+            with path.open("ab") as handle:
+                handle.write(b"still-writing")
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", read_and_change)
+    with pytest.raises(ValueError, match="changed during read"):
+        latest_survival_trace(settings)
+
+
 def test_symlink_and_inventory_fail_closed(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     root = settings.render_agent.survival_evidence_dir
@@ -76,7 +155,9 @@ def test_symlink_and_inventory_fail_closed(tmp_path: Path) -> None:
         latest.symlink_to(root / _FIRST)
     except (OSError, NotImplementedError):
         pytest.skip("Native Windows permissions disallow symlink creation")
-    with pytest.raises(ValueError, match="unsafe"):
+    # Symlink and a coarse-resolution ambiguous newest timestamp both
+    # fail closed. Neither case may return the older apparently good trace.
+    with pytest.raises(ValueError, match="unsafe|ambiguous"):
         latest_survival_trace(settings)
     latest.unlink()
     for i in range(513):

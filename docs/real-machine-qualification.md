@@ -178,6 +178,14 @@ When the PC-B attestation service is running, its Bearer-protected
 `GET /v1/survival-evidence` reads ONLY the newest correctly named report
 in the configured local spool (up to 512 candidates). The URL accepts
 NO filename, file path, query parameters, POST body, or remote commands.
+The 'newest' trace is selected by actual file write time, not the random
+UUID suffix following its second-resolution filename. When two candidate files
+share the same latest write timestamp (for example on a coarse-timestamp
+filesystem), or the selected file changes during reading, the endpoint fails
+closed instead of choosing an arbitrary older apparently successful trace.
+The source JSON and SHA-256 are observational evidence, not proof that an
+operator-host supervisor exit really happened.
+
 An absent, symlinked, malformed or oversize newest file fails closed:
 the service never searches backward for an older apparently good trace.
 Files survive the attestation service stopping and can be read once it
