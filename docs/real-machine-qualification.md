@@ -411,8 +411,11 @@ uv run artifex qualify owner-pair-review --config .\\config\\local.yaml --offlin
 ```
 
 The command reads only a bounded, non-symlinked JSON file (newest
-lexicographic filename under configurable `qualification.evidence_dir/owner-pair`
-unless `--report` is supplied). It rejects stale or future-dated
+write time under configurable `qualification.evidence_dir/owner-pair`
+unless `--report` is supplied). The reviewer fails closed when newest
+file modification times are tied, rather than interpreting the random suffix
+as a chronology; it also refuses a file that changes during reading. Neither
+case can fall back to an older successful observation. It rejects stale or future-dated
 records, incomplete/failed mandatory ownership checks, inconsistent
 timestamps, launcher PID drift, receipt-schema inconsistency and mismatch
 against the **current** PC-B observation. Unknown, malformed, replayed,
