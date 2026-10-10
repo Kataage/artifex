@@ -267,10 +267,10 @@ def test_issue93_cli_refresh_binds_newly_saved_pair_and_never_uses_old_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     pair_status: str, checklist_status: str, expected_exit: int,
 ) -> None:
-    from artifex import cli
     import artifex.qualification.issue93_checklist as checklist_module
     import artifex.qualification.owner_pair as pair_module
     import artifex.qualification.owner_pair_review as review_module
+    from artifex import cli
     from artifex.qualification.issue93_checklist import Issue93EvidenceChecklist
     from artifex.qualification.owner_pair import OwnerPairObservation
     from artifex.qualification.owner_pair_review import OwnerPairReview
@@ -349,9 +349,9 @@ def test_issue93_cli_refresh_binds_newly_saved_pair_and_never_uses_old_pass(
 def test_issue93_cli_refresh_refuses_symlinked_evidence_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from artifex import cli
     import artifex.qualification.issue93_checklist as checklist_module
     import artifex.qualification.owner_pair as pair_module
+    from artifex import cli
     from artifex.qualification.owner_pair import OwnerPairObservation
 
     actual = tmp_path / "real-evidence"
