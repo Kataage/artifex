@@ -137,7 +137,10 @@ def test_fail_closed_changes_or_unavailable(
     assert report.status == status
     assert report.reason == reason
     assert len(calls) == count
-    assert report.sample_count == (2 if count == 2 and issue != "second_unavailable" else 1)
+    assert report.sample_count == (
+        0 if issue == "first_unavailable" else
+        1 if issue == "second_unavailable" or count == 1 else 2
+    )
     assert "secret" not in report.model_dump_json().lower()
     assert report.production_qualified is False
     assert report.gpu_jobs_submitted is False
