@@ -405,8 +405,20 @@ class QualificationService:
             path.read_text(encoding="utf-8")
         )
 
+    @staticmethod
+    def _require_session_host(session: QualificationSession) -> None:
+        """Refuse to mutate imported evidence from a different controller."""
+        if session.hostname != socket.gethostname():
+            raise ValueError(
+                "qualification session belongs to another controller; "
+                "do not copy or adopt an existing qualification session"
+            )
+
     def collect_renderer_owner_observation(self, session_id: str) -> dict[str, object]:
         """Fetch authenticated current PC-B state, append evidence, never mark stage PASS."""
+        # A foreign report must never trigger new remote probes or be appended
+        # with local owner evidence. Recheck under the lock after the GET.
+        self._require_session_host(self.load(session_id))
         # Remote network inspection happens outside the lock; only the
         # load+append+save transaction must serialize against stage records.
         primary = self._settings.render_nodes.primary_node()
@@ -416,6 +428,7 @@ class QualificationService:
         observed = fetch_renderer_owner_audit(node_id, node)
         with qualification_session_lock(self._path(session_id).parent):
             session = self.load(session_id)
+            self._require_session_host(session)
             binding = persist_owner_observation(self._root, session_id, observed)
             self._write(session.model_copy(update={
                 "updated_at": _utcnow(),
@@ -451,6 +464,7 @@ class QualificationService:
         with qualification_session_lock(self._path(session_id).parent):
             # Reload *inside* the lock: never write an old session snapshot.
             session = self.load(session_id)
+            self._require_session_host(session)
             previous = session.stage(stage)
             if previous.status is not QualificationStatus.PENDING:
                 normalized_ids = tuple(dict.fromkeys(pack_ids))
@@ -519,8 +533,7 @@ class QualificationService:
     def _require_live_baseline(self, session: QualificationSession) -> None:
         if not session.doctor_ready:
             raise ValueError("soak qualification requires a ready doctor baseline")
-        if session.hostname != socket.gethostname():
-            raise ValueError("soak qualification session belongs to another controller")
+        self._require_session_host(session)
         requirements = session.environment.get("requirements")
         if not isinstance(requirements, dict) or not all(
             value is True for value in requirements.values()
@@ -599,6 +612,11 @@ class QualificationService:
     def verify(self, session_id: str) -> dict[str, object]:
         session = self.load(session_id)
         issues: list[str] = []
+        # Real-machine acceptance is bound to the controller that collected
+        # the original baseline. A copied qualification.json, even with all
+        # stages showing PASS, cannot qualify a different Windows PC.
+        if session.hostname != socket.gethostname():
+            issues.append("qualification session belongs to another controller")
         # Freeze the production configuration used for the qualification run.
         # The production LoRA count can increase as validation completes, but
         # changing the backend, assets, identity policies or safety gates cannot.
