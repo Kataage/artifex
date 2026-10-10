@@ -370,7 +370,15 @@ PID/creation-time identity are also compared as UTC instants across samples;
 a valid switch between `Z` and `+09:00` cannot by itself invalidate native
 continuity. A truly different creation instant still blocks the observation.
 PC-A's saved-trace versus fresh authenticated owner review follows the same
-normalization and never treats a matching numeric PID alone as proof. Failures are `blocked` evidence, never
+normalization and never treats a matching numeric PID alone as proof.
+
+The same strict UTC-instant comparison also applies to PC-A's two successive
+authenticated owner snapshots, the saved owner-pair evidence reviewer, and
+PC-B cached launcher/owner handoff versus live authenticated ownership. An
+unchanged PID with a genuinely different process creation instant is still
+blocked, as are missing, malformed, or timezone-naive start timestamps. This
+prevents equivalent UTC/Japan-time CIM spellings from creating false setup
+blockers without weakening PID-reuse checks. Failures are `blocked` evidence, never
 proof that an actual natural supervisor loss took place. Clock corrections
 or incomplete Windows CIM information therefore require fresh observation,
 not an automatic reattachment or renderer restart. If later evidence
