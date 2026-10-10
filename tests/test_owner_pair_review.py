@@ -261,6 +261,7 @@ def test_newest_owner_evidence_uses_file_write_time_not_random_filename_suffix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import os
+
     from artifex.qualification.owner_pair_review import _latest_evidence
 
     settings = _settings(tmp_path)
