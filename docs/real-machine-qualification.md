@@ -31,6 +31,23 @@ restart, adopt or deliberately crash a running ComfyUI. Then on **PC-A**
 use the `qualify field-preflight` command below to verify independent
 authenticated observations.
 
+### Qualification session belongs to one PC-A
+
+A production qualification session stores the actual Windows PC-A hostname
+when `qualify start` captures its native/asset baseline. The target-machine
+identity is binding: `qualify record`, automatic/explicit evidence recording
+and authenticated `qualify owner-observe` reject evidence from a session
+created on another PC-A, including a copied JSON file. `qualify verify`
+also returns `ready=false` when the currently running controller hostname
+does not match, **even if saved stage statuses appear to be PASS**. An imported
+session cannot be converted into authentic local physical-PC acceptance by
+copying files or modifying configuration.
+
+To switch to another actual Windows controller, start a **new** qualification
+session there and collect fresh evidence on that machine; do not overwrite
+or reparent the original session. This check does not by itself prove
+authenticity of historical files or complete Issue #93/#40 acceptance.
+
 ## Single PC-A native field preflight (read-only)
 
 For the real two-Windows-PC installation, inspect all three existing gates
