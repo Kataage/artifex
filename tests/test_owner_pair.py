@@ -97,6 +97,42 @@ def _sample_pair(monkeypatch: pytest.MonkeyPatch, *, issue: str = "ok"):
     return result, calls
 
 
+@pytest.mark.parametrize(("later_creation", "expected_status", "expected_reason"), [
+    ("2026-10-09T09:00:00+09:00", "consistent_samples",
+     "same_renderer_identity_at_two_observations"),
+    ("2026-10-09T09:00:01+09:00", "blocked",
+     "renderer_identity_changed_between_snapshots"),
+    ("2026-10-09T00:00:00", "blocked",
+     "second_owner_identity_unverified"),
+])
+def test_dual_owner_probe_matches_creation_instant_not_timezone_spelling(
+    monkeypatch: pytest.MonkeyPatch,
+    later_creation: str, expected_status: str, expected_reason: str,
+) -> None:
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "fixture")
+    elapsed = [0.0]
+
+    def probe(node: str, config: RenderNodeConfig) -> RemoteRendererOwnerAudit:
+        first = elapsed[0] == 0
+        return _owner(
+            BASE + timedelta(seconds=elapsed[0]),
+            started="2026-10-09T00:00:00Z" if first else later_creation,
+        )
+
+    def sleep(seconds: float) -> None:
+        elapsed[0] += seconds
+
+    report = inspect_remote_owner_pair(
+        _settings(), gap_seconds=5.0, owner_probe=probe,
+        monotonic=lambda: elapsed[0], sleep=sleep,
+        now=lambda: BASE + timedelta(seconds=elapsed[0]),
+    )
+    assert report.status == expected_status
+    assert report.reason == expected_reason
+    assert not report.production_qualified
+    assert not report.issue_93_closure_authorized
+
+
 def test_two_authenticated_owner_samples_remain_observational(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
