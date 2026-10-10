@@ -360,7 +360,11 @@ timestamp (ComfyUI listener or identified supervisor), an absent or duplicated
 supervisor PID, or an empty host/node identity. Each sample's wall-clock
 observation must also advance strictly in UTC order; a duplicated or backward
 wall-clock observation **cannot** be redeemed by advancing monotonic elapsed
-seconds. Equivalent timezone-aware ISO timestamps are normalized before
+seconds. Wall-clock progression must also agree with monotonic elapsed
+seconds within a 30-second bound (the same rule used by PC-A trace replay):
+even strictly increasing UTC timestamps cannot conceal a large clock step or
+an artificially compressed observation window. Non-finite elapsed values are
+rejected. Equivalent timezone-aware ISO timestamps are normalized before
 validating creation-time ordering. Failures are `blocked` evidence, never
 proof that an actual natural supervisor loss took place. Clock corrections
 or incomplete Windows CIM information therefore require fresh observation,
