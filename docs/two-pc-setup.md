@@ -962,6 +962,29 @@ An empty survival spool means no natural supervisor exit has been seen;
 it does not prove production readiness. No advisory changes YAML, GPU
 jobs, task settings or services. This is a plan, NOT a remote auto-fix.
 
+## PC-A read-only dual owner snapshot check (Issue #93)
+
+After configuring the protected PC-B attestation service, PC-A can verify
+that two independently requested real ComfyUI ownership observations report
+the **same** execution PID, creation timestamp, venv launcher PID, receipt
+schema, and Running scheduler state:
+
+```powershell
+uv run artifex qualify owner-pair-check --config .\\config\\local.yaml --gap-seconds 5 --json
+```
+
+This command uses **two** authenticated read-only `/v1/owner-audit` GETs.
+It verifies all mandatory ownership checks, freshness, elapsed monotonic
+sample spacing, and that PC-B's snapshot timestamp advanced (so replayed or
+cached evidence is not counted twice). Errors, stale snapshots, PID reuse,
+provenance drift, or unavailable PC-B responses fail closed with safe reason
+codes and a nonzero exit. The gap is configurable from 1 to 60 seconds; no
+ComfyUI process or Task Scheduler job is started, stopped, restarted, or
+modified, and no GPU request is submitted. A successful
+`consistent_samples` result is **two point-in-time observations only**,
+not proof of uninterrupted ComfyUI/GPU survival, Issue #93 closure, or
+the fourteen production stages and eight-hour soak required by Issue #40.
+
 ## PC-A + PC-B read-only installation audit (Issue #93 / #40)
 
 Use the ONE read-only PC-A command below to check whether the two real
