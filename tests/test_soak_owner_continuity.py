@@ -108,6 +108,19 @@ def _run(
                 o = _owner(elapsed, pid=505)
             if change == "process_restarted":
                 o = _owner(elapsed, started="2026-10-09T01:00:00Z")
+            if change == "timezone_equivalent":
+                # Exactly the same original Windows process instant.
+                o = _owner(elapsed, started="2026-10-09T09:00:00+09:00")
+            if change == "offset_equivalent":
+                o = _owner(elapsed, started="2026-10-08T17:00:00-07:00")
+            if change == "naive_start":
+                o = _owner(elapsed, started="2026-10-09T00:00:00")
+            if change == "malformed_start":
+                o = _owner(elapsed, started="not-an-ISO-timestamp")
+            if change == "future_start":
+                o = _owner(elapsed, started="2026-10-10T00:00:00Z")
+            if change == "same_pid_new_start":
+                o = _owner(elapsed, started="2026-10-09T00:00:01Z")
             if change == "blocked":
                 o = _owner(elapsed, status="blocked")
             if change == "unproven_tcp":
@@ -150,12 +163,35 @@ def test_owner_continuity_can_be_reviewed_without_production_qualification(
     assert repeated.evidence_sha256 == assessment.evidence_sha256
 
 
+@pytest.mark.parametrize("change", [
+    "timezone_equivalent",
+    "offset_equivalent",
+])
+def test_same_windows_comfyui_process_does_not_fail_for_time_zone_spelling(
+    tmp_path: Path, change: str,
+) -> None:
+    trace, report = _run(tmp_path, change=change)
+    assert trace.is_file()
+    assert report.ready_for_soak_review
+    assert report.owner_observed_samples == 9
+    assert report.owner_incidents == 0
+    assert not report.production_qualified
+    rechecked = verify_soak_evidence(trace, require_owner_observation=True)
+    assert rechecked.ready_for_soak_review
+    assert rechecked.evidence_sha256 == report.evidence_sha256
+    assert rechecked.owner_incidents == 0
+
+
 @pytest.mark.parametrize(
     ("change", "fragment"),
     [
         ("missing", "snapshot missing"),
         ("reused_pid", "PID or creation time changed"),
         ("process_restarted", "PID or creation time changed"),
+        ("same_pid_new_start", "PID or creation time changed"),
+        ("naive_start", "creation timestamp invalid"),
+        ("malformed_start", "creation timestamp invalid"),
+        ("future_start", "creation timestamp invalid"),
         ("blocked", "blocked or incomplete"),
         ("unproven_tcp", "blocked or incomplete"),
         ("stale", "observation missing timestamp or stale"),
@@ -171,6 +207,29 @@ def test_every_owner_lapse_blocks_eight_hour_readiness(
     assert result.production_qualified is False
     assert any(fragment in issue for issue in result.issues), result.issues
     assert trace.is_file()
+
+
+@pytest.mark.parametrize("field", [
+    "captured_utc",
+    "observed_at",
+])
+def test_soak_trace_with_timezone_naive_observation_fails_without_exception(
+    tmp_path: Path, field: str,
+) -> None:
+    trace, report = _run(tmp_path)
+    assert report.ready_for_soak_review
+    lines = trace.read_text(encoding="utf-8").splitlines()
+    second = json.loads(lines[2])
+    if field == "captured_utc":
+        second["owner_observation"]["captured_utc"] = "2026-10-09T01:00:00"
+    else:
+        second["observed_at"] = "2026-10-09T01:00:00"
+    lines[2] = json.dumps(second)
+    trace.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assessment = verify_soak_evidence(trace, require_owner_observation=True)
+    assert not assessment.ready_for_soak_review
+    assert assessment.owner_incidents >= 1
+    assert any("timestamp" in issue for issue in assessment.issues)
 
 
 def test_legacy_trace_cannot_satisfy_new_owner_policy(tmp_path: Path) -> None:
