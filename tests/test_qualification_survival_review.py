@@ -124,6 +124,7 @@ def test_trace_replayed_against_current_owner_but_never_qualifies(
     assert report.evidence_sha256 and len(report.evidence_sha256) == 64
     assert report.recorded_host == report.live_host == "pc-b"
     assert report.historical_listener_pid == report.current_listener_pid == 400
+    assert report.current_listener_started_utc == _OWNER_START
     assert report.sample_count == 4
     assert report.source_authenticated is False
     assert report.historical_event_authenticated is False

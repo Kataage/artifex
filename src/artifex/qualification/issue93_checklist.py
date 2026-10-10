@@ -55,6 +55,8 @@ class Issue93EvidenceChecklist(BaseModel):
     missing_checks: int
     conflicting_checks: int
     current_comfyui_listener_pid: int | None = None
+    current_comfyui_started_utc: str | None = None
+    current_pc_b_hostname: str | None = None
     owner_readiness_status: str
     saved_owner_pair_status: str
     natural_exit_trace_status: str
@@ -105,6 +107,17 @@ _ALWAYS_PENDING = (
 )
 
 
+def _verified_process_start(value: str | None) -> datetime | None:
+    """Only timezone-aware Windows process creation dates prove a live identity."""
+    if not value:
+        return None
+    try:
+        started = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return started.astimezone(UTC) if started.tzinfo is not None else None
+
+
 def compile_issue93_checklist(
     settings: ArtifexSettings, *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -153,6 +166,8 @@ def compile_issue93_checklist(
         and owner.remote_bearer_checked
         and owner.node_id == node
         and owner.live_listener_pid is not None
+        and _verified_process_start(owner.live_listener_started_utc) is not None
+        and bool(owner.live_host and owner.live_host.strip())
     )
     pair_ok = (
         isinstance(pair, OwnerPairReview)
@@ -163,6 +178,7 @@ def compile_issue93_checklist(
         and pair.live_pc_b_owner_correlated
         and pair.node_id == node
         and pair.current_listener_pid is not None
+        and _verified_process_start(pair.current_listener_started_utc) is not None
     )
     survival_ok = (
         isinstance(survival, PCBSurvivalEvidenceReview)
@@ -172,23 +188,40 @@ def compile_issue93_checklist(
         and survival.trace_replayed
         and survival.node_id == node
         and survival.current_listener_pid is not None
+        and _verified_process_start(survival.current_listener_started_utc) is not None
+        and bool(survival.live_host and survival.live_host.strip())
     )
     values: tuple[tuple[CheckName, bool, str], ...] = (
         ("isolated_launcher_and_live_owner", owner_ok, statuses["owner"]),
         ("two_time_separated_owner_samples", pair_ok, statuses["pair"]),
         ("natural_exit_survival_trace", survival_ok, statuses["survival"]),
     )
-    observed_pids: list[int] = []
+    # PID reuse can make different Windows processes look identical.
+    # Each independent observation must identify the same (PID, start time).
+    observed_identities: list[tuple[int, datetime]] = []
+    observed_hosts: list[str] = []
     if owner_ok and isinstance(owner, PCBOwnerCorrelation):
         assert owner.live_listener_pid is not None
-        observed_pids.append(owner.live_listener_pid)
+        assert owner.live_host is not None
+        started = _verified_process_start(owner.live_listener_started_utc)
+        assert started is not None
+        observed_identities.append((owner.live_listener_pid, started))
+        observed_hosts.append(owner.live_host.strip().casefold())
     if pair_ok and isinstance(pair, OwnerPairReview):
         assert pair.current_listener_pid is not None
-        observed_pids.append(pair.current_listener_pid)
+        started = _verified_process_start(pair.current_listener_started_utc)
+        assert started is not None
+        observed_identities.append((pair.current_listener_pid, started))
     if survival_ok and isinstance(survival, PCBSurvivalEvidenceReview):
         assert survival.current_listener_pid is not None
-        observed_pids.append(survival.current_listener_pid)
-    conflict = len(set(observed_pids)) > 1
+        assert survival.live_host is not None
+        started = _verified_process_start(survival.current_listener_started_utc)
+        assert started is not None
+        observed_identities.append((survival.current_listener_pid, started))
+        observed_hosts.append(survival.live_host.strip().casefold())
+    conflict = (
+        len(set(observed_identities)) > 1 or len(set(observed_hosts)) > 1
+    )
     all_three = owner_ok and pair_ok and survival_ok
     # Never announce cross-source agreement from just a single observation.
     cross_ok = all_three and not conflict
@@ -202,7 +235,7 @@ def compile_issue93_checklist(
             name="cross_evidence_listener_identity",
             state="conflict" if conflict else "observed" if cross_ok else "missing",
             reason=(
-                "authenticated_current_listener_pid_conflict" if conflict
+                "authenticated_current_listener_process_or_host_conflict" if conflict
                 else "three_observations_agree_but_historical_origin_unproven"
                 if cross_ok else "insufficient_independent_observations"
             ),
@@ -225,7 +258,15 @@ def compile_issue93_checklist(
         missing_checks=missing,
         conflicting_checks=conflicting,
         current_comfyui_listener_pid=(
-            observed_pids[0] if observed_pids and not conflict else None
+            observed_identities[0][0]
+            if observed_identities and not conflict else None
+        ),
+        current_comfyui_started_utc=(
+            observed_identities[0][1].isoformat()
+            if observed_identities and not conflict else None
+        ),
+        current_pc_b_hostname=(
+            observed_hosts[0] if observed_hosts and not conflict else None
         ),
         owner_readiness_status=statuses["owner"],
         saved_owner_pair_status=statuses["pair"],

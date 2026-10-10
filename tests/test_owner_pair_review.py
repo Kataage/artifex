@@ -100,6 +100,7 @@ def test_latest_report_correlates_but_never_qualifies_gpu(
     assert report.live_pc_b_owner_correlated
     assert report.saved_sample_count == 2
     assert report.saved_listener_pid == report.current_listener_pid == 4433
+    assert report.current_listener_started_utc == "2026-10-09T00:00:00Z"
     assert not report.file_source_authenticated
     assert not report.supervisor_loss_survival_proven
     assert not report.real_pc_b_launcher_fixture_proven

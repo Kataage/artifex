@@ -61,6 +61,7 @@ class PCBSurvivalEvidenceReview(BaseModel):
     live_host: str | None = None
     historical_listener_pid: int | None = None
     current_listener_pid: int | None = None
+    current_listener_started_utc: str | None = None
     source_authenticated: Literal[False] = False
     source_mode: Literal["transferred_file", "bearer_remote"] = "transferred_file"
     remote_bearer_checked: bool = False
@@ -108,6 +109,7 @@ def review_pc_b_survival_evidence(
     replayed = False
     live_host: str | None = None
     live_pid: int | None = None
+    live_started: str | None = None
     remote_ok = False
 
     def result(status: State, reason: str) -> PCBSurvivalEvidenceReview:
@@ -127,6 +129,7 @@ def review_pc_b_survival_evidence(
                 if recorded and recorded.samples else None
             ),
             current_listener_pid=live_pid,
+            current_listener_started_utc=live_started,
         )
 
     if expected is None:
@@ -237,6 +240,7 @@ def review_pc_b_survival_evidence(
     live = owner.audit
     live_host = attestation.hostname
     live_pid = live.actual_listener_pid
+    live_started = live.actual_process_started_utc
     if (
         owner.node_id != node or attestation.node_id != node
         or not _recent(attestation.created_at, current)

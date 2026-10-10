@@ -29,32 +29,42 @@ def _settings() -> ArtifexSettings:
     return s
 
 
-def _owner(pid: int = 441) -> PCBOwnerCorrelation:
+START = "2026-10-10T00:00:00Z"
+
+
+def _owner(
+    pid: int = 441, *, started: str | None = START, host: str | None = "pc-b",
+) -> PCBOwnerCorrelation:
     return PCBOwnerCorrelation(
         checked_utc=NOW, status="correlated_read_only",
         reason="authenticated_snapshot_correlated",
         node_id="gpu-b", live_listener_pid=pid,
+        live_listener_started_utc=started, live_host=host,
         source_mode="authenticated_remote", remote_bearer_checked=True,
         remaining_real_machine_evidence=("supervisor_exit",),
     )
 
 
-def _pair(pid: int = 441) -> OwnerPairReview:
+def _pair(pid: int = 441, *, started: str | None = START) -> OwnerPairReview:
     return OwnerPairReview(
         checked_utc=NOW, node_id="gpu-b",
         status="correlated_read_only", reason="saved_owner_identity_matches_live_pc_b",
         current_listener_pid=pid, saved_listener_pid=pid,
+        current_listener_started_utc=started,
         saved_required_checks_consistent=True,
         saved_identity_consistent=True, live_pc_b_owner_correlated=True,
         remote_bearer_checked=True,
     )
 
 
-def _survival(pid: int = 441) -> PCBSurvivalEvidenceReview:
+def _survival(
+    pid: int = 441, *, started: str | None = START, host: str | None = "pc-b",
+) -> PCBSurvivalEvidenceReview:
     return PCBSurvivalEvidenceReview(
         reviewed_utc=NOW, status="replayed_and_live_identity_matched",
         reason="copied_trace_replayed_and_current_pc_b_process_matches",
         node_id="gpu-b", current_listener_pid=pid, historical_listener_pid=pid,
+        current_listener_started_utc=started, live_host=host,
         source_mode="bearer_remote", remote_bearer_checked=True,
         trace_replayed=True,
     )
@@ -88,6 +98,8 @@ def test_all_three_correlated_remains_unqualified(monkeypatch: pytest.MonkeyPatc
     assert calls == ["owner", "pair", "survival"]
     assert report.status == "observations_correlated"
     assert report.current_comfyui_listener_pid == 441
+    assert report.current_comfyui_started_utc == "2026-10-10T00:00:00+00:00"
+    assert report.current_pc_b_hostname == "pc-b"
     assert report.observed_checks == 4
     assert report.missing_checks == 0
     assert report.conflicting_checks == 0
@@ -192,3 +204,54 @@ def test_cross_source_current_pid_mismatch_is_not_accepted(
     assert r.current_comfyui_listener_pid is None
     assert r.conflicting_checks == 1
     assert r.checks[-1].state == "conflict"
+
+
+@pytest.mark.parametrize(("kind", "expected"), [
+    ("reused_pid_new_start", "conflict"),
+    ("different_pc_b_host", "conflict"),
+    ("same_instant_different_timezone", "observations_correlated"),
+    ("missing_owner_start", "needs_evidence"),
+    ("missing_pair_start", "needs_evidence"),
+    ("malformed_survival_start", "needs_evidence"),
+    ("naive_owner_start", "needs_evidence"),
+    ("missing_owner_host", "needs_evidence"),
+    ("missing_survival_host", "needs_evidence"),
+])
+def test_cross_source_full_process_identity_and_hostname(
+    monkeypatch: pytest.MonkeyPatch, kind: str, expected: str,
+) -> None:
+    owner = _owner(
+        started=None if kind == "missing_owner_start"
+        else "2026-10-10T00:00:00" if kind == "naive_owner_start" else START,
+        host=None if kind == "missing_owner_host" else "pc-b",
+    )
+    pair = _pair(
+        started=None if kind == "missing_pair_start"
+        else "2026-10-10T09:00:00+09:00"
+        if kind == "same_instant_different_timezone" else START,
+    )
+    survival = _survival(
+        started="2026-10-10T00:00:01Z" if kind == "reused_pid_new_start"
+        else "malformed" if kind == "malformed_survival_start" else START,
+        host=None if kind == "missing_survival_host"
+        else "PC-B-OTHER" if kind == "different_pc_b_host" else "PC-B",
+    )
+    report, calls = _run(monkeypatch, owner=owner, pair=pair, survival=survival)
+    assert calls == ["owner", "pair", "survival"]
+    assert report.status == expected
+    assert not report.issue_93_closure_authorized
+    assert not report.production_qualified
+    assert not report.gpu_jobs_submitted
+    if expected == "conflict":
+        assert report.conflicting_checks == 1
+        assert report.current_comfyui_listener_pid is None
+        assert report.current_comfyui_started_utc is None
+        assert report.current_pc_b_hostname is None
+        assert report.checks[-1].state == "conflict"
+    elif expected == "needs_evidence":
+        assert report.missing_checks >= 2
+        assert report.checks[-1].state == "missing"
+    else:
+        assert report.current_comfyui_listener_pid == 441
+        assert report.current_comfyui_started_utc == "2026-10-10T00:00:00+00:00"
+        assert report.current_pc_b_hostname == "pc-b"
