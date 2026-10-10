@@ -7,6 +7,7 @@ qualification and the resulting file cannot authorize renderer operations.
 from __future__ import annotations
 
 import json
+import math
 import ntpath
 import os
 import socket
@@ -31,6 +32,9 @@ _REQUIRED = frozenset({
 })
 _MAX_SECONDS = 24 * 3600
 _MAX_SAMPLES = 4096
+# Match the PC-A untrusted-trace replay check; large OS clock corrections
+# cannot masquerade as elapsed independent observation time.
+MAX_SURVIVAL_CLOCK_DRIFT_SECONDS = 30.0
 # PowerShell command is static. Configuration/path input is never interpolated.
 _PROCESS_INVENTORY_SCRIPT = (
     "$ErrorActionPreference='Stop'; "
@@ -50,7 +54,7 @@ class SurvivalSample(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     observed_utc: datetime
-    elapsed_seconds: float = Field(ge=0)
+    elapsed_seconds: float = Field(ge=0, allow_inf_nan=False)
     host: str
     node_id: str
     state: Literal["verified", "blocked", "unsupported"]
@@ -229,6 +233,8 @@ def _aware_native_time(value: str) -> datetime | None:
 def _valid_sample_time(sample: SurvivalSample) -> bool:
     """A historical sample must describe a possible native Windows timeline."""
     observed = sample.observed_utc
+    if not math.isfinite(sample.elapsed_seconds):
+        return False
     if observed.tzinfo is None or observed.utcoffset() is None:
         return False
     if not sample.host.strip() or not sample.node_id.strip():
@@ -259,6 +265,8 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
     """
     if not samples:
         raise ValueError("No samples")
+    if not math.isfinite(min_separation_seconds) or min_separation_seconds <= 0:
+        raise ValueError("Positive finite survival sample separation required")
     baseline = samples[0]
     status: Literal["observed_after_supervisor_absence", "inconclusive", "blocked"]
     status = "inconclusive"
@@ -285,6 +293,7 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
     else:
         last_elapsed = -1.0
         last_observed: datetime | None = None
+        baseline_observed = baseline.observed_utc.astimezone(UTC)
         first_absent: float | None = None
         for item in samples:
             if not _valid_sample_time(item):
@@ -295,6 +304,16 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
                 status, reason = "blocked", "sample_wall_clock_reversed_or_duplicated"
                 break
             last_observed = current_observed
+            # The independent monotonic clock and UTC wall clock must describe
+            # the same sampling window. A large forward clock correction can
+            # otherwise produce an apparent PASS on PC-B that PC-A will reject.
+            clock_difference = abs(
+                (current_observed - baseline_observed).total_seconds()
+                - (item.elapsed_seconds - baseline.elapsed_seconds)
+            )
+            if clock_difference > MAX_SURVIVAL_CLOCK_DRIFT_SECONDS:
+                status, reason = "blocked", "sample_wall_clock_elapsed_diverged"
+                break
             same = (
                 item.host == baseline.host and item.node_id == baseline.node_id
                 and (
