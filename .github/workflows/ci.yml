@@ -50,6 +50,9 @@ jobs:
       - run: uv run pytest -q tests/test_native_launcher_probe.py
       - run: uv run pytest -q tests/test_owner_readiness.py
       - run: uv run artifex render-node owner-readiness --help
+      # One-command PC-B field preflight: Windows path, redaction and safe mock only.
+      - run: uv run artifex render-node field-preflight --help
+      - run: uv run pytest -q tests/test_local_renderer_field_preflight.py
       - run: uv run artifex render-node launcher-probe --help
       - run: uv run pytest -q tests/test_renderer_owner_audit.py
       - run: uv run pytest -q tests/test_supervisor_survival.py

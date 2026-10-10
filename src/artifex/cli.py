@@ -2403,6 +2403,46 @@ def render_node_survival_observe(
         raise typer.Exit(code=1)
 
 
+@render_node_app.command("field-preflight")
+def render_node_field_preflight(
+    config: ConfigOption = None,
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Optional new local PC-B diagnostic JSON; never overwritten.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-B: audit local observer and disposable Python launcher; no GPU work."""
+    from artifex.render_node.local_field_preflight import (
+        inspect_local_renderer_field_preflight,
+    )
+
+    selected = config or Path("config/render-node.yaml")
+    try:
+        if not selected.is_file() or any(
+            part.is_symlink() for part in (selected, *selected.parents)
+        ):
+            raise ValueError("Existing non-symlinked PC-B YAML is required")
+        report = inspect_local_renderer_field_preflight(
+            _settings(selected), config=selected,
+        )
+        payload = report.model_dump(mode="json")
+        if output is not None:
+            destination = output.expanduser().absolute()
+            if any(part.is_symlink() for part in (destination, *destination.parents)):
+                raise ValueError("Refusing symlinked PC-B field report destination")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        _print_payload(payload, as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"render-node field-preflight error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.status != "passive_observation_ready":
+        raise typer.Exit(code=1)
+
+
 @render_node_app.command("owner-readiness")
 def render_node_owner_readiness(
     config: ConfigOption = None,
