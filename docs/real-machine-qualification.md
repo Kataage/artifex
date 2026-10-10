@@ -352,6 +352,21 @@ mean `needs_evidence`, never false `observations_correlated`.
 This is only point-in-time correlation, not uninterrupted real PC-B survival,
 real GPU success or permission to restart an existing renderer.
 
+## Native Windows integration of the actual protected renderer manager (no GPU)
+
+Windows CI now runs `tests/test_native_managed_comfy_lifecycle.py` to exercise
+the **real** `ManagedComfyUI.start()`, launcher-to-execution PID tracking,
+CIM and TCP ownership, durable receipt publication, supervisor lease release
+on `close()`, and a separate supervisor's safe reattachment without
+spawning a duplicate listener. The only child process is a temporary Python
+HTTP fixture that binds an ephemeral 127.0.0.1 port, serves a minimal
+`/system_stats` mock and exits via its private release file. No ComfyUI
+packages, models, workflows, Task Scheduler jobs or GPUs are involved.
+Neither `terminate()` nor `kill()` is used. This is stronger integration
+coverage than independent launcher probes but **still not actual PC-B
+qualification**: an operator-host managed ComfyUI, natural supervisor loss,
+real GPU generation, 14 stages and eight-hour soak remain unverified.
+
 ## Issue #93: one-command passive observation checklist (PC-A)
 
 After the PC-B attestation service and independent survival observer have been
