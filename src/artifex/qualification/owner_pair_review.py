@@ -43,6 +43,7 @@ class OwnerPairReview(BaseModel):
     saved_sample_count: int = 0
     saved_listener_pid: int | None = None
     current_listener_pid: int | None = None
+    current_listener_started_utc: str | None = None
     saved_required_checks_consistent: bool = False
     saved_identity_consistent: bool = False
     live_pc_b_owner_correlated: bool = False
@@ -148,6 +149,7 @@ def review_owner_pair_evidence(
     checked = False
     same_identity = False
     live_pid: int | None = None
+    live_started: str | None = None
     bearer = False
 
     def result(status: ReviewStatus, reason: str) -> OwnerPairReview:
@@ -157,6 +159,7 @@ def review_owner_pair_evidence(
             saved_sample_count=saved.sample_count if saved else 0,
             saved_listener_pid=saved.second_listener_pid if saved else None,
             current_listener_pid=live_pid,
+            current_listener_started_utc=live_started,
             saved_required_checks_consistent=checked,
             saved_identity_consistent=same_identity,
             live_pc_b_owner_correlated=status == "correlated_read_only",
@@ -212,6 +215,7 @@ def review_owner_pair_evidence(
     bearer = True
     live = remote.audit
     live_pid = live.actual_listener_pid
+    live_started = live.actual_process_started_utc
     if (
         remote.node_id != node
         or not _valid_owner(live, current=now())
