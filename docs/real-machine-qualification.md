@@ -325,6 +325,16 @@ An empty survival spool means no natural supervisor exit has been seen;
 it does not prove production readiness. No advisory changes YAML, GPU
 jobs, task settings or services. This is a plan, NOT a remote auto-fix.
 
+The cross-evidence check verifies the **full live Windows process identity**:
+ComfyUI listener PID plus its timezone-aware creation timestamp, normalized to
+UTC across all three authenticated observation paths. It also compares the
+live PC-B hostname independently returned by the owner-attestation and
+survival-attestation paths. Reused PID, different startup timestamp, or a
+different host means `conflict`; missing/malformed timestamps or hostname
+mean `needs_evidence`, never false `observations_correlated`.
+This is only point-in-time correlation, not uninterrupted real PC-B survival,
+real GPU success or permission to restart an existing renderer.
+
 ## Issue #93: one-command passive observation checklist (PC-A)
 
 After the PC-B attestation service and independent survival observer have been
