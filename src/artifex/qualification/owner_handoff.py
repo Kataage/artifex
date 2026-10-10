@@ -82,6 +82,7 @@ class PCBOwnerCorrelation(BaseModel):
     live_host: str | None = None
     saved_listener_pid: int | None = None
     live_listener_pid: int | None = None
+    live_listener_started_utc: str | None = None
     remaining_real_machine_evidence: tuple[str, ...]
     file_source_authenticated: Literal[False] = False
     source_mode: Literal["transferred_file", "authenticated_remote"] = "transferred_file"
@@ -145,6 +146,7 @@ def correlate_pc_b_owner_report(
     def result(
         state: CorrelationState, reason: str, *,
         live_host: str | None = None, live_pid: int | None = None,
+        live_started_utc: str | None = None,
     ) -> PCBOwnerCorrelation:
         outstanding = list(
             report.remaining_real_machine_evidence if report is not None else ()
@@ -169,6 +171,7 @@ def correlate_pc_b_owner_report(
                 report.owner_audit.actual_listener_pid if report is not None else None
             ),
             live_listener_pid=live_pid,
+            live_listener_started_utc=live_started_utc,
             remaining_real_machine_evidence=tuple(dict.fromkeys(outstanding)),
             source_mode="authenticated_remote" if remote else "transferred_file",
             remote_bearer_checked=bool(remote and report is not None),
@@ -262,6 +265,7 @@ def correlate_pc_b_owner_report(
         return result(
             "blocked", "current_authenticated_pc_b_owner_not_stably_verified",
             live_host=att.hostname, live_pid=live.actual_listener_pid,
+            live_started_utc=live.actual_process_started_utc,
         )
     if not (
         report.host.casefold() == att.hostname.casefold()
@@ -275,10 +279,12 @@ def correlate_pc_b_owner_report(
         return result(
             "mismatch", "saved_pc_b_host_or_renderer_identity_differs_from_live",
             live_host=att.hostname, live_pid=live.actual_listener_pid,
+            live_started_utc=live.actual_process_started_utc,
         )
     return result(
         "correlated_read_only", "same_host_and_renderer_observed_at_two_times",
         live_host=att.hostname, live_pid=live.actual_listener_pid,
+            live_started_utc=live.actual_process_started_utc,
     )
 
 
