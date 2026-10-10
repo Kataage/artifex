@@ -235,6 +235,76 @@ def test_passive_survival_rejects_untrusted_timeline(
     assert not assessment.production_qualified
 
 
+@pytest.mark.parametrize("clock_shift", (31.0, 3600.0))
+def test_passive_survival_rejects_forward_clock_jump(
+    clock_shift: float,
+) -> None:
+    first = _sample(0)
+    second = _sample(10, task_state="Ready").model_copy(update={
+        "observed_utc": _BASE + timedelta(seconds=10 + clock_shift),
+    })
+    third = _sample(20, task_state="Ready").model_copy(update={
+        "observed_utc": _BASE + timedelta(seconds=20 + clock_shift),
+    })
+    report = assess_survival(
+        (first, second, third), min_separation_seconds=10,
+    )
+    assert report.status == "blocked"
+    assert report.reason == "sample_wall_clock_elapsed_diverged"
+    assert not report.same_comfyui_seen_before_and_after
+    assert not report.production_qualified
+
+
+def test_passive_survival_rejects_slow_wall_clock_with_valid_order() -> None:
+    # All UTC sample instants advance; their total duration still differs
+    # from elapsed monotonic time by more than the permitted 30 seconds.
+    samples = tuple(
+        _sample(i * 10, task_state="Ready" if i >= 4 else "Running")
+        .model_copy(update={"observed_utc": _BASE + timedelta(seconds=i)})
+        for i in range(6)
+    )
+    report = assess_survival(samples, min_separation_seconds=10)
+    assert report.status == "blocked"
+    assert report.reason == "sample_wall_clock_elapsed_diverged"
+    assert not report.supervisor_absence_observed
+
+
+def test_passive_survival_permits_bounded_clock_difference() -> None:
+    samples = (
+        _sample(0),
+        _sample(10, task_state="Ready").model_copy(update={
+            "observed_utc": _BASE + timedelta(seconds=39),
+        }),
+        _sample(20, task_state="Ready").model_copy(update={
+            "observed_utc": _BASE + timedelta(seconds=49),
+        }),
+    )
+    report = assess_survival(samples, min_separation_seconds=10)
+    assert report.status == "observed_after_supervisor_absence"
+    assert not report.production_qualified
+
+
+@pytest.mark.parametrize("separation", (0.0, -1.0, float("inf"), float("nan")))
+def test_passive_survival_requires_positive_finite_interval(
+    separation: float,
+) -> None:
+    with pytest.raises(ValueError, match="Positive finite"):
+        assess_survival((_sample(0),), min_separation_seconds=separation)
+
+
+@pytest.mark.parametrize("elapsed", (float("inf"), float("nan")))
+def test_passive_survival_rejects_nonfinite_elapsed_even_in_model_copy(
+    elapsed: float,
+) -> None:
+    first = _sample(0).model_copy(update={"elapsed_seconds": elapsed})
+    report = assess_survival(
+        (first, _sample(10, task_state="Ready"), _sample(20, task_state="Ready")),
+        min_separation_seconds=10,
+    )
+    assert report.status == "blocked"
+    assert not report.production_qualified
+
+
 def test_valid_timezone_offsets_normalize_to_same_native_timeline() -> None:
     from datetime import timezone
 
