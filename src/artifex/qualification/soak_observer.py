@@ -456,7 +456,17 @@ def verify_soak_evidence(
         problems.append("Actual monitored duration is shorter than required minimum")
     if len(samples) < 2:
         problems.append("Insufficient observations to establish continuous monitoring")
-    if abs(tail.elapsed_seconds - (tail.finished_at - header.started_at).total_seconds()) > 90:
+    if (
+        header.started_at.tzinfo is None
+        or header.started_at.utcoffset() is None
+        or tail.finished_at.tzinfo is None
+        or tail.finished_at.utcoffset() is None
+    ):
+        problems.append("Monitor wall-clock timestamps lack timezone")
+    elif abs(
+        tail.elapsed_seconds
+        - (tail.finished_at - header.started_at).total_seconds()
+    ) > 90:
         problems.append("Monotonic elapsed and wall-clock timestamps disagree")
     if tail.elapsed_seconds < header.target_seconds - 1:
         problems.append("Monitor stopped before its configured target duration")
@@ -466,7 +476,14 @@ def verify_soak_evidence(
         elapsed = item.elapsed_seconds
         if elapsed < previous or elapsed - previous > header.interval_seconds * 1.5 + 30:
             problems.append(f"Sample {index}: elapsed time reversed or sampling gap exceeded")
-        if abs(
+        if (
+            item.observed_at.tzinfo is None
+            or item.observed_at.utcoffset() is None
+            or header.started_at.tzinfo is None
+            or header.started_at.utcoffset() is None
+        ):
+            problems.append(f"Sample {index}: wall-clock timestamp missing timezone")
+        elif abs(
             (item.observed_at - header.started_at).total_seconds() - elapsed
         ) > 90:
             problems.append(f"Sample {index}: wall clock disagrees with elapsed time")
