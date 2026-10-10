@@ -333,7 +333,8 @@ the **same** execution PID, creation timestamp, venv launcher PID, receipt
 schema, and Running scheduler state:
 
 ```powershell
-uv run artifex qualify owner-pair-check --config .\\config\\local.yaml --gap-seconds 5 --json
+uv run artifex qualify owner-pair-check --config .\\config\\local.yaml --gap-seconds 5 --save --json
+# Or select a new explicit evidence filename with --output .\\data\\qualification\\owner-pair\\observation-1.json
 ```
 
 This command uses **two** authenticated read-only `/v1/owner-audit` GETs.
@@ -341,7 +342,16 @@ It verifies all mandatory ownership checks, freshness, elapsed monotonic
 sample spacing, and that PC-B's snapshot timestamp advanced (so replayed or
 cached evidence is not counted twice). Errors, stale snapshots, PID reuse,
 provenance drift, or unavailable PC-B responses fail closed with safe reason
-codes and a nonzero exit. The gap is configurable from 1 to 60 seconds; no
+codes and a nonzero exit. With `--save`, PC-A stores a uniquely named,
+never-overwritten JSON report under the configurable
+`qualification.evidence_dir/owner-pair/`. `--output` selects an explicit
+new path; both successful and blocked observations are saved. The report
+includes both sample timestamps, ComfyUI listener PID and creation time,
+original launcher PID, receipt schema and **only** the required check status
+codes. It deliberately excludes raw CIM command lines, Windows executable
+paths, raw check reasons, and Bearer credentials. Saving a report does not
+authenticate past contents or register any production PASS. The gap is
+configurable from 1 to 60 seconds; no
 ComfyUI process or Task Scheduler job is started, stopped, restarted, or
 modified, and no GPU request is submitted. A successful
 `consistent_samples` result is **two point-in-time observations only**,

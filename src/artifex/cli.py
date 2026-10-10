@@ -3401,10 +3401,23 @@ def qualify_owner_pair_check(
     gap_seconds: Annotated[
         float, typer.Option("--gap-seconds", min=1, max=60),
     ] = 5.0,
+    save: Annotated[
+        bool, typer.Option(
+            "--save", help="Save evidence under configured qualification.evidence_dir.",
+        ),
+    ] = False,
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Optional new JSON evidence path; never overwrite.",
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
-    """PC-A: compare two read-only authenticated PC-B ComfyUI owner samples."""
+    """PC-A: compare and optionally preserve two read-only PC-B owner samples."""
+    from datetime import UTC, datetime
+
     from artifex.qualification.owner_pair import inspect_remote_owner_pair
+    from artifex.render_node.owner_audit import save_owner_observation
 
     selected = config or Path("config/local.yaml")
     try:
@@ -3413,10 +3426,19 @@ def qualify_owner_pair_check(
             or any(part.is_symlink() for part in (selected, *selected.parents))
         ):
             raise ValueError("Existing non-symlinked PC-A YAML required")
+        settings = _settings(selected)
         report = inspect_remote_owner_pair(
-            _settings(selected), gap_seconds=gap_seconds,
+            settings, gap_seconds=gap_seconds,
         )
-        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+        payload = report.model_dump(mode="json")
+        if save or output is not None:
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            destination = output or (
+                settings.qualification.evidence_dir / "owner-pair"
+                / f"{stamp}-{uuid4().hex[:12]}.json"
+            )
+            save_owner_observation(payload, destination)
+        _print_payload(payload, as_json=json_output)
     except (OSError, RuntimeError, ValueError, TypeError) as exc:
         typer.echo(f"owner-pair-check error: {type(exc).__name__}", err=True)
         raise typer.Exit(code=1) from exc

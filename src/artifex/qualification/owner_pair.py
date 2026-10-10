@@ -21,6 +21,7 @@ from artifex.render_node.client import fetch_renderer_owner_audit
 from artifex.render_node.models import RemoteRendererOwnerAudit, RendererOwnerAudit
 
 PairStatus = Literal["consistent_samples", "blocked", "unavailable", "unconfigured"]
+CheckState = Literal["pass", "fail", "unknown"]
 
 
 class OwnerPairObservation(BaseModel):
@@ -36,6 +37,16 @@ class OwnerPairObservation(BaseModel):
     second_captured_utc: datetime | None = None
     first_listener_pid: int | None = None
     second_listener_pid: int | None = None
+    first_process_started_utc: str | None = None
+    second_process_started_utc: str | None = None
+    first_launcher_pid: int | None = None
+    second_launcher_pid: int | None = None
+    first_receipt_schema: int | None = None
+    second_receipt_schema: int | None = None
+    # Save bounded check outcomes only: no OS command line, executable path,
+    # raw reason strings, credentials, or ownership receipt contents.
+    first_required_checks: dict[str, CheckState] = Field(default_factory=dict)
+    second_required_checks: dict[str, CheckState] = Field(default_factory=dict)
     elapsed_between_samples_seconds: float = Field(ge=0)
     requested_gap_seconds: float = Field(ge=1, le=60)
     # Two clean snapshots can never authorize live GPU lifecycle operations.
@@ -93,6 +104,15 @@ def inspect_remote_owner_pair(
     second: RemoteRendererOwnerAudit | None = None
     elapsed = 0.0
 
+    def summary(sample: RemoteRendererOwnerAudit | None) -> dict[str, CheckState]:
+        if sample is None:
+            return {}
+        return {
+            key: sample.audit.checks[key].status
+            for key in sorted(_REQUIRED_CHECKS)
+            if key in sample.audit.checks
+        }
+
     def result(status: PairStatus, reason: str) -> OwnerPairObservation:
         return OwnerPairObservation(
             status=status, reason=reason, node_id=node_id,
@@ -102,6 +122,18 @@ def inspect_remote_owner_pair(
             second_captured_utc=second.audit.captured_utc if second else None,
             first_listener_pid=first.audit.actual_listener_pid if first else None,
             second_listener_pid=second.audit.actual_listener_pid if second else None,
+            first_process_started_utc=(
+                first.audit.actual_process_started_utc if first else None
+            ),
+            second_process_started_utc=(
+                second.audit.actual_process_started_utc if second else None
+            ),
+            first_launcher_pid=first.audit.launcher_pid if first else None,
+            second_launcher_pid=second.audit.launcher_pid if second else None,
+            first_receipt_schema=first.audit.receipt_schema if first else None,
+            second_receipt_schema=second.audit.receipt_schema if second else None,
+            first_required_checks=summary(first),
+            second_required_checks=summary(second),
             elapsed_between_samples_seconds=elapsed,
         )
 
