@@ -3395,6 +3395,35 @@ def qualify_overview(
 
 
 
+@qualify_app.command("owner-pair-check")
+def qualify_owner_pair_check(
+    config: ConfigOption = None,
+    gap_seconds: Annotated[
+        float, typer.Option("--gap-seconds", min=1, max=60),
+    ] = 5.0,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: compare two read-only authenticated PC-B ComfyUI owner samples."""
+    from artifex.qualification.owner_pair import inspect_remote_owner_pair
+
+    selected = config or Path("config/local.yaml")
+    try:
+        if (
+            not selected.is_file()
+            or any(part.is_symlink() for part in (selected, *selected.parents))
+        ):
+            raise ValueError("Existing non-symlinked PC-A YAML required")
+        report = inspect_remote_owner_pair(
+            _settings(selected), gap_seconds=gap_seconds,
+        )
+        _print_payload(report.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        typer.echo(f"owner-pair-check error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.status != "consistent_samples":
+        raise typer.Exit(code=1)
+
+
 @qualify_app.command("pair-install-audit")
 def qualify_pair_install_audit(
     config: ConfigOption = None,
