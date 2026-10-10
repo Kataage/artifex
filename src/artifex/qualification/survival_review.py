@@ -30,6 +30,7 @@ from artifex.render_node.supervisor_survival import (
     MAX_SURVIVAL_CLOCK_DRIFT_SECONDS,
     SurvivalAssessment,
     assess_survival,
+    parse_native_creation_utc,
 )
 
 _MAX_BYTES = 12 * 1024 * 1024
@@ -252,9 +253,15 @@ def review_pc_b_survival_evidence(
     if live_host.casefold() != recorded.host.casefold():
         return result("mismatch", "recorded_host_differs_from_live_pc_b")
     historical = recorded.samples[-1]
+    historical_start = parse_native_creation_utc(
+        historical.actual_listener_started_utc or ""
+    )
+    live_start = parse_native_creation_utc(live.actual_process_started_utc or "")
     if (
         historical.actual_listener_pid != live.actual_listener_pid
-        or historical.actual_listener_started_utc != live.actual_process_started_utc
+        or historical_start is None
+        or live_start is None
+        or historical_start != live_start
         or historical.launcher_pid != live.launcher_pid
         or historical.receipt_schema != live.receipt_schema
     ):
