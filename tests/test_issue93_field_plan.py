@@ -158,7 +158,7 @@ def test_issue93_cli_includes_custom_paths_without_running_commands(
     from artifex.qualification import issue93_checklist
 
     local = tmp_path / "controller.yaml"
-    local.write_text("{}\\n", encoding="utf-8")
+    local.write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(cli, "_settings", lambda _: ArtifexSettings())
     monkeypatch.setattr(
         issue93_checklist, "compile_issue93_checklist",
