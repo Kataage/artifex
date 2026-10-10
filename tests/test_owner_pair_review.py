@@ -77,6 +77,45 @@ def _remote(node: str, cfg: RenderNodeConfig, *,
     })
 
 
+@pytest.mark.parametrize(("saved_second", "live_started", "expected"), [
+    ("2026-10-09T09:00:00+09:00", "2026-10-09T00:00:00Z",
+     "correlated_read_only"),
+    ("2026-10-09T09:00:00+09:00", "2026-10-09T09:00:00+09:00",
+     "correlated_read_only"),
+    ("2026-10-09T09:00:00+09:00", "2026-10-09T09:00:01+09:00",
+     "blocked"),
+    ("2026-10-09T09:00:01+09:00", "2026-10-09T00:00:00Z",
+     "blocked"),
+    ("2026-10-09T00:00:00", "2026-10-09T00:00:00Z",
+     "blocked"),
+])
+def test_saved_owner_pair_and_current_pc_b_use_exact_creation_instant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    saved_second: str, live_started: str, expected: str,
+) -> None:
+    settings = _settings(tmp_path)
+    report_path = _save(settings, _pair(
+        second_process_started_utc=saved_second,
+    ))
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "test")
+    calls: list[str] = []
+
+    def probe(node: str, config: RenderNodeConfig) -> RemoteRendererOwnerAudit:
+        calls.append(node)
+        return _remote(node, config, started=live_started)
+
+    review = review_owner_pair_evidence(
+        settings, report_path=report_path, owner_probe=probe,
+        now=lambda: NOW + timedelta(seconds=1),
+    )
+    assert review.status == expected
+    assert bool(calls) is (expected == "correlated_read_only"
+                           or saved_second == "2026-10-09T09:00:00+09:00")
+    assert not review.supervisor_loss_survival_proven
+    assert not review.issue_93_closure_authorized
+    assert not review.production_qualified
+
+
 def test_latest_report_correlates_but_never_qualifies_gpu(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

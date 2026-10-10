@@ -59,6 +59,11 @@ def test_latest_is_deterministic_and_does_not_fallback(
     first.write_text('{"state":"old-success"}', encoding="utf-8")
     second.write_text('{"state":"latest-blocked"}', encoding="utf-8")
     (root / "not-an-observer.json").write_text('{"secret":"not served"}')
+    # Windows/NTFS can stamp immediately written files with an identical
+    # nanosecond mtime; that is correctly ambiguous in the production reader.
+    # Make the distinct fixture chronology explicit instead of racing CI.
+    os.utime(first, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(second, ns=(2_000_000_000, 2_000_000_000))
     digest, content = latest_survival_trace(settings)
     assert content == '{"state":"latest-blocked"}'
     assert digest == hashlib.sha256(content.encode()).hexdigest()

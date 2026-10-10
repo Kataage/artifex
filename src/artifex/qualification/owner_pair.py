@@ -16,6 +16,10 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.qualification.native_creation_time import (
+    native_creation_instant,
+    same_native_creation_instant,
+)
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node.client import fetch_renderer_owner_audit
 from artifex.render_node.models import RemoteRendererOwnerAudit, RendererOwnerAudit
@@ -74,12 +78,9 @@ def _valid_owner(audit: RendererOwnerAudit, *, current: datetime) -> bool:
         or current.tzinfo is None
     ):
         return False
-    try:
-        started = datetime.fromisoformat(audit.actual_process_started_utc)
-    except (TypeError, ValueError):
-        return False
+    started = native_creation_instant(audit.actual_process_started_utc)
     return (
-        started.tzinfo is not None
+        started is not None
         and started <= audit.captured_utc
         and -30 <= (current - audit.captured_utc).total_seconds() <= 120
     )
@@ -172,7 +173,10 @@ def inspect_remote_owner_pair(
         return result("blocked", "remote_owner_snapshot_not_advanced")
     if (
         previous.actual_listener_pid != latest.actual_listener_pid
-        or previous.actual_process_started_utc != latest.actual_process_started_utc
+        or not same_native_creation_instant(
+            previous.actual_process_started_utc,
+            latest.actual_process_started_utc,
+        )
         or previous.launcher_pid != latest.launcher_pid
         or previous.receipt_schema != latest.receipt_schema
         or previous.scheduler_state != latest.scheduler_state

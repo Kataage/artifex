@@ -31,7 +31,8 @@ def _settings() -> ArtifexSettings:
     return settings
 
 
-def _owner(*, pid: int = 4433, captured: datetime = NOW) -> dict[str, object]:
+def _owner(*, pid: int = 4433, captured: datetime = NOW,
+           started: str = "2026-10-09T12:30:00Z") -> dict[str, object]:
     return {
         "schema_version": 1,
         "captured_utc": captured.isoformat(),
@@ -41,7 +42,7 @@ def _owner(*, pid: int = 4433, captured: datetime = NOW) -> dict[str, object]:
             for key in _REQUIRED_CHECKS
         },
         "actual_listener_pid": pid,
-        "actual_process_started_utc": "2026-10-09T12:30:00Z",
+        "actual_process_started_utc": started,
         "launcher_pid": 4411,
         "receipt_schema": 2,
         "scheduler_state": "Running",
@@ -95,11 +96,13 @@ def _save(path: Path, *, captured: datetime = NOW, host: str = "pc-b") -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _probes(*, pid: int = 4433, hostname: str = "pc-b", at: datetime = NOW):
+def _probes(*, pid: int = 4433, hostname: str = "pc-b", at: datetime = NOW,
+            started: str = "2026-10-09T12:30:00Z"):
     def owner(node: str, config: RenderNodeConfig) -> RemoteRendererOwnerAudit:
         assert node == "renderer-b"
         return RemoteRendererOwnerAudit.model_validate({
-            "node_id": node, "audit": _owner(pid=pid, captured=at),
+            "node_id": node, "audit": _owner(pid=pid, captured=at,
+                                             started=started),
         })
 
     def attest(node: str, config: RenderNodeConfig, *,
@@ -120,6 +123,27 @@ def _compare(settings: ArtifexSettings, path: Path, *,
     return correlate_pc_b_owner_report(
         settings, path, now=now, owner_probe=probe, attestation_probe=attest,
     )
+
+
+@pytest.mark.parametrize(("live_creation", "expected"), [
+    ("2026-10-09T21:30:00+09:00", "correlated_read_only"),
+    ("2026-10-09T21:30:01+09:00", "mismatch"),
+    ("2026-10-09T12:30:00", "blocked"),
+])
+def test_cached_owner_handoff_normalizes_native_creation_instant(
+    tmp_path: Path, live_creation: str, expected: str,
+) -> None:
+    path = tmp_path / "owner-report.json"
+    _save(path)
+    owner_probe, attestation_probe = _probes(started=live_creation)
+    report = correlate_pc_b_owner_report(
+        _settings(), path, now=NOW,
+        owner_probe=owner_probe, attestation_probe=attestation_probe,
+    )
+    assert report.status == expected
+    assert not report.production_qualified
+    assert not report.renderer_restart_authorized
+    assert not report.services_mutated
 
 
 def test_correlated_report_still_never_authenticates_copied_file(

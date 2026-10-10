@@ -17,6 +17,10 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.qualification.native_creation_time import (
+    native_creation_instant,
+    same_native_creation_instant,
+)
 from artifex.qualification.owner_pair import OwnerPairObservation, _valid_owner
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node.client import fetch_renderer_owner_audit
@@ -125,20 +129,18 @@ def _valid_saved_pair(report: OwnerPairObservation, checked: datetime) -> tuple[
         and report.first_listener_pid > 0
         and report.first_listener_pid == report.second_listener_pid
         and report.first_process_started_utc
-        and report.first_process_started_utc == report.second_process_started_utc
+        and same_native_creation_instant(
+            report.first_process_started_utc, report.second_process_started_utc,
+        )
         and report.first_launcher_pid == report.second_launcher_pid
         and report.first_receipt_schema in {1, 2}
         and report.first_receipt_schema == report.second_receipt_schema
         and (report.first_receipt_schema == 2) == (report.first_launcher_pid is not None)
     ):
         return required, False
-    try:
-        started = datetime.fromisoformat(report.first_process_started_utc)
-    except (TypeError, ValueError):
-        return required, False
+    started = native_creation_instant(report.first_process_started_utc)
     return required, (
-        started.tzinfo is not None and started <= a
-        and started <= b
+        started is not None and started <= a and started <= b
     )
 
 
@@ -242,7 +244,9 @@ def review_owner_pair_evidence(
         or saved.second_captured_utc is None
         or live.captured_utc <= saved.second_captured_utc
         or live.actual_listener_pid != saved.second_listener_pid
-        or live.actual_process_started_utc != saved.second_process_started_utc
+        or not same_native_creation_instant(
+            live.actual_process_started_utc, saved.second_process_started_utc,
+        )
         or live.launcher_pid != saved.second_launcher_pid
         or live.receipt_schema != saved.second_receipt_schema
     ):
