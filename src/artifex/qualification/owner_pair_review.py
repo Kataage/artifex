@@ -196,6 +196,8 @@ def review_owner_pair_evidence(
         return result("blocked", "saved_owner_evidence_internally_inconsistent")
     if offline:
         return result("saved_only", "file_consistent_but_not_authenticated")
+    if primary is None:
+        return result("unconfigured", "pc_a_primary_render_node_missing")
     node, cfg = primary
     if (
         not cfg.attestation_url
