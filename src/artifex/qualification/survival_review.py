@@ -15,6 +15,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.qualification.owner_pair import _valid_owner
 from artifex.render_node.client import (
     fetch_remote_survival_trace,
     fetch_render_attestation,
@@ -34,10 +35,6 @@ _MAX_BYTES = 12 * 1024 * 1024
 _MAX_SAMPLES = 4096
 _CLOCK_SKEW = timedelta(seconds=30)
 _LIVE_AGE = timedelta(minutes=2)
-_EXACT_CHECKS = {
-    "receipt", "process_identity", "launcher_identity", "tcp_ownership",
-    "snapshot_consistency",
-}
 State = Literal[
     "replayed_and_live_identity_matched",
     "replayed_historical_identity", "replayed_live_unavailable",
@@ -244,12 +241,11 @@ def review_pc_b_survival_evidence(
     if (
         owner.node_id != node or attestation.node_id != node
         or not _recent(attestation.created_at, current)
-        or not _recent(live.captured_utc, current)
-        or not live.process_observation_verified
-        or live.actual_listener_pid is None
-        or live.actual_process_started_utc is None
-        or not _EXACT_CHECKS.issubset(live.checks)
-        or any(live.checks[k].status != "pass" for k in _EXACT_CHECKS)
+        or not _valid_owner(live, current=current)
+        # The live read must be newer than the last historical trace sample.
+        # Otherwise an earlier successful owner snapshot could be used to
+        # corroborate a later, still-unobserved supervisor loss.
+        or live.captured_utc <= recorded.samples[-1].observed_utc
     ):
         return result("blocked", "live_pc_b_identity_cannot_be_authenticated")
     if live_host.casefold() != recorded.host.casefold():
