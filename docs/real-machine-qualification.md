@@ -365,7 +365,12 @@ seconds within a 30-second bound (the same rule used by PC-A trace replay):
 even strictly increasing UTC timestamps cannot conceal a large clock step or
 an artificially compressed observation window. Non-finite elapsed values are
 rejected. Equivalent timezone-aware ISO timestamps are normalized before
-validating creation-time ordering. Failures are `blocked` evidence, never
+validating creation-time ordering. The ComfyUI listener and each supervisor
+PID/creation-time identity are also compared as UTC instants across samples;
+a valid switch between `Z` and `+09:00` cannot by itself invalidate native
+continuity. A truly different creation instant still blocks the observation.
+PC-A's saved-trace versus fresh authenticated owner review follows the same
+normalization and never treats a matching numeric PID alone as proof. Failures are `blocked` evidence, never
 proof that an actual natural supervisor loss took place. Clock corrections
 or incomplete Windows CIM information therefore require fresh observation,
 not an automatic reattachment or renderer restart. If later evidence

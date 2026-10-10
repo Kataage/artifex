@@ -113,6 +113,24 @@ def _review(path: Path, *, host: str = "pc-b", pid: int = 400,
     )
 
 
+@pytest.mark.parametrize("started,expected", (
+    ("2026-10-11T04:00:00+09:00", "replayed_and_live_identity_matched"),
+    ("2026-10-11T04:00:01+09:00", "replayed_historical_identity"),
+))
+def test_saved_utc_creation_matches_live_japan_offset_only_for_same_instant(
+    tmp_path: Path, started: str, expected: str,
+) -> None:
+    path = tmp_path / "survival.json"
+    _trace(path)
+    report = _review(path, started=started)
+    assert report.status == expected
+    assert report.trace_replayed
+    assert report.remote_bearer_checked is False
+    assert report.independent_supervisor_survival_qualified is False
+    assert report.issue_93_closure_authorized is False
+    assert report.production_qualified is False
+
+
 def test_trace_replayed_against_current_owner_but_never_qualifies(
     tmp_path: Path,
 ) -> None:
