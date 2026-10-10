@@ -283,7 +283,7 @@ def test_qualification_service_persists_owner_snapshot_without_stage_pass(
     service._settings = settings
     session = QualificationSession(
         session_id="trial-01", created_at=now - timedelta(seconds=20),
-        updated_at=now, hostname="controller",
+        updated_at=now, hostname=socket.gethostname(),
         environment={}, configuration={}, workflow={},
         assets=(), loras=(), doctor_ready=False,
         doctor={}, stages={},
@@ -374,7 +374,7 @@ def test_parallel_remote_owner_snapshots_are_not_lost(
     now = datetime.now(UTC)
     service._write(QualificationSession(
         session_id="parallel-owner", created_at=now - timedelta(seconds=10),
-        updated_at=now, hostname="pc-a", environment={},
+        updated_at=now, hostname=socket.gethostname(), environment={},
         configuration={}, workflow={}, assets=(), loras=(),
         doctor_ready=False, doctor={}, stages={},
     ))
