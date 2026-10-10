@@ -3449,24 +3449,72 @@ def qualify_owner_pair_check(
 @qualify_app.command("issue93-status")
 def qualify_issue93_status(
     config: ConfigOption = None,
+    refresh_owner_pair: Annotated[
+        bool, typer.Option(
+            "--refresh-owner-pair",
+            help="Observe PC-B twice and save new local evidence before the checklist.",
+        ),
+    ] = False,
+    pair_gap_seconds: Annotated[
+        float, typer.Option("--pair-gap-seconds", min=1, max=60),
+    ] = 5.0,
     json_output: Annotated[bool, typer.Option("--json")] = True,
 ) -> None:
-    """PC-A: read-only collection of outstanding real PC-B Issue #93 proofs."""
+    """PC-A: read-only Issue #93 checks; optional safe local evidence refresh."""
+    from datetime import UTC, datetime
+
     from artifex.qualification.issue93_checklist import compile_issue93_checklist
+    from artifex.qualification.owner_pair import inspect_remote_owner_pair
+    from artifex.qualification.owner_pair_review import review_owner_pair_evidence
+    from artifex.render_node.owner_audit import save_owner_observation
 
     selected = config or Path("config/local.yaml")
+    refreshed = None
     try:
         if (
             not selected.is_file()
             or any(item.is_symlink() for item in (selected, *selected.parents))
         ):
             raise ValueError("Existing non-symlinked PC-A YAML required")
-        result = compile_issue93_checklist(_settings(selected))
-        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+        settings = _settings(selected)
+        if refresh_owner_pair:
+            # Only two authenticated GETs and a local exclusive-create file.
+            # Never fall back to an older PASS when this refresh is blocked.
+            refreshed = inspect_remote_owner_pair(
+                settings, gap_seconds=pair_gap_seconds,
+            )
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            filename = f"{stamp}-{uuid4().hex[:12]}.json"
+            destination = (
+                settings.qualification.evidence_dir / "owner-pair" / filename
+            )
+            save_owner_observation(refreshed.model_dump(mode="json"), destination)
+            result = compile_issue93_checklist(
+                settings,
+                pair_fetch=lambda s: review_owner_pair_evidence(
+                    s, report_path=destination,
+                ),
+            )
+        else:
+            result = compile_issue93_checklist(settings)
+        payload = result.model_dump(mode="json")
+        if refreshed is not None:
+            payload["fresh_owner_pair"] = {
+                "status": refreshed.status,
+                "reason": refreshed.reason,
+                "sample_count": refreshed.sample_count,
+                "saved_filename": filename,
+                "evidence_saved": True,
+                "production_qualified": False,
+            }
+        _print_payload(payload, as_json=json_output)
     except (OSError, RuntimeError, ValueError, TypeError) as exc:
         typer.echo(f"issue93-status error: {type(exc).__name__}", err=True)
         raise typer.Exit(code=1) from exc
-    if result.status != "observations_correlated":
+    if (
+        result.status != "observations_correlated"
+        or (refreshed is not None and refreshed.status != "consistent_samples")
+    ):
         raise typer.Exit(code=1)
 
 
