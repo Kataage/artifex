@@ -357,6 +357,43 @@ def test_owner_endpoint_requires_token_even_when_public_attestation_is_allowed(
 
 
 
+def test_foreign_controller_owner_evidence_refuses_network_and_file_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.qualification.service as module
+
+    settings = ArtifexSettings()
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://127.0.0.1:8191",
+        attestation_url="http://127.0.0.1:8190",
+    )
+    service = object.__new__(QualificationService)
+    service._root = tmp_path
+    service._settings = settings
+    now = datetime.now(UTC)
+    imported = QualificationSession(
+        session_id="foreign-owner", created_at=now - timedelta(seconds=10),
+        updated_at=now, hostname="foreign-pc-a",
+        environment={}, configuration={}, workflow={}, assets=(), loras=(),
+        doctor_ready=False, doctor={}, stages={},
+    )
+    service._write(imported)
+    before = (tmp_path / "foreign-owner" / "qualification.json").read_bytes()
+    calls: list[str] = []
+
+    def disallowed_fetch(node_id: str, config: RenderNodeConfig) -> Any:
+        calls.append(node_id)
+        raise AssertionError("No PC-B read on foreign session")
+
+    monkeypatch.setattr(module, "fetch_renderer_owner_audit", disallowed_fetch)
+    with pytest.raises(ValueError, match="another controller"):
+        service.collect_renderer_owner_observation("foreign-owner")
+    assert not calls
+    assert (tmp_path / "foreign-owner" / "qualification.json").read_bytes() == before
+    assert not list((tmp_path / "foreign-owner").glob("owner-*"))
+
+
 def test_parallel_remote_owner_snapshots_are_not_lost(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
