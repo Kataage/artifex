@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
-from artifex.comfy import ComfyUIClient
+from artifex.comfy import ComfyUIClient, ComfyUIError
 from artifex.comfy.admission import ComfySubmissionFence, SubmissionFencedError
 from artifex.config.models import ComfyUiConfig
 from artifex.db import Database
@@ -139,8 +139,9 @@ async def test_submission_error_still_releases_admission_for_maintenance(
         base_url="http://localhost:8188",
     )
     client = ComfyUIClient(cfg, client=http_client)
-    with pytest.raises(Exception, match="failed after retries"):
+    with pytest.raises(ComfyUIError, match="outcome is unknown") as raised:
         await client.submit({"1": {"class_type": "Test", "inputs": {}}})
+    assert raised.value.retryable is False
     assert await ComfySubmissionFence(path).seal(
         lambda: asyncio.sleep(0, result=True)
     )

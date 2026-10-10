@@ -590,6 +590,16 @@ class ProductionCoordinator:
             on_submitted = partial(self._record_submission, attempt.id)
 
             while True:
+                # _record_submission durably stores the accepted ComfyUI
+                # prompt before waiting or downloading. A network failure
+                # after that point must resume the same GPU job, not emit
+                # another /prompt for this GenerationAttempt.
+                persisted = self._attempts.require(attempt.id)
+                persisted_prompt = persisted.provenance_json.get("comfy_prompt_id")
+                if isinstance(persisted_prompt, str) and persisted_prompt:
+                    request = request.model_copy(
+                        update={"resume_prompt_id": persisted_prompt}
+                    )
                 try:
                     batch = await self._backend.generate(
                         request,

@@ -103,12 +103,14 @@ def _backend(
     root: Path, *,
     mode: str = "filesystem",
     output: ComfyOutput | None = None,
+    release_vram: bool = False,
 ) -> tuple[ComfyGenerationBackend, Any]:
     output = output or _output()
 
     class CompletedComfy:
         submissions = 0
         downloads = 0
+        releases = 0
 
         async def submit(self, graph: dict[str, Any]) -> QueueReceipt:
             self.submissions += 1
@@ -129,7 +131,7 @@ def _backend(
             return image
 
         async def free_memory(self, **kwargs: Any) -> None:
-            pass
+            self.releases += 1
 
     client = CompletedComfy()
     template = SimpleNamespace(
@@ -139,7 +141,7 @@ def _backend(
     config = ComfyUiConfig(
         output_mode=mode, output_dir=root,
         download_dir=root / "downloads",
-        release_vram_after_attempt=False,
+        release_vram_after_attempt=release_vram,
     )
     backend = ComfyGenerationBackend(
         client, SimpleNamespace(require=lambda name: template),
@@ -151,6 +153,7 @@ def _backend(
 def _generation_request() -> Any:
     return SimpleNamespace(
         workflow_template_id=None,
+        resume_prompt_id=None,
         lora_plan=SimpleNamespace(entries=()),
         compiled=SimpleNamespace(
             positive_prompt="one girl", negative_prompt="artifact",
@@ -207,3 +210,76 @@ async def test_real_backend_keeps_remote_api_download_transport(
     assert client.downloads == 1
     assert client.submissions == 1
     assert result.output_paths[0].read_bytes() == b"API response bytes"
+
+
+@pytest.mark.asyncio
+async def test_post_receipt_timeout_can_resume_same_gpu_prompt_without_submission(
+    tmp_path: Path,
+) -> None:
+    from artifex.comfy.errors import ComfyUITimeoutError
+
+    folder = tmp_path / "ARTIFEX" / "pack-1"
+    folder.mkdir(parents=True)
+    (folder / "scene.png").write_bytes(b"image")
+    backend, client = _backend(tmp_path, release_vram=True)
+    original_wait = client.wait_for_completion
+    calls = 0
+
+    async def fail_once(prompt_id: str) -> ComfyExecutionResult:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ComfyUITimeoutError("poll timed out after accepted /prompt")
+        return await original_wait(prompt_id)
+
+    client.wait_for_completion = fail_once
+    request = _generation_request()
+    submitted: list[str] = []
+    with pytest.raises(ComfyUITimeoutError):
+        await backend.generate(request, on_submitted=submitted.append)
+
+    assert client.releases == 0, "active GPU job must not receive /free"
+    assert submitted == ["one-gpu-prompt"]
+    request.resume_prompt_id = submitted[0]
+    result = await backend.generate(request, on_submitted=submitted.append)
+    assert client.submissions == 1
+    assert submitted == ["one-gpu-prompt"]
+    assert calls == 2
+    assert result.prompt_id == "one-gpu-prompt"
+    assert result.output_paths[0].is_file()
+    assert client.releases == 1, "release only after confirmed remote completion"
+
+
+@pytest.mark.asyncio
+async def test_post_receipt_download_error_resumes_existing_result_not_gpu(
+    tmp_path: Path,
+) -> None:
+    from artifex.comfy.errors import ComfyErrorKind, ComfyUIError
+
+    backend, client = _backend(tmp_path, mode="api")
+    original_download = client.download_output
+    calls = 0
+
+    async def fail_once(*args: Any) -> Path:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ComfyUIError(
+                ComfyErrorKind.CONNECTION,
+                "temporary PC-A /view download interruption",
+                retryable=True,
+            )
+        return await original_download(*args)
+
+    client.download_output = fail_once
+    request = _generation_request()
+    submitted: list[str] = []
+    with pytest.raises(ComfyUIError) as raised:
+        await backend.generate(request, on_submitted=submitted.append)
+    assert raised.value.retryable
+    request.resume_prompt_id = "one-gpu-prompt"
+    recovered = await backend.generate(request, on_submitted=submitted.append)
+    assert client.submissions == 1
+    assert submitted == ["one-gpu-prompt"]
+    assert calls == 2
+    assert recovered.output_paths[0].read_bytes() == b"API response bytes"

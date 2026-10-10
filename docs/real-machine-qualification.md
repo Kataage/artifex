@@ -1,5 +1,25 @@
 # Target Windows Production Qualification
 
+## Never resubmit an accepted ComfyUI GPU prompt after a transient failure
+
+ComfyUI `POST /prompt` is **not idempotent**. The request may be accepted
+even when PC-A loses its response. Artifex now sends that POST **once**;
+an ambiguous timeout, lost response or 5xx response is a non-retryable
+submission uncertainty requiring reconciliation, not a new GPU queue entry.
+Do not manually repeat it until the original prompt is accounted for.
+
+When PC-A **has already received and persisted** a `prompt_id`, a
+transient completion-poll or `/view` image-download failure retries
+waiting and downloading from the **same prompt ID**. The attempt remains
+the same and no second GPU job is enqueued. A timeout is also **not**
+proof that PC-B is idle: Artifex does not issue ComfyUI `/free` while a
+submitted prompt may still be running. It requests optional cached-model
+release only once remote completion has been confirmed. If attempts are exhausted,
+the existing review/recovery mechanism records the failure rather than
+silently calling `/prompt` again. A separate true image-quality retry,
+after actual evaluation, remains a legitimate new GenerationAttempt.
+This is native Windows behavior and does not need Docker.
+
 ## Completed ComfyUI image files must be accessible to PC-A
 
 In the recommended **two-PC** setup, use `render_nodes.nodes.<PC-B>.output_mode:
