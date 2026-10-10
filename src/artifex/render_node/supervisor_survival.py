@@ -217,6 +217,38 @@ def sample_supervisor_survival(
     )
 
 
+def _aware_native_time(value: str) -> datetime | None:
+    """Reject malformed/naive Windows CIM creation timestamps."""
+    try:
+        stamp = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return stamp.astimezone(UTC) if stamp.tzinfo is not None else None
+
+
+def _valid_sample_time(sample: SurvivalSample) -> bool:
+    """A historical sample must describe a possible native Windows timeline."""
+    observed = sample.observed_utc
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        return False
+    if not sample.host.strip() or not sample.node_id.strip():
+        return False
+    if sample.actual_listener_pid is None or sample.actual_listener_pid <= 0:
+        return False
+    started = _aware_native_time(sample.actual_listener_started_utc or "")
+    if started is None or started > observed.astimezone(UTC):
+        return False
+    if len({pid for pid, _ in sample.supervisor_identities}) != len(
+        sample.supervisor_identities
+    ):
+        return False
+    return all(
+        pid > 0 and (process_start := _aware_native_time(utc)) is not None
+        and process_start <= observed.astimezone(UTC)
+        for pid, utc in sample.supervisor_identities
+    )
+
+
 def assess_survival(samples: tuple[SurvivalSample, ...], *,
                     min_separation_seconds: float) -> SurvivalAssessment:
     """Only naturally witnessed Task Running -> Ready + identical GPU child.
@@ -239,7 +271,8 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
         baseline.launcher_pid, baseline.receipt_schema,
     )
     if (
-        baseline.state != "verified" or baseline.task_state != "Running"
+        not _valid_sample_time(baseline)
+        or baseline.state != "verified" or baseline.task_state != "Running"
         or not initial_supervisors or baseline.owner_audit_state != "observed_stable"
         or baseline.owner_checks.get("scheduler_running") != "pass"
         or baseline.actual_listener_pid in {pid for pid, _ in initial_supervisors}
@@ -251,8 +284,17 @@ def assess_survival(samples: tuple[SurvivalSample, ...], *,
         status, reason = "blocked", "initial_supervisor_or_comfyui_not_verified"
     else:
         last_elapsed = -1.0
+        last_observed: datetime | None = None
         first_absent: float | None = None
         for item in samples:
+            if not _valid_sample_time(item):
+                status, reason = "blocked", "invalid_native_observation_or_creation_time"
+                break
+            current_observed = item.observed_utc.astimezone(UTC)
+            if last_observed is not None and current_observed <= last_observed:
+                status, reason = "blocked", "sample_wall_clock_reversed_or_duplicated"
+                break
+            last_observed = current_observed
             same = (
                 item.host == baseline.host and item.node_id == baseline.node_id
                 and (
