@@ -145,6 +145,55 @@ async def test_request_retries_transient_connection_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ambiguous_prompt_post_is_never_retried_as_duplicate_gpu_work() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        assert request.method == "POST"
+        assert request.url.path == "/prompt"
+        calls += 1
+        # Remote ComfyUI could already have queued the GPU job when the
+        # response was lost. A second POST would generate a duplicate.
+        raise httpx.ReadTimeout("response lost after enqueue", request=request)
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(request_attempts=5), client=http_client)
+    with pytest.raises(ComfyUIError) as exc:
+        await client.submit({"1": {"class_type": "SaveImage", "inputs": {}}})
+    assert exc.value.kind is ComfyErrorKind.CONNECTION
+    assert not exc.value.retryable
+    assert "outcome is unknown" in str(exc.value)
+    assert calls == 1
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_prompt_server_error_is_never_automatically_resent() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        assert request.url.path == "/prompt"
+        calls += 1
+        return httpx.Response(503, text="transient failure")
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://comfy.test",
+    )
+    client = ComfyUIClient(_config(request_attempts=5), client=http_client)
+    with pytest.raises(ComfyUIError) as exc:
+        await client.submit({"1": {"class_type": "SaveImage", "inputs": {}}})
+    assert not exc.value.retryable
+    assert calls == 1
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_execute_submits_tracks_and_discovers_outputs() -> None:
     submitted_graph: dict[str, Any] = {}
     history_calls = 0
