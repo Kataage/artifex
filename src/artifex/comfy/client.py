@@ -419,8 +419,13 @@ class ComfyUIClient:
         params: dict[str, str] | None = None,
     ) -> httpx.Response:
         last_error: Exception | None = None
+        # /prompt is a non-idempotent GPU enqueue. If the response is lost,
+        # the server may already have accepted the work; silently repeating
+        # the POST would create expensive duplicate renders.
+        ambiguous_submit = method.upper() == "POST" and path == "/prompt"
+        attempts = 1 if ambiguous_submit else self._config.request_attempts
 
-        for attempt in range(self._config.request_attempts):
+        for attempt in range(attempts):
             try:
                 response = await self._client.request(
                     method,
@@ -446,14 +451,14 @@ class ComfyUIClient:
                 return response
             except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
                 last_error = exc
-                if attempt + 1 >= self._config.request_attempts:
+                if attempt + 1 >= attempts:
                     break
                 await asyncio.sleep(
                     self._config.reconnect_backoff_seconds * (attempt + 1)
                 )
             except httpx.HTTPStatusError as exc:
                 last_error = exc
-                if attempt + 1 >= self._config.request_attempts:
+                if attempt + 1 >= attempts:
                     break
                 await asyncio.sleep(
                     self._config.reconnect_backoff_seconds * (attempt + 1)
@@ -462,8 +467,13 @@ class ComfyUIClient:
         assert last_error is not None
         raise ComfyUIError(
             ComfyErrorKind.CONNECTION,
-            f"ComfyUI request failed after retries: {method} {path}: {last_error}",
-            retryable=True,
+            (
+                "ComfyUI /prompt outcome is unknown; do not automatically "
+                "resubmit potentially accepted GPU work"
+                if ambiguous_submit else
+                f"ComfyUI request failed after retries: {method} {path}: {last_error}"
+            ),
+            retryable=not ambiguous_submit,
         ) from last_error
 
     @staticmethod
