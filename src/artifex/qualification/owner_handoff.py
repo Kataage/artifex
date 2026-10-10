@@ -17,6 +17,10 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.qualification.native_creation_time import (
+    native_creation_instant,
+    same_native_creation_instant,
+)
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node.client import (
     fetch_remote_owner_readiness,
@@ -106,11 +110,14 @@ def _fresh(ts: datetime, now: datetime, *, window: timedelta) -> bool:
 
 
 def _stable(report: RendererOwnerAudit) -> bool:
+    started = native_creation_instant(report.actual_process_started_utc)
     return (
         report.status == "observed_stable"
         and report.process_observation_verified
         and report.actual_listener_pid is not None
-        and report.actual_process_started_utc is not None
+        and started is not None
+        and report.captured_utc.tzinfo is not None
+        and started <= report.captured_utc
         and report.restart_authorized is False
         and report.production_qualified is False
         and _REQUIRED_CHECKS.issubset(report.checks)
@@ -270,7 +277,9 @@ def correlate_pc_b_owner_report(
     if not (
         report.host.casefold() == att.hostname.casefold()
         and owner.actual_listener_pid == live.actual_listener_pid
-        and owner.actual_process_started_utc == live.actual_process_started_utc
+        and same_native_creation_instant(
+            owner.actual_process_started_utc, live.actual_process_started_utc,
+        )
         and owner.launcher_pid == live.launcher_pid
         and owner.receipt_schema == live.receipt_schema
         and owner.scheduler_state == live.scheduler_state
