@@ -7,8 +7,8 @@ real file is accessible, regular and nonempty on the controller.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path, PureWindowsPath
-from typing import Iterable
 
 from artifex.comfy.errors import ComfyUIExecutionError, ComfyUIProtocolError
 from artifex.comfy.models import ComfyOutput
