@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import platform
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -75,6 +75,7 @@ def compile_local_renderer_field_preflight(
     observed_utc: datetime | None = None,
 ) -> LocalRendererFieldPreflight:
     """Require both independent local observations; never infer stage PASS."""
+    checked_at = observed_utc or datetime.now(UTC)
     renderer_state = (
         installation.renderer_task.status if installation else "unavailable"
     )
@@ -135,8 +136,26 @@ def compile_local_renderer_field_preflight(
     else:
         if installation.node_id != node:
             blockers.append("pc_b_node_identity_mismatch")
-        if not installation.safe_for_passive_observation:
+        if (
+            not installation.native_windows
+            or not installation.managed_renderer_configured
+            or not installation.safe_for_passive_observation
+            or renderer_state != "running"
+            or watcher_state != "running"
+            or not installation.renderer_task.managed
+            or not installation.survival_observer_task.managed
+            or not installation.renderer_task.configuration_verified
+            or not installation.survival_observer_task.configuration_verified
+        ):
             blockers.append("pc_b_task_or_observer_preconditions_not_ready")
+        if (
+            installation.captured_utc.tzinfo is None
+            or checked_at.tzinfo is None
+            or not -timedelta(seconds=30) <= (
+                checked_at - installation.captured_utc
+            ) <= timedelta(minutes=2)
+        ):
+            blockers.append("pc_b_installation_snapshot_stale_or_clock_skewed")
         if watcher_state != "running" or heartbeat != "fresh":
             blockers.append("pc_b_survival_observer_not_fresh")
         if spool in {"unsafe", "unavailable"}:
@@ -171,7 +190,7 @@ def compile_local_renderer_field_preflight(
             "--config", str(config), "--json",
         ) if native_windows and installation is not None else None
     return LocalRendererFieldPreflight(
-        observed_utc=observed_utc or datetime.now(UTC),
+        observed_utc=checked_at,
         node_id=node, status=state, native_windows=native_windows,
         installation_inspected=installation is not None,
         owner_readiness_inspected=owner_readiness is not None,
@@ -186,8 +205,11 @@ def compile_local_renderer_field_preflight(
         ),
         launcher_fixture_status=fixture_status,
         real_comfyui_owner_status=owner_status,
-        listener_pid=pid if owner_verified else None,
-        listener_started_utc=parsed_start.isoformat() if owner_verified else None,
+        listener_pid=pid if ready and owner_verified else None,
+        listener_started_utc=(
+            parsed_start.isoformat()
+            if ready and owner_verified and parsed_start is not None else None
+        ),
         blocked_reasons=tuple(dict.fromkeys(blockers)),
         probe_errors=probe_errors,
         next_host=next_host, next_action=next_action, next_safe_argv=cmd,
