@@ -151,6 +151,41 @@ def test_pc_b_blocks_all_missing_or_conflicting_local_evidence(case: str) -> Non
     assert not report.production_qualified
 
 
+@pytest.mark.parametrize("problem", [
+    "contradictory_renderer_state",
+    "stale_observation",
+    "future_clock",
+    "naive_observation",
+])
+def test_pc_b_individual_scheduler_truth_and_timestamp_override_summary_pass(
+    problem: str,
+) -> None:
+    original = _install()
+    if problem == "contradictory_renderer_state":
+        installation = original.model_copy(update={
+            "renderer_task": original.renderer_task.model_copy(update={
+                "status": "missing",
+            }),
+        })
+    elif problem == "stale_observation":
+        installation = original.model_copy(update={
+            "captured_utc": NOW - timedelta(minutes=5),
+        })
+    elif problem == "future_clock":
+        installation = original.model_copy(update={
+            "captured_utc": NOW + timedelta(minutes=5),
+        })
+    else:
+        installation = original.model_copy(update={
+            "captured_utc": NOW.replace(tzinfo=None),
+        })
+    report = _report(install=installation)
+    assert report.status == "needs_evidence"
+    assert report.listener_pid is None
+    assert report.next_host == "pc_b"
+    assert not report.production_qualified
+
+
 def test_unsupported_platform_does_not_launch_even_disposable_fixture() -> None:
     calls: list[str] = []
 
