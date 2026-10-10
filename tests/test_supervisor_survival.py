@@ -151,6 +151,117 @@ def test_rejects_unproven_or_contradictory_lifecycle(
     assert report.child_survival_qualified is False
 
 
+@pytest.mark.parametrize("case", (
+    "naive_baseline_observed",
+    "naive_later_observed",
+    "replayed_wall_clock",
+    "reversed_wall_clock",
+    "naive_listener_start",
+    "malformed_listener_start",
+    "future_listener_start",
+    "future_supervisor_start",
+    "naive_supervisor_start",
+    "duplicate_supervisor_pid",
+    "zero_supervisor_pid",
+    "empty_hostname",
+    "empty_node_id",
+))
+def test_passive_survival_rejects_untrusted_timeline(
+    case: str,
+) -> None:
+    baseline = _sample(0)
+    next_sample = _sample(10, task_state="Ready")
+    last = _sample(20, task_state="Ready")
+    if case == "naive_baseline_observed":
+        baseline = baseline.model_copy(update={
+            "observed_utc": _BASE.replace(tzinfo=None),
+        })
+    elif case == "naive_later_observed":
+        next_sample = next_sample.model_copy(update={
+            "observed_utc": (_BASE + timedelta(seconds=10)).replace(tzinfo=None),
+        })
+    elif case == "replayed_wall_clock":
+        last = last.model_copy(update={
+            "observed_utc": _BASE + timedelta(seconds=10),
+        })
+    elif case == "reversed_wall_clock":
+        last = last.model_copy(update={
+            "observed_utc": _BASE + timedelta(seconds=5),
+        })
+    elif case == "naive_listener_start":
+        next_sample = next_sample.model_copy(update={
+            "actual_listener_started_utc": "2026-10-09T22:00:00",
+        })
+        last = last.model_copy(update={
+            "actual_listener_started_utc": "2026-10-09T22:00:00",
+        })
+        baseline = baseline.model_copy(update={
+            "actual_listener_started_utc": "2026-10-09T22:00:00",
+        })
+    elif case == "malformed_listener_start":
+        baseline = baseline.model_copy(update={
+            "actual_listener_started_utc": "unparseable",
+        })
+    elif case == "future_listener_start":
+        baseline = baseline.model_copy(update={
+            "actual_listener_started_utc": "2026-10-10T03:00:00Z",
+        })
+    elif case == "future_supervisor_start":
+        baseline = baseline.model_copy(update={
+            "supervisor_identities": ((123, "2026-10-11T00:00:00Z"),),
+        })
+    elif case == "naive_supervisor_start":
+        baseline = baseline.model_copy(update={
+            "supervisor_identities": ((123, "2026-10-10T00:00:00"),),
+        })
+    elif case == "duplicate_supervisor_pid":
+        baseline = baseline.model_copy(update={
+            "supervisor_identities": ( _SUPERVISOR[0], _SUPERVISOR[0] ),
+        })
+    elif case == "zero_supervisor_pid":
+        baseline = baseline.model_copy(update={
+            "supervisor_identities": ((0, "2026-10-10T00:00:00Z"),),
+        })
+    elif case == "empty_hostname":
+        baseline = baseline.model_copy(update={"host": ""})
+    else:
+        baseline = baseline.model_copy(update={"node_id": "  "})
+    assessment = assess_survival(
+        (baseline, next_sample, last), min_separation_seconds=10,
+    )
+    assert assessment.status == "blocked"
+    assert not assessment.same_comfyui_seen_before_and_after
+    assert not assessment.issue_93_closure_authorized
+    assert not assessment.production_qualified
+
+
+def test_valid_timezone_offsets_normalize_to_same_native_timeline() -> None:
+    from datetime import timezone
+
+    jp = timezone(timedelta(hours=9))
+    baseline = _sample(0).model_copy(update={
+        "observed_utc": _BASE.astimezone(jp),
+        "actual_listener_started_utc": "2026-10-10T07:00:00+09:00",
+        "supervisor_identities": ((123, "2026-10-10T09:00:00+09:00"),),
+    })
+    next_sample = _sample(10, task_state="Ready").model_copy(update={
+        "observed_utc": (_BASE + timedelta(seconds=10)).astimezone(jp),
+        "actual_listener_started_utc": "2026-10-10T07:00:00+09:00",
+    })
+    last = _sample(20, task_state="Ready").model_copy(update={
+        "observed_utc": (_BASE + timedelta(seconds=20)).astimezone(jp),
+        "actual_listener_started_utc": "2026-10-10T07:00:00+09:00",
+    })
+    # Normalize supervisor and listener creation times to identical identity
+    # strings for the existing strict cross-observation identity check.
+    assert baseline.observed_utc.astimezone(UTC) == _BASE
+    assessment = assess_survival(
+        (baseline, next_sample, last), min_separation_seconds=10,
+    )
+    assert assessment.status == "observed_after_supervisor_absence"
+    assert not assessment.production_qualified
+
+
 def test_observation_is_passive_writes_once_and_never_overwrites(
     tmp_path: Path,
 ) -> None:

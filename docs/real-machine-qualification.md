@@ -352,6 +352,20 @@ mean `needs_evidence`, never false `observations_correlated`.
 This is only point-in-time correlation, not uninterrupted real PC-B survival,
 real GPU success or permission to restart an existing renderer.
 
+### PC-B passive supervisor-loss sample chronology
+
+The independent Windows survival observer now rejects a trace if any sample
+contains a missing/naive/malformed or future-dated native process creation
+timestamp (ComfyUI listener or identified supervisor), an absent or duplicated
+supervisor PID, or an empty host/node identity. Each sample's wall-clock
+observation must also advance strictly in UTC order; a duplicated or backward
+wall-clock observation **cannot** be redeemed by advancing monotonic elapsed
+seconds. Equivalent timezone-aware ISO timestamps are normalized before
+validating creation-time ordering. Failures are `blocked` evidence, never
+proof that an actual natural supervisor loss took place. Clock corrections
+or incomplete Windows CIM information therefore require fresh observation,
+not an automatic reattachment or renderer restart.
+
 ## Isolated OS-level supervisor-loss / reattachment regression (Windows CI)
 
 In addition to the in-process `ManagedComfyUI.close()` test, CI runs
