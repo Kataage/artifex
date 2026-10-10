@@ -3446,6 +3446,42 @@ def qualify_owner_pair_check(
         raise typer.Exit(code=1)
 
 
+@qualify_app.command("owner-pair-review")
+def qualify_owner_pair_review(
+    config: ConfigOption = None,
+    report: Annotated[
+        Path | None, typer.Option(
+            "--report", help="Optional exact saved PC-A owner-pair evidence file.",
+        ),
+    ] = None,
+    offline: Annotated[
+        bool, typer.Option(
+            "--offline", help="Never contact PC-B; saved-only is not authenticated.",
+        ),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Review saved dual snapshots against current authenticated PC-B identity."""
+    from artifex.qualification.owner_pair_review import review_owner_pair_evidence
+
+    selected = config or Path("config/local.yaml")
+    try:
+        if (
+            not selected.is_file()
+            or any(item.is_symlink() for item in (selected, *selected.parents))
+        ):
+            raise ValueError("Existing non-symlinked PC-A config required")
+        result = review_owner_pair_evidence(
+            _settings(selected), report_path=report, offline=offline,
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        typer.echo(f"owner-pair-review error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if result.status != "correlated_read_only":
+        raise typer.Exit(code=1)
+
+
 @qualify_app.command("pair-install-audit")
 def qualify_pair_install_audit(
     config: ConfigOption = None,
