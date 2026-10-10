@@ -123,6 +123,28 @@ def test_survival_spool_write_time_beats_future_dated_filename(
     assert content == '{"status":"new-blocked"}'
 
 
+def test_survival_spool_concurrent_write_never_returns_partial_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    root = settings.render_agent.survival_evidence_dir
+    root.mkdir()
+    latest = root / _FIRST
+    latest.write_text('{"status":"blocked"}', encoding="utf-8")
+    original = Path.read_bytes
+
+    def read_and_change(path: Path) -> bytes:
+        raw = original(path)
+        if path == latest:
+            with path.open("ab") as handle:
+                handle.write(b"still-writing")
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", read_and_change)
+    with pytest.raises(ValueError, match="changed during read"):
+        latest_survival_trace(settings)
+
+
 def test_symlink_and_inventory_fail_closed(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     root = settings.render_agent.survival_evidence_dir
