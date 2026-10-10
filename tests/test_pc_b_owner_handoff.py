@@ -131,6 +131,7 @@ def test_correlated_report_still_never_authenticates_copied_file(
     assert observed.status == "correlated_read_only"
     assert observed.saved_host == observed.live_host == "pc-b"
     assert observed.saved_listener_pid == observed.live_listener_pid == 4433
+    assert observed.live_listener_started_utc == "2026-10-09T12:30:00Z"
     assert observed.report_sha256 is not None
     assert "eight_hour_unattended_gpu_soak" in observed.remaining_real_machine_evidence
     assert "all_fourteen_real_machine_qualification_stages" in (
