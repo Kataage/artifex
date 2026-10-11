@@ -16,7 +16,7 @@ from artifex.discord.models import (
     NotificationKind,
     OperatorContext,
 )
-from artifex.discord.notifications import NotificationPolicy
+from artifex.discord.notifications import NotificationPolicy, completion_marker
 from artifex.discord.router import DiscordCommandRouter
 from artifex.discord.summary import DailySummaryBuilder
 
