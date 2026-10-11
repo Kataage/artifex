@@ -23,6 +23,17 @@ automatic ComfyUI process action. The PC-B YAML path is **advisory**;
 it is not opened or executed remotely. All addresses, tokens, directories,
 and model locations remain configurable.
 
+If either live PC-B owner or survival GET raises a recognized transport or
+schema exception, that read is marked `unavailable` / `remote_unavailable`
+without aborting the other read or the local 14-stage summary. The
+`failed_live_probes` array names only affected sources (`owner` and/or
+`survival`), while `partial_live_diagnostics=true` warns that this report
+is incomplete. Neither remote exception text nor Bearer credentials are
+persisted or displayed. A failed source is **never** treated as a matching
+process, and all physical qualification still requires fresh authenticated
+evidence. Invalid or foreign locally stored qualification sessions remain
+hard errors rather than falling back to older records.
+
 Use `--save` to preserve a new **non-authoritative** JSON diagnostic under
 the configured `qualification.evidence_dir/field-brief/`, or use `--output`
 for a specific exclusive-create PC-A JSON path. Without these flags the
