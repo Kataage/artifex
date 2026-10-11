@@ -12,6 +12,7 @@ import httpx
 
 from artifex.config.models import DiscordConfig
 from artifex.discord.models import CommandName
+from artifex.discord.remediation import discord_repair_actions
 
 API_BASE = "https://discord.com/api/v10"
 
@@ -143,15 +144,22 @@ async def probe_discord(
         "checks": checks,
         "problems": messages,
         "writes_performed": 0,
+        "remediation": [],
     }
     if not local_ready:
         messages.append(
             "Enable Discord, configure guild/channel and authorized users, "
             "and set the bot token environment variable."
         )
+        report["remediation"] = discord_repair_actions(
+            config, checks, live_requested=live, requests_sent=0,
+        )
         return report
     if not live:
         messages.append("Local configuration only; no Discord API requests were made.")
+        report["remediation"] = discord_repair_actions(
+            config, checks, live_requested=False, requests_sent=0,
+        )
         return report
 
     assert config.guild_id is not None
@@ -282,4 +290,8 @@ async def probe_discord(
     finally:
         if own_client:
             await client.aclose()
+    report["remediation"] = discord_repair_actions(
+        config, checks, live_requested=live,
+        requests_sent=report["requests_sent"],
+    )
     return report
