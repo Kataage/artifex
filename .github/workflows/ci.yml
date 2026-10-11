@@ -34,6 +34,7 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run python -c "import artifex; print('Artifex import OK')"
       - run: uv run artifex --help
+      - run: uv run artifex discord probe --help
       - run: uv run artifex startup --help
       - run: uv run artifex render-node socket-audit --help
       - run: uv run pytest -q tests/test_windows_task_safety.py

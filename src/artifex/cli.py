@@ -40,6 +40,7 @@ from artifex.db.models import PackInventoryRow
 from artifex.deployment import DeploymentRole, verify_deployment
 from artifex.deployment_activation import activate_deployment
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
+from artifex.discord.preflight import probe_discord
 from artifex.evaluation import (
     SemanticArchiveIndexer,
     SemanticCalibrator,
@@ -207,6 +208,12 @@ onboard_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(onboard_app, name="onboard")
+discord_app = typer.Typer(
+    name="discord",
+    help="Read-only configuration and live Discord delivery-readiness diagnostics.",
+    no_args_is_help=True,
+)
+app.add_typer(discord_app, name="discord")
 
 ConfigOption = Annotated[
     Path | None,
@@ -216,6 +223,21 @@ ConfigOption = Annotated[
 
 def _settings(config: Path | None) -> ArtifexSettings:
     return load_settings(user_config=config)
+
+
+@discord_app.command("probe")
+def discord_probe(
+    config: ConfigOption = None,
+    live: Annotated[
+        bool, typer.Option("--live", help="Query Discord with GET only; never send messages.")
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Audit Discord bot, commands and permissions without modifying Discord."""
+    result = asyncio.run(probe_discord(_settings(config).discord, live=live))
+    _print_payload(result, as_json=json_output)
+    if not result["ready"]:
+        raise typer.Exit(code=1)
 
 
 @app.command("preflight")
