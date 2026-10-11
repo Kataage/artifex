@@ -40,6 +40,8 @@ def test_without_session_only_suggests_safe_environment_and_start() -> None:
     ]
     assert result.outstanding_stage_items == 0
     assert result.pc_a_items == 2
+    assert result.items[1].safety == "explicit_session_start"
+    assert result.items[1].automated_execution is False
     assert result.pc_b_items == result.discord_items == 0
     assert all(task.automated_execution is False for task in result.items)
     assert all(task.blocked_by_environment for task in result.items)
@@ -89,6 +91,7 @@ def test_completed_stages_not_relisted_and_final_verification_never_promoted() -
     ]
     assert result.outstanding_stage_items == 0
     assert result.items[0].stage is None
+    assert result.items[0].safety == "authoritative_verification"
     assert result.items[0].stage_independently_revalidated is False
     assert result.qualifies_production is False
 
@@ -104,6 +107,8 @@ def test_disabled_discord_never_requests_real_discord_actions() -> None:
     )
     assert len(result.items) == 1
     assert "Discord is disabled" in result.items[0].next_action
+    assert result.items[0].responsible_role == "pc_a"
+    assert result.items[0].safety == "read_only_review"
     assert "SKIPPED" in result.items[0].next_action
 
 
