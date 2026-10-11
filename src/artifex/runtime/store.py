@@ -6,7 +6,13 @@ from typing import Any
 from sqlalchemy import select
 
 from artifex.db import Database
-from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow, SettingRow
+from artifex.db.models import (
+    CompletionNotificationRow,
+    GenerationAttemptRow,
+    PackRow,
+    SceneRow,
+    SettingRow,
+)
 from artifex.domain import AgentState, PackState, SceneState
 from artifex.runtime.transitions import (
     validate_agent_transition,
