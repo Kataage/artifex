@@ -23,12 +23,17 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.owner_handoff import correlate_live_pc_b_owner_report
+from artifex.qualification.owner_pair import _valid_owner
 from artifex.qualification.survival_review import review_live_pc_b_survival_evidence
+from artifex.render_node.client import fetch_renderer_owner_audit
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
 _SNAPSHOT = "pc-b-passive-monitor.json"
 _MAX_BYTES = 32768
+IdentityChange = Literal["not_comparable", "unchanged", "changed"]
+LiveOwnerState = Literal["not_checked", "observed_stable", "blocked", "unavailable"]
 
 
 class PCBEvidenceMonitorSnapshot(BaseModel):
@@ -44,6 +49,12 @@ class PCBEvidenceMonitorSnapshot(BaseModel):
     survival_status: str
     owner_check_failed: bool
     survival_check_failed: bool
+    live_owner_status: LiveOwnerState = "not_checked"
+    live_owner_check_failed: bool = False
+    owner_identity_sha256: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$",
+    )
+    identity_change: IdentityChange = "not_comparable"
     actual_gpu_qualified: Literal[False] = False
     historical_event_authenticated: Literal[False] = False
     issue_93_closed: Literal[False] = False
@@ -60,6 +71,15 @@ class PCBEvidenceMonitorSnapshot(BaseModel):
             raise ValueError("PC-B monitor context must not be empty")
         if len(self.endpoint_fingerprint) != 64:
             raise ValueError("PC-B monitor endpoint fingerprint is invalid")
+        if self.owner_identity_sha256 is not None and (
+            self.live_owner_status != "observed_stable"
+            or self.live_owner_check_failed
+        ):
+            raise ValueError("Owner digest requires a verified live owner")
+        if self.identity_change != "not_comparable" and (
+            self.owner_identity_sha256 is None
+        ):
+            raise ValueError("Cannot compare absent live owner identities")
         return self
 
 
@@ -79,6 +99,9 @@ class PCBEvidenceMonitorView(BaseModel):
     survival_status: str | None = None
     owner_check_failed: bool | None = None
     survival_check_failed: bool | None = None
+    live_owner_status: LiveOwnerState = "not_checked"
+    live_owner_check_failed: bool | None = None
+    identity_change: IdentityChange = "not_comparable"
     source: Literal["saved_pc_a_monitor_only"] = "saved_pc_a_monitor_only"
     live_rechecked_by_this_overview: Literal[False] = False
     historical_event_authenticated: Literal[False] = False
@@ -156,6 +179,42 @@ def _read_bounded_monitor_snapshot(path: Path) -> bytes:
         os.close(fd)
 
 
+def _identity_digest(pid: int | None, started: str | None) -> str | None:
+    """Hash a verified PID plus native creation time; never store raw identity."""
+    instant = native_creation_instant(started)
+    if pid is None or pid < 1 or instant is None:
+        return None
+    value = json.dumps([pid, instant.isoformat()], separators=(",", ":"))
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _previous_owner_digest(
+    path: Path, *, settings: ArtifexSettings, session_id: str,
+    now: datetime, node_id: str,
+) -> str | None:
+    """Only recent, context-matched verified snapshots are comparable."""
+    if not _safe_existing_parent(path):
+        return None
+    try:
+        prior = PCBEvidenceMonitorSnapshot.model_validate_json(
+            _read_bounded_monitor_snapshot(path),
+        )
+    except (OSError, ValueError):
+        return None
+    age = (now.astimezone(UTC) - prior.captured_utc.astimezone(UTC)).total_seconds()
+    if (
+        prior.controller_host != socket.gethostname()
+        or prior.session_id != session_id
+        or prior.node_id != node_id
+        or prior.endpoint_fingerprint != _fingerprint(settings)
+        or prior.live_owner_status != "observed_stable"
+        or prior.live_owner_check_failed
+        or not -30 <= age <= settings.qualification.auto_pc_b_monitor_max_age_seconds
+    ):
+        return None
+    return prior.owner_identity_sha256
+
+
 def read_pc_b_evidence_monitor(
     settings: ArtifexSettings, *, session_id: str | None,
     now: datetime, max_age_seconds: int,
@@ -209,7 +268,15 @@ def read_pc_b_evidence_monitor(
         survival_status=snapshot.survival_status,
         owner_check_failed=snapshot.owner_check_failed,
         survival_check_failed=snapshot.survival_check_failed,
+        live_owner_status=snapshot.live_owner_status,
+        live_owner_check_failed=snapshot.live_owner_check_failed,
+        identity_change=snapshot.identity_change,
         next_action=(
+            "A different verified PC-B listener PID/creation identity was observed "
+            "between two historical polls. Recheck the live owner read-only; "
+            "never restart ComfyUI automatically. "
+            if snapshot.identity_change == "changed" else ""
+        ) + (
             "These are saved PC-A polling results, NOT current owner checks, "
             "authenticated supervisor-loss history, GPU evidence or stage PASS. "
             "Run live PC-B owner/survival checks before real-machine acceptance."
@@ -249,22 +316,57 @@ class PCBEvidenceRefreshMaintenance:
         owner_status = "probe_failed"
         survival_status = "probe_failed"
         owner_failed = survival_failed = False
+        live_owner_status: LiveOwnerState = "unavailable"
+        live_owner_failed = False
+        current_digest: str | None = None
         try:
             owner_status = correlate_live_pc_b_owner_report(settings, now=now).status
         except Exception:  # noqa: BLE001 - one failed GET must not mask the other
             owner_failed = True
         try:
             survival_status = review_live_pc_b_survival_evidence(settings, now=now).status
-        except Exception:  # noqa: BLE001 - no untrusted exception details persisted
+        except Exception:  # noqa: BLE001 - one failed GET must not mask the other
             survival_failed = True
+        # A separate, non-cached authenticated owner GET is meaningful even
+        # after the cached launcher-readiness report has expired.
+        try:
+            remote = fetch_renderer_owner_audit(primary[0], primary[1])
+            live_owner_status = "blocked"
+            audit = remote.audit
+            if remote.node_id == primary[0] and _valid_owner(
+                audit, current=datetime.now(UTC),
+            ):
+                current_digest = _identity_digest(
+                    audit.actual_listener_pid, audit.actual_process_started_utc,
+                )
+                if current_digest is not None:
+                    live_owner_status = "observed_stable"
+        except Exception:  # noqa: BLE001 - no tokens/remote errors persisted
+            live_owner_failed = True
+        captured = datetime.now(UTC)
+        path = _snapshot_path(settings)
+        previous_digest = (
+            _previous_owner_digest(
+                path, settings=settings, session_id=session_id,
+                now=captured, node_id=primary[0],
+            )
+            if current_digest is not None else None
+        )
+        identity_change: IdentityChange = (
+            "not_comparable" if previous_digest is None else
+            "unchanged" if previous_digest == current_digest else "changed"
+        )
         sample = PCBEvidenceMonitorSnapshot(
-            captured_utc=now, controller_host=socket.gethostname(),
+            captured_utc=captured, controller_host=socket.gethostname(),
             session_id=session_id, node_id=primary[0],
             endpoint_fingerprint=_fingerprint(settings),
             owner_status=owner_status, survival_status=survival_status,
             owner_check_failed=owner_failed, survival_check_failed=survival_failed,
+            live_owner_status=live_owner_status,
+            live_owner_check_failed=live_owner_failed,
+            owner_identity_sha256=current_digest,
+            identity_change=identity_change,
         )
-        path = _snapshot_path(settings)
         if not _safe_existing_parent(path):
             raise ValueError("Unsafe or absent existing qualification directory")
         # Atomic replacement of our *own* bounded monitor file. Never write
@@ -296,4 +398,16 @@ class PCBEvidenceRefreshMaintenance:
             except Exception:  # noqa: BLE001 - best effort only
                 logging.getLogger(__name__).warning("PC-B monitor failure audit unavailable")
             return None
+        if snapshot is not None and snapshot.identity_change == "changed":
+            # This is only an operational warning, never a qualification stage.
+            try:
+                self._telemetry.record(
+                    "qualification.pc_b_owner_identity_changed",
+                    EventSeverity.WARNING,
+                    {"node_id": snapshot.node_id, "effect": "read_only_review"},
+                )
+            except Exception:  # noqa: BLE001 - best effort only
+                logging.getLogger(__name__).warning(
+                    "PC-B owner identity-change telemetry unavailable",
+                )
         return snapshot

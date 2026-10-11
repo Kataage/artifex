@@ -27,6 +27,16 @@ NOW = datetime(2026, 10, 12, 1, 0, tzinfo=UTC)
 SESSION = "20261012T010000Z-12345678"
 
 
+@pytest.fixture(autouse=True)
+def no_real_pc_b_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """All tests stay offline unless they override the read-only owner probe."""
+
+    def unavailable(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("No PC-B network requests in unit tests")
+
+    monkeypatch.setattr(monitor, "fetch_renderer_owner_audit", unavailable)
+
+
 def _settings(root: Path) -> ArtifexSettings:
     settings = ArtifexSettings()
     settings.qualification.evidence_dir = root
@@ -349,3 +359,132 @@ def test_monitor_reader_rejects_in_place_edit_during_read(
         settings, session_id=SESSION, now=NOW, max_age_seconds=1800,
     ).status == "invalid"
     assert calls >= 2
+
+
+def test_authenticated_live_owner_identity_change_is_only_a_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    settings = _settings(tmp_path / "evidence")
+    _session(settings.qualification.evidence_dir)
+    telemetry = Mock()
+    monkeypatch.setattr(
+        monitor, "correlate_live_pc_b_owner_report",
+        lambda *a, **k: _status("stale"),
+    )
+    monkeypatch.setattr(
+        monitor, "review_live_pc_b_survival_evidence",
+        lambda *a, **k: _status("remote_unavailable"),
+    )
+    pid = [101]
+    started = ["2026-10-10T01:00:00+00:00"]
+
+    def owner_probe(node: str, config: RenderNodeConfig) -> object:
+        return SimpleNamespace(
+            node_id=node,
+            audit=SimpleNamespace(
+                actual_listener_pid=pid[0],
+                actual_process_started_utc=started[0],
+            ),
+        )
+
+    monkeypatch.setattr(monitor, "fetch_renderer_owner_audit", owner_probe)
+    monkeypatch.setattr(monitor, "_valid_owner", lambda *a, **k: True)
+
+    def poll() -> PCBEvidenceMonitorSnapshot:
+        result = asyncio.run(PCBEvidenceRefreshMaintenance(settings, telemetry).maintain())
+        assert result is not None
+        return result
+
+    first = poll()
+    assert first.live_owner_status == "observed_stable"
+    assert first.identity_change == "not_comparable"
+    assert first.owner_status == "stale"  # cached readiness can be expired
+    second = poll()
+    assert second.identity_change == "unchanged"
+    pid[0] = 102
+    third = poll()
+    assert third.identity_change == "changed"
+    assert third.stage_pass_registered is False
+    assert third.production_qualified is False
+    telemetry.record.assert_called_once()
+    assert telemetry.record.call_args.args[0] == (
+        "qualification.pc_b_owner_identity_changed"
+    )
+
+    view = read_pc_b_evidence_monitor(
+        settings, session_id=SESSION,
+        now=third.captured_utc + timedelta(seconds=1),
+        max_age_seconds=1800,
+    )
+    assert view.identity_change == "changed"
+    assert "never restart ComfyUI" in view.next_action
+
+    saved = (settings.qualification.evidence_dir / "pc-b-passive-monitor.json").read_text(
+        encoding="utf-8",
+    )
+    assert '"live_listener_pid"' not in saved
+    assert "192.0.2.10" not in saved
+    assert '"actual_process_started_utc"' not in saved
+    assert third.owner_identity_sha256 != first.owner_identity_sha256
+
+    started[0] = "2026-10-10T10:00:00+09:00"
+    fourth = poll()
+    assert fourth.identity_change == "unchanged"
+    started[0] = "2026-10-10T01:00:01+00:00"
+    fifth = poll()
+    assert fifth.identity_change == "changed"
+    assert telemetry.record.call_count == 2
+
+
+def test_live_owner_change_is_not_comparable_across_config_or_failed_poll(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    settings = _settings(tmp_path / "evidence")
+    _session(settings.qualification.evidence_dir)
+    monkeypatch.setattr(
+        monitor, "correlate_live_pc_b_owner_report",
+        lambda *a, **k: _status("blocked"),
+    )
+    monkeypatch.setattr(
+        monitor, "review_live_pc_b_survival_evidence",
+        lambda *a, **k: _status("blocked"),
+    )
+    calls = [0]
+
+    def probe(node: str, config: RenderNodeConfig) -> object:
+        calls[0] += 1
+        if calls[0] == 3:
+            raise OSError("confidential-token-must-not-persist")
+        return SimpleNamespace(
+            node_id=node,
+            audit=SimpleNamespace(
+                actual_listener_pid=101,
+                actual_process_started_utc="2026-10-10T01:00:00+00:00",
+            ),
+        )
+
+    monkeypatch.setattr(monitor, "fetch_renderer_owner_audit", probe)
+    monkeypatch.setattr(monitor, "_valid_owner", lambda *a, **k: True)
+
+    def poll() -> PCBEvidenceMonitorSnapshot:
+        sample = asyncio.run(PCBEvidenceRefreshMaintenance(settings, Mock()).maintain())
+        assert sample is not None
+        return sample
+
+    assert poll().identity_change == "not_comparable"
+    settings.render_nodes.nodes["gpu-b"].base_url = "http://192.0.2.20:8188"
+    assert poll().identity_change == "not_comparable"
+    failed = poll()
+    assert failed.live_owner_status == "unavailable"
+    assert failed.live_owner_check_failed
+    assert failed.identity_change == "not_comparable"
+    next_ok = poll()
+    assert next_ok.identity_change == "not_comparable"
+    output = (
+        settings.qualification.evidence_dir / "pc-b-passive-monitor.json"
+    ).read_text(encoding="utf-8")
+    assert "confidential-token-must-not-persist" not in output
