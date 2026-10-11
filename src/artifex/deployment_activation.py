@@ -32,6 +32,9 @@ class ActivationReport(BaseModel):
     task: StartupTaskStatus
     deployment: DeploymentReport
     checks_performed: int = Field(ge=1)
+    # A healthy endpoint alone may belong to an old/foreign worker. This
+    # native Task Scheduler state is necessary, but not sufficient, for ready.
+    task_running_observed: bool = False
     ready: bool
     production_qualified: bool = False
 
@@ -95,10 +98,23 @@ async def activate_deployment(
             settings, role=role, require_autostart=True, render_smoke=False
         )
         checks += 1
-        # A reported 'Running' Task Scheduler state is NOT used as a service
-        # health signal. Only real deployment checks prove readiness.
-        ready = compatible and report.ready
-        if ready or not apply or monotonic_fn() >= deadline:
+        # Re-read the native task AFTER the live health checks, not just at
+        # the beginning of the activation. A task might have exited or been
+        # replaced while the deployment services were being probed.
+        task = await asyncio.to_thread(status_fn, startup_role)
+        compatible, detail = await asyncio.to_thread(
+            match_fn, startup_role, config=config, status=task
+        )
+        task_running = bool(
+            task.installed and task.managed
+            and (task.state or "").casefold() == "running"
+        )
+        # A Task Scheduler "Running" label is NOT proof of service health;
+        # conversely a stale service endpoint is NOT proof that the intended
+        # Artifex Task Scheduler task is actually running. Require both.
+        ready = compatible and task_running and report.ready
+        # Task registration drift is unsafe, not a transient startup delay.
+        if ready or not apply or not compatible or monotonic_fn() >= deadline:
             return ActivationReport(
                 role=role,
                 mode="apply" if apply else "preview",
@@ -108,6 +124,7 @@ async def activate_deployment(
                 task=task,
                 deployment=report,
                 checks_performed=checks,
+                task_running_observed=task_running,
                 ready=ready,
             )
         await sleep_fn(min(poll_seconds, max(0, deadline - monotonic_fn())))
