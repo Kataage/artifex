@@ -7,7 +7,7 @@ restarting an occupied renderer.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -18,6 +18,8 @@ from artifex.qualification.models import REQUIRED_STAGES, QualificationStage
 HandoffRole = Literal["pc_a", "pc_b", "discord"]
 HandoffSafety = Literal[
     "read_only_review",
+    "explicit_session_start",
+    "authoritative_verification",
     "normal_production",
     "controlled_gpu_window",
     "long_running_observation",
@@ -157,7 +159,7 @@ def compile_evidence_handoff(
         items.append(EvidenceHandoffItem(
             id="start-session", stage=None, recorded_status=None,
             responsible_role="pc_a", supporting_roles=("pc_b",),
-            safety="read_only_review",
+            safety="explicit_session_start",
             next_action=(
                 "After readiness is confirmed, explicitly run qualify start on "
                 "PC-A to capture real baseline and session identity. Starting "
@@ -176,6 +178,7 @@ def compile_evidence_handoff(
             role, helpers, safety, description = _STAGE_HANDOFF[stage]
             if stage is QualificationStage.DISCORD_CONTROLS:
                 if not discord_enabled:
+                    role, helpers, safety = "pc_a", (), "read_only_review"
                     description = (
                         "Discord is disabled: inspect this session's frozen "
                         "configuration. Only the authoritative qualification "
@@ -200,7 +203,9 @@ def compile_evidence_handoff(
             items.append(EvidenceHandoffItem(
                 id="stage-" + stage.value,
                 stage=stage.value,
-                recorded_status=status,
+                recorded_status=cast(
+                    Literal["pending", "fail", "not_inspected"], status,
+                ),
                 responsible_role=role,
                 supporting_roles=helpers,
                 safety=safety,
@@ -235,7 +240,8 @@ def compile_evidence_handoff(
                 id="authoritative-final-verification",
                 stage=None, recorded_status=None,
                 responsible_role="pc_a", supporting_roles=("pc_b", "discord"),
-                safety="read_only_review",
+                safety="authoritative_verification",
+                blocked_by_environment=not environment_ready,
                 next_action=(
                     "Saved stage statuses have no outstanding entries, but none "
                     "has been independently revalidated by this overview. "
