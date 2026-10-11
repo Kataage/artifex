@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from artifex.qualification.evidence_handoff import compile_evidence_handoff
 from artifex.qualification.discord_completion_evidence import DiscordCompletionEvidence
 from artifex.qualification.discord_control_evidence import DiscordControlEvidence
+from artifex.qualification.evidence_handoff import compile_evidence_handoff
 from artifex.qualification.owner_handoff import PCBOwnerCorrelation
 from artifex.qualification.pc_b_evidence_gaps import (
     PCBEvidenceCheck,
