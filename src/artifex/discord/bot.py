@@ -358,6 +358,38 @@ class ArtifexDiscordClient(discord.Client):
         async def signals(interaction: discord.Interaction) -> None:
             await self._route(interaction, "signals")
 
+        @self._group.command(
+            name="notices",
+            description="Show completion notification status and unresolved Packs.",
+        )
+        async def notices(interaction: discord.Interaction) -> None:
+            await self._route(interaction, "notices")
+
+        @self._group.command(
+            name="notice",
+            description="Inspect a single Pack completion notification.",
+        )
+        async def notice(interaction: discord.Interaction, pack_id: str) -> None:
+            await self._route(interaction, "notice", pack_id)
+
+        @self._group.command(
+            name="notice-dismiss",
+            description="Explicitly stop retries for an uncertain Pack notice.",
+        )
+        async def notice_dismiss(
+            interaction: discord.Interaction,
+            pack_id: str,
+            reason: str,
+            confirmation: str,
+        ) -> None:
+            await self._route(
+                interaction,
+                "notice-dismiss",
+                pack_id,
+                reason,
+                confirmation,
+            )
+
     async def _daily_summary_loop(self) -> None:
         timezone = ZoneInfo(self._config.daily_summary_timezone)
         while not self.is_closed():

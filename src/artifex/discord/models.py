@@ -27,6 +27,9 @@ class CommandName(StrEnum):
     SERIES = "series"
     SIGNALS = "signals"
     DETAILS = "details"
+    NOTICES = "notices"
+    NOTICE = "notice"
+    NOTICE_DISMISS = "notice-dismiss"
 
 
 class OperatorContext(DiscordModel):
@@ -37,6 +40,7 @@ class OperatorContext(DiscordModel):
 class CommandRequest(DiscordModel):
     name: CommandName
     args: tuple[str, ...] = ()
+    operator_user_id: int | None = Field(default=None, ge=1)
 
 
 class CommandResponse(DiscordModel):

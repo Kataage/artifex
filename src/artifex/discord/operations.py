@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from artifex.characters import CharacterRegistry
 from artifex.db import Database
-from artifex.db.models import ConceptRow, PackRow, SceneRow
+from artifex.db.models import CompletionNotificationRow, ConceptRow, PackRow, SceneRow
 from artifex.discord.models import CommandName, CommandRequest, CommandResponse
 from artifex.domain import AgentState, LoRAState, PackState, SceneState
 from artifex.loras import LoRARegistry
@@ -79,6 +79,14 @@ class ArtifexRemoteOperations:
                 return self._signals_status()
             case CommandName.DETAILS:
                 return self._details(self._one_arg(request, "review id"))
+            case CommandName.NOTICES:
+                if request.args:
+                    raise ValueError("notices does not accept arguments")
+                return self._notices()
+            case CommandName.NOTICE:
+                return self._notice(self._one_arg(request, "Pack id"))
+            case CommandName.NOTICE_DISMISS:
+                return self._notice_dismiss(request)
 
     @staticmethod
     def _one_arg(request: CommandRequest, label: str) -> str:
@@ -262,6 +270,150 @@ class ArtifexRemoteOperations:
             f"{item['id']}({item['state']})" for item in items
         )
         return CommandResponse(ok=True, message=message, data={"packs": items})
+
+    def _notices(self) -> CommandResponse:
+        """Read-only operational triage. Does not trigger network sends."""
+        with self._database.session() as session:
+            counts = {
+                state: count for state, count in session.execute(
+                    select(
+                        CompletionNotificationRow.state,
+                        func.count(CompletionNotificationRow.pack_id),
+                    ).group_by(CompletionNotificationRow.state)
+                ).all()
+            }
+            rows = session.scalars(
+                select(CompletionNotificationRow)
+                .where(CompletionNotificationRow.state.in_((
+                    "pending", "sending", "uncertain",
+                )))
+                .order_by(
+                    CompletionNotificationRow.updated_at.asc(),
+                    CompletionNotificationRow.pack_id.asc(),
+                )
+                .limit(10)
+            ).all()
+            unresolved = [
+                {
+                    "pack_id": row.pack_id,
+                    "state": row.state,
+                    "updated_at": row.updated_at.isoformat(),
+                }
+                for row in rows
+            ]
+        summary = (
+            "Completion notices: "
+            + ", ".join(
+                f"{state}={counts.get(state, 0)}"
+                for state in ("pending", "sending", "uncertain", "sent", "dismissed")
+            )
+        )
+        if unresolved:
+            summary += " | unresolved: " + ", ".join(
+                f"{item['pack_id']}({item['state']})" for item in unresolved
+            )
+        return CommandResponse(
+            ok=True,
+            message=summary,
+            data={"counts": counts, "unresolved": unresolved},
+        )
+
+    def _notice(self, pack_id: str) -> CommandResponse:
+        with self._database.session() as session:
+            item = session.get(CompletionNotificationRow, pack_id)
+            if item is None:
+                raise KeyError(f"unknown completion notice: {pack_id}")
+            pack = session.get(PackRow, pack_id)
+            details = {
+                "pack_id": pack_id,
+                "state": item.state,
+                "discord_message_id": item.discord_message_id,
+                "updated_at": item.updated_at.isoformat(),
+                "dismissal_reason": item.dismissal_reason,
+                "dismissed_by_user_id": item.dismissed_by_user_id,
+                "dismissed_at": (
+                    item.dismissed_at.isoformat()
+                    if item.dismissed_at is not None else None
+                ),
+                "pack_state": pack.state if pack is not None else None,
+                "archive_complete": (
+                    pack.checkpoint_json.get("archive_complete") is True
+                    if pack is not None else False
+                ),
+            }
+        parts = [
+            f"Pack {pack_id} completion: {details['state']}",
+            f"Pack state: {details['pack_state'] or 'missing'}",
+            f"Archive complete: {details['archive_complete']}",
+        ]
+        if details["discord_message_id"] is not None:
+            parts.append(f"Verified Discord message ID: {details['discord_message_id']}")
+        if details["dismissal_reason"] is not None:
+            parts.append("Manually dismissed; NOT proof of Discord delivery.")
+            parts.append(f"Reason: {details['dismissal_reason']}")
+        if details["state"] == "uncertain":
+            parts.append(
+                "Discord delivery is unknown; history lookup does not auto-resend."
+            )
+        return CommandResponse(
+            ok=True,
+            message=" | ".join(parts),
+            data=details,
+        )
+
+    def _notice_dismiss(self, request: CommandRequest) -> CommandResponse:
+        """Explicitly suppress an *uncertain* notice, never claim delivery."""
+        if request.operator_user_id is None:
+            raise ValueError("notice-dismiss requires authenticated Discord operator")
+        if len(request.args) != 3:
+            raise ValueError(
+                "notice-dismiss requires Pack id, reason, and confirmation DISMISS"
+            )
+        pack_id, raw_reason, confirmation = request.args
+        pack_id = pack_id.strip()
+        reason = raw_reason.strip()
+        if not pack_id or len(pack_id) > 64:
+            raise ValueError("invalid Pack id")
+        if confirmation != "DISMISS":
+            raise ValueError("notice-dismiss requires confirmation DISMISS")
+        if (
+            len(reason) < 10 or len(reason) > 200
+            or any(c in reason for c in ("\\n", "\\r", "@"))
+        ):
+            raise ValueError(
+                "notice-dismiss reason must be 10-200 characters, one line, "
+                "without mentions"
+            )
+        now = datetime.now(UTC)
+        with self._database.session() as session:
+            result = session.execute(
+                update(CompletionNotificationRow)
+                .where(
+                    CompletionNotificationRow.pack_id == pack_id,
+                    CompletionNotificationRow.state == "uncertain",
+                )
+                .values(
+                    state="dismissed",
+                    dismissal_reason=reason,
+                    dismissed_by_user_id=str(request.operator_user_id),
+                    dismissed_at=now,
+                    updated_at=now,
+                )
+                .returning(CompletionNotificationRow.pack_id)
+            )
+            if result.scalar_one_or_none() != pack_id:
+                raise ValueError(
+                    "notice-dismiss requires an existing uncertain notice; "
+                    "already sent or pending notifications cannot be dismissed"
+                )
+        return CommandResponse(
+            ok=True,
+            message=(
+                f"Pack {pack_id} notice dismissed by operator; "
+                "Discord delivery remains UNVERIFIED and it will NOT be resent."
+            ),
+            data={"pack_id": pack_id, "state": "dismissed", "reason": reason},
+        )
 
     def _approve(self, review_id: str) -> CommandResponse:
         item = self._reviews.require(review_id)

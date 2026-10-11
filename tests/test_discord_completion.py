@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import update
 
 from artifex.db import Database
 from artifex.db.models import CompletionNotificationRow, PackRow
@@ -269,4 +270,37 @@ async def test_invalid_history_message_id_cannot_mark_sent(
     assert await worker.maintain() == 0
     assert _state(db) == "uncertain"
     assert len(sink.messages) == 1
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_dismissed_notice_is_never_retried_or_reconciled(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    with db.session() as session:
+        session.execute(
+            update(CompletionNotificationRow)
+            .where(CompletionNotificationRow.pack_id == "pack-1")
+            .values(
+                state="dismissed",
+                dismissal_reason="Operator confirmed the notification is obsolete",
+                dismissed_by_user_id="77",
+                dismissed_at=datetime.now(UTC),
+            )
+        )
+    sink = FakeCompletionSink()
+    sink.history_results["pack-1"] = "1002300"
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    assert await worker.maintain() == 0
+    assert _state(db) == "dismissed"
+    assert not sink.lookups
+    assert not sink.messages
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None
+        assert row.discord_message_id is None
+        assert row.dismissed_by_user_id == "77"
     db.dispose()

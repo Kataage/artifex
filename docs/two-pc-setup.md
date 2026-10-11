@@ -1,5 +1,38 @@
 # Two-PC Artifex topology
 
+## Discord completion notification triage (operator commands)
+
+Artifex's authorized Discord users/roles can use the following private
+slash commands; responses are ephemeral and no message is sent by read-only
+inspection:
+
+- `/artifex notices` — counts by pending, sending, uncertain, sent, and
+  dismissed states plus up to 10 oldest unresolved Pack identifiers.
+- `/artifex notice pack_id:<id>` — persisted status, archive completion,
+  verified message ID if one exists, and any manual dismissal provenance.
+- `/artifex notice-dismiss pack_id:<id> reason:<explanation> confirmation:DISMISS`
+  — **irreversibly suppresses automatic delivery/reconciliation for an
+  `uncertain` notice only**, recording who performed the action, when, and
+  why in the same SQLite transaction as the change. The reason must be
+  10–200 characters, one line, without mentions. It is **not** a receipt,
+  proof of Discord delivery, or permission to resend.
+
+Only an authorized Discord user can dismiss; the operator ID is bound from
+the authenticated Discord interaction. A wrong confirmation, absent actor,
+or request targeting a `pending`, `sending`, `sent`, or already-dismissed
+notice is rejected without modifying evidence. If the message genuinely
+arrived, use the existing automated history reconciliation rather than
+dismissing it. Do not dismiss merely because history lookup returned no
+match: bounded/limited Discord history cannot prove non-delivery.
+
+A dismissed notice remains visible with its reason and never automatically
+reverts to `pending`. Normal Pack production, archive validity, the
+independent daemon qualification evidence, and actual GPU operation are
+unaffected. These features are CI/simulation-tested but still require
+a real authorized Discord interaction and Windows two-PC acceptance
+before marking the hardware qualification Issues #40/#93 complete.
+
+
 ## Automatic reconciliation of uncertain Discord completion notices
 
 Pack completion messages now include a stable line,
