@@ -881,3 +881,71 @@ def test_overview_reads_historical_pc_b_monitor_without_promoting_real_readiness
     assert QualificationOverview.model_validate(
         report.model_dump(mode="json")
     ).pc_b_saved_monitor == cached
+
+
+@pytest.mark.parametrize("broken", ["owner", "survival"])
+def test_live_pc_b_probe_failure_does_not_hide_other_observation(
+    broken: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import artifex.qualification.overview as overview_module
+    from artifex.config.models import RenderNodeConfig
+    from artifex.qualification.owner_handoff import PCBOwnerCorrelation
+    from artifex.qualification.survival_review import PCBSurvivalEvidenceReview
+
+    settings = _settings(tmp_path / "absent")
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://192.0.2.10:8188",
+        attestation_url="http://192.0.2.10:8190",
+    )
+    calls: list[str] = []
+    owner = PCBOwnerCorrelation(
+        checked_utc=NOW, status="correlated_read_only",
+        reason="live verified", node_id="gpu-b",
+        remaining_real_machine_evidence=("real_gpu_qualification",),
+        source_mode="authenticated_remote", remote_bearer_checked=True,
+    )
+    survival = PCBSurvivalEvidenceReview(
+        reviewed_utc=NOW, status="replayed_and_live_identity_matched",
+        reason="live matched", node_id="gpu-b",
+        source_mode="bearer_remote", remote_bearer_checked=True,
+    )
+
+    def owner_probe(*args: object, **kwargs: object) -> PCBOwnerCorrelation:
+        calls.append("owner")
+        if broken == "owner":
+            raise OSError("secretBearerDoNotPersistOrExpose")
+        return owner
+
+    def survival_probe(*args: object, **kwargs: object) -> PCBSurvivalEvidenceReview:
+        calls.append("survival")
+        if broken == "survival":
+            raise ValueError("secretBearerDoNotPersistOrExpose")
+        return survival
+
+    monkeypatch.setattr(overview_module, "correlate_live_pc_b_owner_report", owner_probe)
+    monkeypatch.setattr(
+        overview_module, "review_live_pc_b_survival_evidence", survival_probe,
+    )
+    report = compile_qualification_overview(
+        settings, readiness=_report(ready=True), now=NOW,
+        pc_b_owner_live=True, pc_b_survival_live=True,
+    )
+    assert calls == ["owner", "survival"]
+    assert report.pc_b_owner_evidence is not None
+    assert report.pc_b_survival_review is not None
+    if broken == "owner":
+        assert report.pc_b_owner_evidence.status == "unavailable"
+        assert report.pc_b_owner_evidence.remote_bearer_checked is False
+        assert report.pc_b_owner_evidence.reason == "read_only_live_owner_probe_failed"
+        assert report.pc_b_survival_review == survival
+    else:
+        assert report.pc_b_owner_evidence == owner
+        assert report.pc_b_survival_review.status == "remote_unavailable"
+        assert report.pc_b_survival_review.remote_bearer_checked is False
+        assert report.pc_b_survival_review.reason == "read_only_live_survival_probe_failed"
+    serialized = report.model_dump_json()
+    assert "secretBearerDoNotPersistOrExpose" not in serialized
+    assert report.production_qualified is False
+    assert report.commands_executed is False
+    assert report.actual_eight_hour_soak_verified is False
