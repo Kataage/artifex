@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, cast
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
@@ -260,6 +261,45 @@ def latest_saved_session_id(root: Path) -> str | None:
     return newest
 
 
+def _live_owner_or_unavailable(
+    settings: ArtifexSettings, *, now: datetime,
+) -> PCBOwnerCorrelation:
+    """Isolate known read-only transport failures without inventing PASS."""
+    try:
+        return correlate_live_pc_b_owner_report(settings, now=now)
+    except (OSError, RuntimeError, ValueError, TypeError, httpx.HTTPError):
+        primary = settings.render_nodes.primary_node()
+        return PCBOwnerCorrelation(
+            checked_utc=now, status="unavailable",
+            reason="read_only_live_owner_probe_failed",
+            node_id=primary[0] if primary else None,
+            remaining_real_machine_evidence=(
+                "fresh_authenticated_pc_b_owner_evidence",
+                "real_comfyui_child_survival_after_supervisor_loss",
+                "real_gpu_production_workflow_result",
+            ),
+            source_mode="authenticated_remote",
+            remote_bearer_checked=False,
+        )
+
+
+def _live_survival_or_unavailable(
+    settings: ArtifexSettings, *, now: datetime,
+) -> PCBSurvivalEvidenceReview:
+    """Preserve independent owner observations when survival GET fails."""
+    try:
+        return review_live_pc_b_survival_evidence(settings, now=now)
+    except (OSError, RuntimeError, ValueError, TypeError, httpx.HTTPError):
+        primary = settings.render_nodes.primary_node()
+        return PCBSurvivalEvidenceReview(
+            reviewed_utc=now, status="remote_unavailable",
+            reason="read_only_live_survival_probe_failed",
+            node_id=primary[0] if primary else None,
+            source_mode="bearer_remote",
+            remote_bearer_checked=False,
+        )
+
+
 def compile_qualification_overview(
     settings: ArtifexSettings,
     *,
@@ -298,7 +338,7 @@ def compile_qualification_overview(
     if pc_b_owner_report is not None and pc_b_owner_live:
         raise ValueError("Choose local PC-B JSON OR authenticated remote report")
     correlation = (
-        correlate_live_pc_b_owner_report(settings, now=current)
+        _live_owner_or_unavailable(settings, now=current)
         if pc_b_owner_live else (
             correlate_pc_b_owner_report(settings, pc_b_owner_report, now=current)
             if pc_b_owner_report is not None else None
@@ -307,7 +347,7 @@ def compile_qualification_overview(
     if pc_b_survival_live and pc_b_survival_report is not None:
         raise ValueError("Choose PC-B local survival JSON OR remote saved trace")
     survival = (
-        review_live_pc_b_survival_evidence(settings, now=current)
+        _live_survival_or_unavailable(settings, now=current)
         if pc_b_survival_live else (
             review_pc_b_survival_evidence(
                 settings, pc_b_survival_report, now=current,
