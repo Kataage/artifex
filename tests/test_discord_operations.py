@@ -326,6 +326,22 @@ def test_notice_inventory_and_detail_are_read_only(tmp_path: Path) -> None:
     _completion_notice(
         database, pack_id="pack-sent", state="sent", message_id="123456",
     )
+    sent = operations.execute(
+        CommandRequest(name=CommandName.NOTICE, args=("pack-sent",))
+    )
+    assert "Discord API message ID: 123456" in sent.message
+    assert "Remote message identity: unverified" in sent.message
+    assert sent.data["discord_verified_at"] is None
+    with database.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-sent")
+        assert row is not None
+        row.discord_verified_at = datetime.now(UTC)
+    verified = operations.execute(
+        CommandRequest(name=CommandName.NOTICE, args=("pack-sent",))
+    )
+    assert "Remote message identity: verified" in verified.message
+    assert verified.data["discord_verified_at"] is not None
+
     listing = operations.execute(CommandRequest(name=CommandName.NOTICES))
     assert listing.ok
     assert listing.data["counts"] == {
