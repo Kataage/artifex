@@ -883,7 +883,7 @@ def test_overview_reads_historical_pc_b_monitor_without_promoting_real_readiness
     ).pc_b_saved_monitor == cached
 
 
-@pytest.mark.parametrize("broken", ["owner", "survival"])
+@pytest.mark.parametrize("broken", ["owner", "survival", "both"])
 def test_live_pc_b_probe_failure_does_not_hide_other_observation(
     broken: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
@@ -913,13 +913,13 @@ def test_live_pc_b_probe_failure_does_not_hide_other_observation(
 
     def owner_probe(*args: object, **kwargs: object) -> PCBOwnerCorrelation:
         calls.append("owner")
-        if broken == "owner":
+        if broken in {"owner", "both"}:
             raise OSError("secretBearerDoNotPersistOrExpose")
         return owner
 
     def survival_probe(*args: object, **kwargs: object) -> PCBSurvivalEvidenceReview:
         calls.append("survival")
-        if broken == "survival":
+        if broken in {"survival", "both"}:
             raise ValueError("secretBearerDoNotPersistOrExpose")
         return survival
 
@@ -934,16 +934,18 @@ def test_live_pc_b_probe_failure_does_not_hide_other_observation(
     assert calls == ["owner", "survival"]
     assert report.pc_b_owner_evidence is not None
     assert report.pc_b_survival_review is not None
-    if broken == "owner":
+    if broken in {"owner", "both"}:
         assert report.pc_b_owner_evidence.status == "unavailable"
         assert report.pc_b_owner_evidence.remote_bearer_checked is False
         assert report.pc_b_owner_evidence.reason == "read_only_live_owner_probe_failed"
-        assert report.pc_b_survival_review == survival
     else:
         assert report.pc_b_owner_evidence == owner
+    if broken in {"survival", "both"}:
         assert report.pc_b_survival_review.status == "remote_unavailable"
         assert report.pc_b_survival_review.remote_bearer_checked is False
         assert report.pc_b_survival_review.reason == "read_only_live_survival_probe_failed"
+    else:
+        assert report.pc_b_survival_review == survival
     serialized = report.model_dump_json()
     assert "secretBearerDoNotPersistOrExpose" not in serialized
     assert report.production_qualified is False
