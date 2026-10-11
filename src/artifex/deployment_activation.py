@@ -84,6 +84,11 @@ async def activate_deployment(
         raise ValueError("--install-missing and --replace require --apply")
     if with_observer and role != "renderer":
         raise ValueError("--with-observer is valid only on the PC-B renderer role")
+    if with_observer and replace:
+        raise ValueError(
+            "--with-observer cannot replace the renderer task; inspect and "
+            "repair task configuration separately before combined activation"
+        )
     if with_observer and not settings.render_agent.comfyui_process.enabled:
         raise ValueError("--with-observer requires managed ComfyUI to be configured")
     if not config.expanduser().is_file() or config.is_symlink():
