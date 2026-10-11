@@ -471,6 +471,85 @@ async def test_combined_activation_refuses_unsafe_preflight_before_any_start(
 
 
 @pytest.mark.asyncio
+async def test_combined_activation_never_starts_renderer_before_observer_is_running(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+    starts: list[str] = []
+    observed: list[str] = []
+
+    def status(role: StartupRole) -> StartupTaskStatus:
+        observed.append(role)
+        return _task(role=role, state="Ready")
+
+    def start(role: StartupRole, **kwargs: Any) -> tuple[StartupTaskStatus, str]:
+        starts.append(role)
+        return _task(role=role, state="Ready"), "started"
+
+    async def impossible_verify(
+        _: ArtifexSettings, **kwargs: Any,
+    ) -> DeploymentReport:
+        pytest.fail("renderer should not be activated or probed")
+
+    with pytest.raises(RuntimeError, match="did not reach Running"):
+        await activate_deployment(
+            settings, role="renderer", config=config,
+            with_observer=True, apply=True, wait_seconds=0,
+            status_fn=status,
+            match_fn=lambda *a, **kw: (True, "verified"),
+            start_fn=start,
+            verify_fn=impossible_verify,
+        )
+    assert starts == ["survival-observer"]
+    assert observed.count("survival-observer") >= 2
+
+
+@pytest.mark.asyncio
+async def test_combined_activation_waits_for_watcher_running_before_renderer(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+    seen: list[str] = []
+    watcher_states = iter(["Ready", "Ready", "Running", "Running"])
+    sleeps: list[float] = []
+
+    def status(role: StartupRole) -> StartupTaskStatus:
+        state = next(watcher_states) if role == "survival-observer" else "Running"
+        seen.append(role + ":" + state)
+        return _task(role=role, state=state)
+
+    def start(role: StartupRole, **kwargs: Any) -> tuple[StartupTaskStatus, str]:
+        seen.append("start:" + role)
+        return _task(role=role, state="Running"), "started"
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        return _deployment(True)
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    report = await activate_deployment(
+        settings, role="renderer", config=config, with_observer=True,
+        apply=True, wait_seconds=30, poll_seconds=5,
+        status_fn=status,
+        match_fn=lambda *a, **kw: (True, "verified"),
+        start_fn=start, verify_fn=healthy,
+        heartbeat_fn=lambda *a, **kw: "fresh",
+        sleep_fn=sleep,
+    )
+    assert report.ready
+    assert seen.index("survival-observer:Running") < seen.index("start:renderer")
+    assert seen.index("start:survival-observer") < seen.index("start:renderer")
+    assert len(sleeps) == 1
+
+
+@pytest.mark.asyncio
 async def test_combined_activation_does_not_fabricate_ready_without_fresh_heartbeat(
     tmp_path: Path,
 ) -> None:
