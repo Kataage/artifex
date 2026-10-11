@@ -822,3 +822,62 @@ def test_live_correlations_reduce_only_identity_gaps_not_hardware_qualification(
     assert QualificationOverview.model_validate(
         output.model_dump(mode="json")
     ).evidence_handoff == output.evidence_handoff
+
+
+def test_overview_reads_historical_pc_b_monitor_without_promoting_real_readiness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    import artifex.qualification.pc_b_monitor as monitor_module
+    from artifex.config.models import RenderNodeConfig
+    from artifex.qualification.pc_b_monitor import PCBEvidenceRefreshMaintenance
+
+    root = tmp_path / "pc-a-evidence"
+    session_id = "20261009T120000Z-bbbbbbbb"
+    _session(root, session_id)
+    settings = _settings(root)
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://127.0.0.1:8188",
+        attestation_url="http://127.0.0.1:8190",
+    )
+    monkeypatch.setattr(
+        monitor_module, "correlate_live_pc_b_owner_report",
+        lambda *a, **kw: SimpleNamespace(status="correlated_read_only"),
+    )
+    monkeypatch.setattr(
+        monitor_module, "review_live_pc_b_survival_evidence",
+        lambda *a, **kw: SimpleNamespace(
+            status="replayed_and_live_identity_matched",
+        ),
+    )
+
+    class StubTelemetry:
+        def record(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("no telemetry necessary for successful snapshot")
+
+    maint = PCBEvidenceRefreshMaintenance(settings, StubTelemetry())
+    snapshot = asyncio.run(maint.maintain())
+    assert snapshot is not None
+    report = compile_qualification_overview(
+        settings, session_id=session_id,
+        readiness=_report(
+            ready=True,
+            stages={stage.value: "pending" for stage in REQUIRED_STAGES},
+        ),
+        now=snapshot.captured_utc + timedelta(seconds=10),
+    )
+    cached = report.pc_b_saved_monitor
+    assert cached.status == "historical_observation"
+    assert cached.owner_status == "correlated_read_only"
+    assert cached.survival_status == "replayed_and_live_identity_matched"
+    assert cached.live_rechecked_by_this_overview is False
+    assert report.pc_b_owner_evidence is None
+    assert report.pc_b_survival_review is None
+    assert report.evidence_handoff.unresolved_pc_b_evidence_checks == 2
+    assert report.unresolved_stage_count == 14
+    assert report.production_qualified is False
+    assert QualificationOverview.model_validate(
+        report.model_dump(mode="json")
+    ).pc_b_saved_monitor == cached

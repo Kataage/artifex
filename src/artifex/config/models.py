@@ -689,6 +689,10 @@ class QualificationConfig(StrictModel):
     auto_collect_enabled: bool = True
     auto_collect_interval_seconds: int = Field(default=900, ge=60, le=86400)
     auto_collect_scan_limit: int = Field(default=10000, ge=1, le=100000)
+    # Passive authenticated PC-B GETs, saved only as historical diagnostics.
+    auto_pc_b_monitor_enabled: bool = True
+    auto_pc_b_monitor_interval_seconds: int = Field(default=900, ge=300, le=86400)
+    auto_pc_b_monitor_max_age_seconds: int = Field(default=1800, ge=300, le=86400)
     asset_paths: dict[str, Path] = Field(default_factory=dict)
     required_asset_labels: tuple[str, ...] = (
         "production_checkpoint",

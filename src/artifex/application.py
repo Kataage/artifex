@@ -78,6 +78,7 @@ from artifex.production import (
 )
 from artifex.prompts import ILXLDanbooruAdapter, PromptCompiler
 from artifex.qualification.maintenance import QualificationEvidenceMaintenance
+from artifex.qualification.pc_b_monitor import PCBEvidenceRefreshMaintenance
 from artifex.qualification.service import QualificationService
 from artifex.research import (
     DDGSResearchProvider,
@@ -721,6 +722,14 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
             core.telemetry,
             interval_seconds=settings.qualification.auto_collect_interval_seconds,
             scan_limit=settings.qualification.auto_collect_scan_limit,
+        ))
+    if (
+        settings.qualification.auto_pc_b_monitor_enabled
+        and settings.render_nodes.primary_node() is not None
+    ):
+        maintenance_tasks.append(PCBEvidenceRefreshMaintenance(
+            settings, core.telemetry,
+            interval_seconds=settings.qualification.auto_pc_b_monitor_interval_seconds,
         ))
     lora_validation_maintenance = (
         LoRAValidationMaintenance(

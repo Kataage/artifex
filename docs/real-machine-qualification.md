@@ -1,5 +1,48 @@
 # Target Windows Production Qualification
 
+## Periodic PC-B passive evidence monitor (native PC-A daemon)
+
+Artifex's existing native PC-A daemon can refresh PC-B owner identity and
+supervisor-survival trace diagnostics automatically **after a real local
+qualification session exists**. This feature is enabled by default when a
+primary PC-B render node is configured. All settings remain configurable:
+
+```yaml
+qualification:
+  auto_pc_b_monitor_enabled: true
+  auto_pc_b_monitor_interval_seconds: 900
+  auto_pc_b_monitor_max_age_seconds: 1800
+```
+
+Every 15 minutes during normal daemon operation, the monitor performs only
+the existing authenticated read-only PC-B owner/survival API observations. A
+failure from one probe does not suppress the result of the other; no exception
+contents or credentials are stored. It writes one bounded atomic **diagnostic**
+JSON file in the already-existing PC-A qualification evidence directory:
+
+`data/qualification/pc-b-passive-monitor.json`
+
+The existing `qualify overview --json` now reports
+`pc_b_saved_monitor`: `missing`, `invalid`, `stale`,
+`context_mismatch`, or `historical_observation`. Samples are bound to
+the local controller hostname, the explicitly saved qualification session,
+and a fingerprint of the configured remote PC-B endpoint. Samples expire
+after the configured maximum age. The report only displays historical
+owner/survival observation states; a saved positive identity match does
+**not** substitute for new PC-B GET requests, supervisor-loss event
+authentication, any of the fourteen independently revalidated stages,
+or eight hours of target GPU operation. No saved monitor sample is promoted
+to `pc_b_owner_evidence`, `pc_b_survival_review` or a PASS.
+
+The monitor never creates a qualification session, triggers GPU generation,
+sends messages, changes Task Scheduler, restarts ComfyUI, creates a database,
+or edits `qualification.json`. Missing or unsafe evidence directories
+are not created or overwritten. The existing
+`--pc-b-owner-live --pc-b-survival-live` flags remain the deliberate path
+for independent current checks; `production_qualified` remains false
+until the original strict real-machine qualification is completed.
+
+
 ## PC-B owner and supervisor-survival gap correlation
 
 The existing PC-A `qualify overview --json` now adds
