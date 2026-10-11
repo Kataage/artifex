@@ -22,7 +22,6 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
-from artifex.qualification.overview import latest_saved_session_id
 from artifex.qualification.owner_handoff import correlate_live_pc_b_owner_report
 from artifex.qualification.survival_review import review_live_pc_b_survival_evidence
 from artifex.telemetry import EventSeverity, TelemetryRepository
@@ -198,6 +197,9 @@ class PCBEvidenceRefreshMaintenance:
         primary = settings.render_nodes.primary_node()
         if primary is None:
             return None
+        # Deferred import keeps the report compiler independent of daemon wiring.
+        from artifex.qualification.overview import latest_saved_session_id
+
         # Only monitor a saved, locally owned qualification session.
         session_id = latest_saved_session_id(settings.qualification.evidence_dir)
         if session_id is None:
