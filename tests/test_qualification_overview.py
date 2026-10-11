@@ -657,8 +657,10 @@ def test_overview_cli_reports_missing_discord_database_without_creating_it(
     assert payload["evidence_handoff"]["outstanding_stage_items"] == 0
     assert payload["evidence_handoff"]["qualifies_production"] is False
     assert [item["id"] for item in payload["evidence_handoff"]["items"]] == [
-        "start-session",
+        "environment-prerequisites", "start-session",
     ]
+    assert payload["evidence_handoff"]["environment_blocked"] is True
+    assert payload["evidence_handoff"]["items"][1]["safety"] == "explicit_session_start"
     assert not database_path.parent.exists()
 
 
