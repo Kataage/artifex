@@ -14,7 +14,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.config.models import ArtifexSettings
 from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.render_node.client import (
     fetch_remote_installation_audit,
