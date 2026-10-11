@@ -153,6 +153,25 @@ async def _respond(
         )
 
 
+async def find_completion_in_history(
+    channel: discord.TextChannel | discord.Thread,
+    *,
+    pack_id: str,
+    bot_user_id: int,
+    limit: int = 200,
+) -> str | None:
+    """Return only a message ID whose exact author and Pack marker match."""
+    marker = completion_marker(pack_id)
+    async for message in channel.history(limit=limit):
+        if (
+            message.author.id == bot_user_id
+            and message.content.startswith("**Artifex Pack completed**\\n")
+            and marker in message.content.splitlines()
+        ):
+            return str(message.id)
+    return None
+
+
 class ArtifexDiscordClient(discord.Client):
     def __init__(
         self,
