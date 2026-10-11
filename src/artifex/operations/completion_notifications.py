@@ -49,14 +49,15 @@ class CompletionNotificationMaintenance:
                     CompletionNotificationRow.state == "sending"
                 )
             ).all()
+            abandoned_ids = [item.pack_id for item in abandoned]
             for item in abandoned:
                 item.state = "uncertain"
                 item.updated_at = datetime.now(UTC)
-        for item in abandoned:
+        for pack_id in abandoned_ids:
             self._telemetry.record(
                 "discord.completion_uncertain",
                 EventSeverity.WARNING,
-                {"pack_id": item.pack_id, "reason": "process_restart_during_send"},
+                {"pack_id": pack_id, "reason": "process_restart_during_send"},
             )
 
     async def maintain(self) -> int:
