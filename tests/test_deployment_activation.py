@@ -65,7 +65,10 @@ async def test_activation_preview_never_starts_and_never_claims_qualification(
         start_fn=lambda *a, **kw: started.append(kw) or (_task(), "started"),
         verify_fn=verify,
     )
-    assert report.mode == "preview" and report.ready
+    assert report.mode == "preview" and not report.ready
+    assert report.deployment.ready and report.task_compatible
+    assert report.task_running_observed is False
+    assert report.task.state == "Ready"
     assert report.action == "preview" and report.production_qualified is False
     assert report.checks_performed == 1 and not started
     assert verified == [{
@@ -100,10 +103,15 @@ async def test_activation_apply_starts_only_local_task_and_waits_for_real_health
         starts.append(kwargs)
         return _task(state="Running"), "installed_and_started"
 
+    statuses = iter([
+        _task(installed=False),  # initial installation check
+        _task(state="Ready"),   # service not yet ready
+        _task(state="Running"), # subsequent healthy cycle
+    ])
     report = await activate_deployment(
         ArtifexSettings(), role="renderer", config=config,
         apply=True, install_missing=True, wait_seconds=60,
-        status_fn=lambda _: _task(installed=False),
+        status_fn=lambda _: next(statuses),
         match_fn=lambda *a, **kw: (
             kw["status"].installed, "match" if kw["status"].installed else "missing"
         ),
@@ -112,6 +120,8 @@ async def test_activation_apply_starts_only_local_task_and_waits_for_real_health
         sleep_fn=sleep,
     )
     assert report.ready and report.checks_performed == 2
+    assert report.task_running_observed is True
+    assert report.task.state == "Running"
     assert report.action == "installed_and_started"
     assert starts == [{
         "config": config, "install_missing": True, "replace": False,
@@ -160,6 +170,143 @@ async def test_activation_fails_closed_on_unhealthy_services_or_stale_task(
     )
     assert stopped.mode == "apply" and not stopped.ready
     assert stopped.checks_performed == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_preview_never_claims_ready_from_stale_healthy_endpoint(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    seen: list[str] = []
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        seen.append("live_health")
+        return _deployment(True)
+
+    def stopped_task(_: str) -> StartupTaskStatus:
+        seen.append("task_recheck")
+        return _task(state="Ready")
+
+    report = await activate_deployment(
+        ArtifexSettings(), role="renderer", config=config,
+        status_fn=stopped_task,
+        match_fn=lambda *a, **kw: (True, "matching"),
+        verify_fn=healthy,
+    )
+    assert report.deployment.ready is True
+    assert report.task_compatible is True
+    assert report.task_running_observed is False
+    assert report.ready is False
+    assert report.action == "preview"
+    assert seen == ["task_recheck", "live_health", "task_recheck"]
+    assert report.production_qualified is False
+
+
+@pytest.mark.asyncio
+async def test_activation_rechecks_task_after_health_even_when_start_reports_running(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "local.yaml"
+    config.touch()
+    latest: list[StartupTaskStatus] = [
+        _task(state="Ready"),  # pre-start
+        _task(state="Ready"),  # native task exited while health succeeded
+    ]
+    calls: list[str] = []
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        calls.append("healthy")
+        return _deployment(True)
+
+    report = await activate_deployment(
+        ArtifexSettings(), role="controller", config=config,
+        apply=True, wait_seconds=0,
+        status_fn=lambda _: latest.pop(0),
+        start_fn=lambda *a, **kw: (
+            _task(state="Running"), "started",
+        ),
+        match_fn=lambda *a, **kw: (True, "matching"),
+        verify_fn=healthy,
+    )
+    assert calls == ["healthy"]
+    assert report.task.state == "Ready"
+    assert report.task_running_observed is False
+    assert report.deployment.ready is True
+    assert not report.ready
+    assert report.checks_performed == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_waits_for_task_running_even_if_endpoint_is_healthy(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "local.yaml"
+    config.touch()
+    polls = iter([
+        _task(state="Ready"), _task(state="Ready"),
+        _task(state="Running"),
+    ])
+    sleeps: list[float] = []
+    checks = 0
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        nonlocal checks
+        checks += 1
+        return _deployment(True)
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    report = await activate_deployment(
+        ArtifexSettings(), role="controller", config=config,
+        apply=True, wait_seconds=30,
+        status_fn=lambda _: next(polls),
+        start_fn=lambda *a, **kw: (_task(state="Running"), "started"),
+        match_fn=lambda *a, **kw: (True, "matches"),
+        verify_fn=healthy, sleep_fn=sleep,
+    )
+    assert checks == report.checks_performed == 2
+    assert report.task_running_observed is True
+    assert report.ready is True
+    assert len(sleeps) == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_stops_waiting_and_fails_closed_on_task_registration_drift(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "local.yaml"
+    config.touch()
+    polls = iter([
+        _task(state="Ready"),
+        _task(state="Running", arguments="drifted"),
+    ])
+    sleeps: list[float] = []
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        return _deployment(True)
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    report = await activate_deployment(
+        ArtifexSettings(), role="controller", config=config,
+        apply=True, wait_seconds=30,
+        status_fn=lambda _: next(polls),
+        start_fn=lambda *a, **kw: (_task(state="Running"), "started"),
+        match_fn=lambda *a, **kw: (
+            kw["status"].arguments == "matching",
+            "configuration changed" if kw["status"].arguments != "matching" else "ok",
+        ),
+        verify_fn=healthy, sleep_fn=sleep,
+    )
+    assert report.task_running_observed is True
+    assert report.task_compatible is False
+    assert report.task_detail == "configuration changed"
+    assert report.ready is False
+    assert report.checks_performed == 1
+    assert sleeps == []
 
 
 def test_activation_task_refuses_unowned_missing_and_stale_configs(
@@ -274,7 +421,7 @@ def test_deployment_activate_cli_is_preview_first(
             action="started" if kwargs["apply"] else "preview",
             task_compatible=True, task_detail="matches",
             task=_task(), deployment=_deployment(True),
-            checks_performed=1, ready=True,
+            checks_performed=1, task_running_observed=True, ready=True,
         )
 
     monkeypatch.setattr("artifex.cli.activate_deployment", fake_activate)
