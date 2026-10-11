@@ -141,6 +141,19 @@ def _triage_step(
     )
 
 
+class DiscordRemediationHint(BaseModel):
+    """Advice is not an execution permit or proof of any Discord mutation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    scope: Literal["pc_a", "discord_server"]
+    config_field: str | None
+    instruction: str
+    safety: Literal["manual_review"]
+    automatically_applied: Literal[False]
+
+
 class DiscordPreflightObservation(BaseModel):
     """Operational checks only; never a Discord delivery/interaction receipt."""
 
@@ -152,6 +165,7 @@ class DiscordPreflightObservation(BaseModel):
     writes_performed: Literal[0]
     checks: dict[str, bool]
     problems: list[str]
+    remediation: tuple[DiscordRemediationHint, ...] = ()
 
     @model_validator(mode="after")
     def ensure_live_claim_requires_observations(self) -> DiscordPreflightObservation:
@@ -406,7 +420,9 @@ def compile_qualification_overview(
             )
         elif discord_status == "blocked":
             reason = (
-                discord_preflight.problems[0]
+                discord_preflight.remediation[0].instruction
+                if discord_preflight is not None and discord_preflight.remediation
+                else discord_preflight.problems[0]
                 if discord_preflight is not None and discord_preflight.problems
                 else "Discord operational prerequisites are missing"
             )
