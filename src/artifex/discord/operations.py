@@ -328,6 +328,10 @@ class ArtifexRemoteOperations:
                 "pack_id": pack_id,
                 "state": item.state,
                 "discord_message_id": item.discord_message_id,
+                "discord_verified_at": (
+                    item.discord_verified_at.isoformat()
+                    if item.discord_verified_at is not None else None
+                ),
                 "updated_at": item.updated_at.isoformat(),
                 "dismissal_reason": item.dismissal_reason,
                 "dismissed_by_user_id": item.dismissed_by_user_id,
@@ -347,7 +351,13 @@ class ArtifexRemoteOperations:
             f"Archive complete: {details['archive_complete']}",
         ]
         if details["discord_message_id"] is not None:
-            parts.append(f"Verified Discord message ID: {details['discord_message_id']}")
+            parts.append(f"Discord API message ID: {details['discord_message_id']}")
+            parts.append(
+                "Remote message identity: "
+                + ("verified" if details["discord_verified_at"] else "unverified")
+            )
+        elif details["state"] == "sent":
+            parts.append("Remote message identity: unverified (no saved API ID)")
         if details["dismissal_reason"] is not None:
             parts.append("Manually dismissed; NOT proof of Discord delivery.")
             parts.append(f"Reason: {details['dismissal_reason']}")
