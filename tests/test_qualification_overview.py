@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -566,3 +567,80 @@ def test_discord_remediation_cannot_claim_a_permission_change() -> None:
                 "automatically_applied": True,
             }],
         )
+
+
+
+def test_overview_shows_saved_discord_receipt_counts_without_stage_pass(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "artifex.sqlite3"
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    settings.storage.database_url = f"sqlite:///{path.as_posix()}"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE completion_notifications "
+            "(state TEXT, discord_message_id TEXT, discord_verified_at TEXT)"
+        )
+        db.executemany(
+            "INSERT INTO completion_notifications VALUES (?, ?, ?)",
+            [
+                ("sent", "12345", None),
+                ("sent", "12346", "2026-10-11T12:00:00+00:00"),
+                ("uncertain", None, None),
+            ],
+        )
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=True),
+        discord_preflight=_discord_probe(live=True), now=NOW,
+    )
+    evidence = result.discord_completion_evidence
+    assert evidence.status == "observed"
+    assert evidence.total == 3
+    assert evidence.sent_api_only == 1
+    assert evidence.sent_history_verified == 1
+    assert evidence.uncertain == 1
+    assert result.discord_preflight_status == "live_ready"
+    assert result.discord_delivery_verified is False
+    assert result.unresolved_stage_count == 14
+    assert result.production_qualified is False
+    assert QualificationOverview.model_validate(
+        result.model_dump(mode="json")
+    ).discord_completion_evidence == evidence
+
+
+def test_overview_cli_reports_missing_discord_database_without_creating_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import artifex.cli as cli_module
+    import artifex.qualification.overview as overview_module
+
+    settings = _settings(tmp_path / "empty-sessions")
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    database_path = tmp_path / "uncreated" / "artifex.sqlite3"
+    settings.storage.database_url = f"sqlite:///{database_path.as_posix()}"
+    config = tmp_path / "local.yaml"
+    config.write_text("discord: enabled\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "_settings", lambda _: settings)
+    monkeypatch.setattr(
+        overview_module, "diagnose_qualification_readiness",
+        lambda *args, **kwargs: _report(ready=True),
+    )
+
+    async def fake_probe(*args: object, **kwargs: object) -> dict:
+        return _discord_probe(live=False).model_dump(mode="json")
+
+    monkeypatch.setattr(cli_module, "probe_discord", fake_probe)
+    response = CliRunner().invoke(
+        app, ["qualify", "overview", "--config", str(config), "--json"],
+    )
+    assert response.exit_code == 0, response.output
+    payload = json.loads(response.output)
+    assert payload["discord_completion_evidence"]["status"] == "missing_database"
+    assert payload["discord_completion_evidence"]["total"] is None
+    assert payload["discord_delivery_verified"] is False
+    assert payload["production_qualified"] is False
+    assert payload["commands_executed"] is False
+    assert not database_path.parent.exists()
