@@ -66,9 +66,10 @@ def _client(
         assert request.method == "GET"
         assert request.headers["Authorization"] == "Bot secret-test-token"
         calls.append(str(request.url))
-        if request.url.path not in endpoints:
+        endpoint = request.url.path.removeprefix("/api/v10")
+        if endpoint not in endpoints:
             return httpx.Response(404, json={"message": "missing"})
-        return httpx.Response(200, json=endpoints[request.url.path])
+        return httpx.Response(200, json=endpoints[endpoint])
 
     return httpx.AsyncClient(
         base_url="https://discord.com/api/v10",
