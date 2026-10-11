@@ -5,7 +5,7 @@ from pathlib import Path
 
 from artifex.db import Database
 from artifex.db.models import PackRow, SceneRow
-from artifex.domain import ResultState, SceneState
+from artifex.domain import ContentRating, ResultState, SceneState
 from artifex.evaluation import (
     AttemptSelector,
     EvaluationRepository,
@@ -120,4 +120,32 @@ def test_attempt_parent_chain_and_selection_persist(tmp_path: Path) -> None:
         assert scene is not None
         assert scene.state == SceneState.ACCEPTED.value
         assert scene.selected_attempt_id == "attempt-2"
+    database.dispose()
+
+
+def test_persisted_evaluation_round_trip_preserves_original_classification(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    attempts = GenerationAttemptRepository(database)
+    attempt = attempts.create(
+        scene_id="scene-1",
+        prompt="p",
+        negative_prompt="n",
+        seed=33,
+        provenance={},
+    )
+    evaluations = EvaluationRepository(database)
+    assert evaluations.for_attempt(attempt.id) is None
+    original = EvaluationResult(
+        attempt_id=attempt.id,
+        state=ResultState.REVIEW,
+        scores=_scores(0.71),
+        reasons=("identity_needs_review",),
+        content_rating=ContentRating.GENERAL,
+        content_labels=("portrait", "illustration"),
+    )
+    evaluations.record(original)
+
+    assert evaluations.for_attempt(attempt.id) == original
     database.dispose()
