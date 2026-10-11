@@ -40,6 +40,7 @@ class OperatorContext(DiscordModel):
 class CommandRequest(DiscordModel):
     name: CommandName
     args: tuple[str, ...] = ()
+    operator_user_id: int | None = Field(default=None, ge=1)
 
 
 class CommandResponse(DiscordModel):
