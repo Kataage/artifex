@@ -19,6 +19,9 @@ class FakeCompletionSink:
         self.deliver = True
         self.fail_after_send: BaseException | None = None
         self.messages: list[object] = []
+        self.history_results: dict[str, str | None] = {}
+        self.history_fail: Exception | None = None
+        self.lookups: list[str] = []
 
     def is_ready(self) -> bool:
         return self.ready
@@ -30,6 +33,12 @@ class FakeCompletionSink:
         if self.fail_after_send is not None:
             raise self.fail_after_send
         return True
+
+    async def find_completion_message(self, pack_id: str) -> str | None:
+        self.lookups.append(pack_id)
+        if self.history_fail is not None:
+            raise self.history_fail
+        return self.history_results.get(pack_id)
 
 
 def _setup(tmp_path: Path) -> tuple[Database, TelemetryRepository]:
@@ -156,5 +165,108 @@ async def test_ambiguous_remote_failure_is_quarantined(tmp_path: Path) -> None:
     assert _state(db) == "uncertain"
     assert len(sink.messages) == 1
     assert await maintenance.maintain() == 0
+    assert len(sink.messages) == 1
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_discord_reply_reconciles_existing_post_without_resend(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.fail_after_send = TimeoutError("Discord accepted, response lost")
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    assert await worker.maintain() == 0
+    assert _state(db) == "uncertain"
+    assert len(sink.messages) == 1
+    assert "Artifex-Completion-ID: pack-1" in sink.messages[0].body  # type: ignore[attr-defined]
+
+    sink.fail_after_send = None
+    sink.history_results["pack-1"] = "1133557799"
+    # Simulate new PC-A worker after restart.
+    restarted = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    assert await restarted.maintain() == 0
+    assert _state(db) == "sent"
+    assert len(sink.messages) == 1
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None
+        assert row.discord_message_id == "1133557799"
+    assert any(
+        event.event_type == "discord.completion_reconciled"
+        and event.payload["discord_message_id"] == "1133557799"
+        for event in telemetry.recent()
+    )
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_history_never_authorizes_resend(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.fail_after_send = TimeoutError("unknown status")
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    assert await worker.maintain() == 0
+    assert _state(db) == "uncertain"
+    sink.fail_after_send = None
+
+    for _ in range(3):
+        assert await worker.maintain() == 0
+    assert len(sink.messages) == 1
+    assert _state(db) == "uncertain"
+    assert sink.lookups
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_inaccessible_history_remains_uncertain_and_emits_diagnostic(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.fail_after_send = TimeoutError("response lost")
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    await worker.maintain()
+    sink.fail_after_send = None
+    sink.history_fail = PermissionError("missing read message history permission")
+
+    assert await worker.maintain() == 0
+    assert _state(db) == "uncertain"
+    assert len(sink.messages) == 1
+    assert any(
+        event.event_type == "discord.completion_reconcile_failed"
+        and event.payload["reason"] == "PermissionError"
+        for event in telemetry.recent()
+    )
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_invalid_history_message_id_cannot_mark_sent(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.fail_after_send = TimeoutError("response lost")
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    await worker.maintain()
+    sink.fail_after_send = None
+    sink.history_results["pack-1"] = "not-a-discord-snowflake"
+
+    assert await worker.maintain() == 0
+    assert _state(db) == "uncertain"
     assert len(sink.messages) == 1
     db.dispose()

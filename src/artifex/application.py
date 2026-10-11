@@ -123,6 +123,8 @@ class DiscordRuntime(Protocol):
 
     async def notify(self, notification: Any) -> bool: ...
 
+    async def find_completion_message(self, pack_id: str) -> str | None: ...
+
 
 @dataclass(slots=True)
 class CoreServices:

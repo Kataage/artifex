@@ -16,7 +16,7 @@ from artifex.discord.models import (
     NotificationKind,
     OperatorContext,
 )
-from artifex.discord.notifications import NotificationPolicy
+from artifex.discord.notifications import NotificationPolicy, completion_marker
 from artifex.discord.router import DiscordCommandRouter
 from artifex.discord.summary import DailySummaryBuilder
 
@@ -153,6 +153,25 @@ async def _respond(
         )
 
 
+async def find_completion_in_history(
+    channel: discord.TextChannel | discord.Thread,
+    *,
+    pack_id: str,
+    bot_user_id: int,
+    limit: int = 200,
+) -> str | None:
+    """Return only a message ID whose exact author and Pack marker match."""
+    marker = completion_marker(pack_id)
+    async for message in channel.history(limit=limit):
+        if (
+            message.author.id == bot_user_id
+            and message.content.startswith("**Artifex Pack completed**\n")
+            and marker in message.content.splitlines()
+        ):
+            return str(message.id)
+    return None
+
+
 class ArtifexDiscordClient(discord.Client):
     def __init__(
         self,
@@ -216,6 +235,21 @@ class ArtifexDiscordClient(discord.Client):
         else:
             await channel.send(message, view=view)
         return True
+
+    async def find_completion_message(self, pack_id: str) -> str | None:
+        """Look for a Pack marker in messages posted by this exact bot.
+
+        Absence from bounded history is inconclusive and never authorizes a
+        resend. Exceptions from the Discord API propagate to the maintenance
+        worker, which leaves the Pack quarantined as uncertain.
+        """
+        channel = self._notification_channel()
+        bot_user = self.user
+        if channel is None or bot_user is None:
+            return None
+        return await find_completion_in_history(
+            channel, pack_id=pack_id, bot_user_id=bot_user.id
+        )
 
     def _notification_channel(
         self,

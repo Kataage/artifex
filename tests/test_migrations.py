@@ -48,4 +48,4 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         engine.dispose()
 
     assert EXPECTED_TABLES <= tables
-    assert current_revision(url) == "0010_completion_outbox"
+    assert current_revision(url) == "0011_completion_reconciliation"

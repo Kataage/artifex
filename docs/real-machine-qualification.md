@@ -1,5 +1,33 @@
 # Target Windows Production Qualification
 
+## Automatic reconciliation of uncertain Discord completion notices
+
+Pack completion messages now include a stable line,
+`Artifex-Completion-ID: <Pack ID>`. When the controller cannot know whether a
+Discord send succeeded (crash, timeout, or lost response), Artifex leaves the
+record in `uncertain` and performs **read-only channel-history lookup** after
+the Discord bot reconnects. It accepts a positive match only when the
+message was authored by the **currently authenticated bot**, has the correct
+completion heading, and contains the exact Pack marker as an independent
+line. On a positive match, the outbox transitions to `sent` and persists
+the verified Discord message ID for inspection and auditing. No second
+message is posted by reconciliation.
+
+The bot needs access to the configured channel and the **Read Message
+History** permission. Each maintenance pass inspects at most three
+uncertain Packs, every two minutes by default, with a bounded 200-message
+history read per Pack. The queue rotates across older uncertain records.
+Missing permissions, lookup timeouts, channel changes, absent history, or
+a match from another author **never** count as delivered, and absence of
+a match **never** authorizes automatic resending. Ambiguous records therefore
+remain pending reconciliation instead of producing duplicates. Prior
+pre-marker notifications may remain uncertain until they can be reviewed.
+
+GitHub CI verifies these paths against simulated Discord messages. It
+cannot prove live Discord channel access or deliverability. This does not
+constitute real two-PC ILXL qualification or unattended soak acceptance.
+
+
 ## Crash-safe Pack completion notifications and unattended proof
 
 A committed Pack FINALIZED transition now creates a matching
