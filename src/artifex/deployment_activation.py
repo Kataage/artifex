@@ -150,6 +150,28 @@ async def activate_deployment(
                 raise RuntimeError(
                     "Survival observer drifted during startup; renderer not started"
                 )
+            # Scheduler can report 'Ready' immediately after Start-ScheduledTask.
+            # Wait for the separate native watcher to actually be Running
+            # BEFORE even attempting the renderer task, but do not require a
+            # healthy heartbeat while ComfyUI is intentionally still stopped.
+            observer_deadline = monotonic_fn() + wait_seconds
+            while True:
+                observer = await asyncio.to_thread(status_fn, "survival-observer")
+                observer_compatible, _ = await asyncio.to_thread(
+                    match_fn, "survival-observer", config=config, status=observer,
+                )
+                if not observer_compatible:
+                    raise RuntimeError(
+                        "Survival observer registration drifted; renderer not started"
+                    )
+                if (observer.state or "").casefold() == "running":
+                    break
+                remaining = observer_deadline - monotonic_fn()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        "Survival observer did not reach Running; renderer not started"
+                    )
+                await sleep_fn(min(poll_seconds, remaining))
         # Calling start_fn performs all ownership/config checks again in
         # PowerShell, guarding against scheduler task replacement races.
         task, action = await asyncio.to_thread(
