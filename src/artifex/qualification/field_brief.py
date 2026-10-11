@@ -22,13 +22,13 @@ from artifex.qualification.issue93_field_plan import (
     compile_issue93_field_plan,
 )
 from artifex.qualification.native_creation_time import native_creation_instant
-from artifex.qualification.pc_b_remote_field_gates import (
-    RemotePCBPassiveFieldGates,
-    inspect_remote_pc_b_passive_gates,
-)
 from artifex.qualification.overview import (
     QualificationOverview,
     compile_qualification_overview,
+)
+from artifex.qualification.pc_b_remote_field_gates import (
+    RemotePCBPassiveFieldGates,
+    inspect_remote_pc_b_passive_gates,
 )
 
 
