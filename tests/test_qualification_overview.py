@@ -18,6 +18,7 @@ from artifex.qualification.models import (
     QualificationStatus,
 )
 from artifex.qualification.overview import (
+    DiscordPreflightObservation,
     QualificationOverview,
     compile_qualification_overview,
     latest_saved_session_id,
@@ -349,4 +350,87 @@ def test_explicit_session_absence_and_mismatching_injected_stage_are_errors(
         compile_qualification_overview(
             _settings(root), session_id=selected,
             readiness=_report(ready=True), now=NOW,
+        )
+
+
+def _discord_probe(*, live: bool, ready: bool = True) -> DiscordPreflightObservation:
+    return DiscordPreflightObservation(
+        ready=ready, live_verified=live and ready,
+        requests_sent=8 if live else 0, writes_performed=0,
+        checks={"guild_slash_commands_synced": ready},
+        problems=[] if ready else ["Discord guild command synchronization missing"],
+    )
+
+
+def test_discord_config_only_never_qualifies_real_message_delivery(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=True),
+        discord_preflight=_discord_probe(live=False),
+        now=NOW, controller_config=Path("C:/Artifex/local.yaml"),
+    )
+    assert result.discord_preflight_status == "local_only"
+    assert result.discord_preflight is not None
+    assert result.discord_preflight.live_verified is False
+    assert result.next_safe_command == (
+        "uv", "run", "artifex", "qualify", "overview", "--discord-live",
+        "--config", "C:/Artifex/local.yaml", "--json",
+    )
+    assert result.discord_delivery_verified is False
+    assert result.production_qualified is False
+    assert result.action_plan.production_qualified is False
+
+
+def test_real_read_only_discord_preflight_does_not_pass_discord_stage(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=True),
+        discord_preflight=_discord_probe(live=True),
+        now=NOW,
+    )
+    assert result.discord_preflight_status == "live_ready"
+    assert result.discord_preflight is not None
+    assert result.discord_preflight.live_verified is True
+    assert result.discord_delivery_verified is False
+    assert result.unresolved_stage_count == 14
+    assert next(
+        stage for stage in result.stages if stage.stage == "discord_controls"
+    ).recorded_status == "not_inspected"
+    assert result.production_qualified is False
+
+
+def test_blocked_discord_preflight_does_not_hide_pc_b_readiness_failures(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    blocked = _discord_probe(live=True, ready=False)
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=False),
+        discord_preflight=blocked, now=NOW,
+    )
+    assert result.discord_preflight_status == "blocked"
+    assert result.environment_ready is False
+    assert result.next_safe_command is None
+    assert "read-only checks" in result.next_priority
+    assert result.discord_delivery_verified is False
+
+
+def test_discord_snapshot_cannot_claim_live_without_api_observation() -> None:
+    with pytest.raises(ValueError, match="API observations"):
+        DiscordPreflightObservation(
+            ready=True, live_verified=True, requests_sent=0,
+            writes_performed=0, checks={}, problems=[],
+        )
+    with pytest.raises(ValueError):
+        DiscordPreflightObservation(
+            ready=True, live_verified=True, requests_sent=8,
+            writes_performed=1, checks={}, problems=[],
         )
