@@ -1099,7 +1099,7 @@ class QualificationService:
                 .limit(5000)
             )
         with self._database.session() as db_session:
-            events = db_session.scalars(query).all()
+            events = list(db_session.scalars(query).all())
         # With an existing receipt set, use stable chronological ordering;
         # selecting by exact IDs also detects missing/pruned or altered rows.
         events.sort(key=lambda item: (item.created_at, item.id), reverse=True)
