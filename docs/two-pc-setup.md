@@ -1,5 +1,20 @@
 # Two-PC Artifex topology
 
+## Recover an evaluation committed before a PC-A crash
+
+If PC-A stops **after** recording a quality evaluation but **before** the
+scene is selected or its policy outcome is applied, the scene can remain
+`evaluating` with an already-persisted `EvaluationRow`. Recovery now
+reconstructs the **same immutable evaluation scores, result state and content
+classification** from the database and continues policy, selection and
+Pack archival without rerunning the vision/quality provider or submitting
+another ComfyUI GPU job. This also avoids rejecting the existing evaluation
+as a duplicate. If no evaluation was committed, normal evaluation proceeds.
+
+The crash-after-DB-commit path is covered by mock end-to-end tests, not
+physical GPU qualification; Issues #40/#93 remain open.
+
+
 ## Fail closed on uncertain ComfyUI submission after PC-A restart
 
 A scene left `generating` without a durably recorded `prompt_id` is
