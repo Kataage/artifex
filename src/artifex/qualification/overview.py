@@ -15,13 +15,13 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
-from artifex.qualification.discord_control_evidence import (
-    DiscordControlEvidence,
-    inspect_discord_control_evidence,
-)
 from artifex.qualification.discord_completion_evidence import (
     DiscordCompletionEvidence,
     inspect_discord_completion_evidence,
+)
+from artifex.qualification.discord_control_evidence import (
+    DiscordControlEvidence,
+    inspect_discord_control_evidence,
 )
 from artifex.qualification.models import (
     REQUIRED_STAGES,
