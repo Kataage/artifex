@@ -39,6 +39,7 @@ from artifex.db import Database
 from artifex.db.models import PackInventoryRow
 from artifex.deployment import DeploymentRole, verify_deployment
 from artifex.deployment_activation import activate_deployment
+from artifex.deployment_pair_live import collect_pair_live_readiness
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.discord.preflight import probe_discord
 from artifex.evaluation import (
@@ -756,6 +757,42 @@ def deployment_activate(
         typer.echo(f"deployment activate error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     if not result.ready:
+        raise typer.Exit(code=1)
+
+
+@deployment_app.command("pair-live")
+def deployment_pair_live(
+    config: ConfigOption = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """PC-A: check live native pair setup without copying a PC-B JSON report.
+
+    Only local read-only Task Scheduler observation and existing authenticated
+    PC-B GETs plus controller/ComfyUI read-only workflow dependency checks.
+    No Task Scheduler action, GPU prompt, stage PASS or external command.
+    """
+    target = config or Path("config/local.yaml")
+    if not target.is_file() or any(
+        item.is_symlink() for item in (target, *target.parents)
+    ):
+        typer.echo(
+            "deployment pair-live error: existing non-symlink PC-A config required",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        settings = _settings(target)
+        result = asyncio.run(
+            collect_pair_live_readiness(
+                settings, controller_config=target,
+            )
+        )
+        _print_payload(result.model_dump(mode="json"), as_json=json_output)
+    except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError) as exc:
+        # Avoid leaking bearer tokens, remote URLs or executable paths.
+        typer.echo(f"deployment pair-live error: {type(exc).__name__}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not result.read_only_prerequisites_observed:
         raise typer.Exit(code=1)
 
 
