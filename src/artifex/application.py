@@ -125,6 +125,8 @@ class DiscordRuntime(Protocol):
 
     async def find_completion_message(self, pack_id: str) -> str | None: ...
 
+    def notification_readiness(self) -> tuple[bool, str]: ...
+
 
 @dataclass(slots=True)
 class CoreServices:
@@ -650,6 +652,10 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         comfy=core.comfy,
         discord_connected=(
             discord_runtime.is_ready if discord_runtime is not None else None
+        ),
+        discord_notification_probe=(
+            discord_runtime.notification_readiness
+            if discord_runtime is not None else None
         ),
         research_probe=core.research.health,
     )
