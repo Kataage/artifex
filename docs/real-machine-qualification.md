@@ -1,5 +1,45 @@
 # Target Windows Production Qualification
 
+## PC-B owner and supervisor-survival gap correlation
+
+The existing PC-A `qualify overview --json` now adds
+`evidence_handoff.pc_b_evidence_checks` whenever a primary remote PC-B
+renderer is configured. The two **distinct** checks are:
+
+- `renderer_owner_identity`: whether a saved PC-B ownership report and
+  the authenticated live renderer share a verifiable listener PID and start
+  time. Positive state: `identity_correlated` (not GPU/survival qualification).
+- `supervisor_survival_trace`: whether a bounded PC-B trace can be replayed
+  against the currently observed renderer identity. Positive identity match
+  still **does not authenticate the historical supervisor-loss event**.
+
+When these reports have not been requested, `not_requested` is reported,
+**not** zero evidence or an implicit match. The handoff presents existing
+read-only options on PC-A as structured argv (never automatically executed):
+
+```powershell
+uv run artifex qualify overview --pc-b-owner-live --config config/local.yaml --json
+uv run artifex qualify overview --pc-b-survival-live --config config/local.yaml --json
+```
+
+These are authenticated read-only queries of the already configured PC-B
+services; they do not start GPU jobs or restart/stop ComfyUI. If a report is
+stale, unavailable, mismatched, or has replayed **only historical** identity,
+the handoff assigns a review to PC-A (connectivity and auth) or PC-B
+(native listener PID/start-time investigation). Do not repeatedly probe to
+paper over an explicit mismatch; inspect the evidence, and never terminate
+an unknown process.
+
+When the existing correlation/review reports identity matches, the
+handoff removes **only the identity-inspection reminders**. Each proof
+retains `real_gpu_qualified=false`,
+`supervisor_loss_qualified=false`, `issue_93_closed=false`, and
+`stage_pass_registered=false`. Issue #93 still needs independently
+authenticated physical supervisor-loss survival; Issue #40 still needs the
+14 target-machine stages and a real eight-hour soak. CI and replayed
+fixtures cannot substitute for either. No qualification PASS is written.
+
+
 ## Role-scoped real-machine evidence handoff (PC-A, PC-B, Discord)
 
 The existing controller command summarizes every **unresolved** qualification
