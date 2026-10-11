@@ -54,6 +54,10 @@ class QualificationFieldBrief(BaseModel):
     survival_live_status: str
     saved_monitor_status: str
     cross_observation_identity: Literal["not_comparable", "match", "conflict"]
+    # Status-only failure diagnostics: never persist remote exception text,
+    # headers, token values or incomplete raw owner/survival trace contents.
+    failed_live_probes: tuple[Literal["owner", "survival"], ...] = ()
+    partial_live_diagnostics: bool = False
     environment_ready: bool
     recorded_pass_stages: int = Field(ge=0)
     recorded_skipped_stages: int = Field(ge=0)
@@ -134,6 +138,13 @@ def compile_field_brief(
     owner_status = owner.status if owner is not None else "not_requested"
     survival_status = survival.status if survival is not None else "not_requested"
     cross_identity = _cross_observation_identity(issue93, overview)
+    failed: list[Literal["owner", "survival"]] = []
+    if owner is not None and owner.status == "unavailable":
+        failed.append("owner")
+    if survival is not None and survival.status in {
+        "remote_unavailable", "replayed_live_unavailable",
+    }:
+        failed.append("survival")
     next_tasks: list[FieldRoleTask] = []
     # One role-owned unresolved task per machine/service keeps the brief small.
     # The complete worklist remains accessible through qualify overview.
@@ -171,6 +182,12 @@ def compile_field_brief(
         )
     elif not overview.environment_ready:
         priority = overview.next_priority
+    elif failed:
+        priority = (
+            "Some authenticated PC-B read-only probes are unavailable. "
+            "Inspect failed_live_probes and network/attestation configuration; "
+            "never restart a busy ComfyUI process to force an observation."
+        )
     elif issue93.status != "observations_correlated":
         priority = (
             "Review missing Issue #93 checks in issue_93_field_plan. "
@@ -198,6 +215,8 @@ def compile_field_brief(
         survival_live_status=survival_status,
         saved_monitor_status=overview.pc_b_saved_monitor.status,
         cross_observation_identity=cross_identity,
+        failed_live_probes=tuple(failed),
+        partial_live_diagnostics=bool(failed),
         environment_ready=overview.environment_ready,
         recorded_pass_stages=overview.recorded_pass_count,
         recorded_skipped_stages=overview.recorded_skipped_count,
