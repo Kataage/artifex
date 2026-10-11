@@ -61,7 +61,7 @@ def effective_channel_permissions(
 
     overwrites = channel.get("permission_overwrites")
     if not isinstance(overwrites, list):
-        raise ValueError("Discord channel permission overwrites unavailable")
+        raise TypeError("Discord channel permission overwrites unavailable")
 
     def _combine(items: list[dict[str, Any]]) -> tuple[int, int]:
         deny = 0
@@ -96,7 +96,7 @@ def effective_channel_permissions(
 
 def _command_names(commands: object) -> set[str]:
     if not isinstance(commands, list):
-        raise ValueError("Discord application commands response is invalid")
+        raise TypeError("Discord application commands response is invalid")
     groups = [
         c for c in commands
         if isinstance(c, dict) and c.get("name") == "artifex"
@@ -106,7 +106,7 @@ def _command_names(commands: object) -> set[str]:
         return set()
     options = groups[0].get("options", [])
     if not isinstance(options, list):
-        raise ValueError("Discord command options are invalid")
+        raise TypeError("Discord command options are invalid")
     return {
         item["name"] for item in options
         if isinstance(item, dict) and item.get("type") == 1
@@ -186,7 +186,7 @@ async def probe_discord(
         if not isinstance(bot, dict) or bot.get("bot") is not True:
             raise ValueError("Discord token is not a bot credential")
         if not isinstance(application, dict):
-            raise ValueError("Discord application information is malformed")
+            raise TypeError("Discord application information is malformed")
         user_id = _snowflake(bot.get("id"))
         application_id = _snowflake(application.get("id"))
         checks["bot_identity_verified"] = True
@@ -195,16 +195,16 @@ async def probe_discord(
         roles = await get(f"/guilds/{config.guild_id}/roles")
         channel = await get(f"/channels/{config.channel_id}")
         if not isinstance(member, dict) or not isinstance(roles, list):
-            raise ValueError("Discord guild membership/roles unavailable")
+            raise TypeError("Discord guild membership/roles unavailable")
         if not isinstance(channel, dict):
-            raise ValueError("Discord channel response malformed")
+            raise TypeError("Discord channel response malformed")
         if channel.get("guild_id") != str(config.guild_id):
             raise ValueError("Configured channel belongs to another guild")
         checks["guild_channel_match"] = True
 
         role_ids_raw = member.get("roles")
         if not isinstance(role_ids_raw, list):
-            raise ValueError("Discord bot membership roles unavailable")
+            raise TypeError("Discord bot membership roles unavailable")
         role_ids = [_snowflake(value) for value in role_ids_raw]
         if not all(isinstance(item, dict) for item in roles):
             raise ValueError("Discord guild role details malformed")
