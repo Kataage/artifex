@@ -77,6 +77,9 @@ class QualificationFieldBrief(BaseModel):
     # Existing Issue #93 steps remain in the full plan. This is a *deferral*
     # suggestion only, never a claim that physical PC-B work is complete.
     pc_b_deferred_repeat_checks: tuple[str, ...] = ()
+    pc_b_next_safe_action: str = (
+        "Review the full Issue #93 plan; do not restart a running ComfyUI."
+    )
     # Correlation, saved stages, and "ready" diagnostics are not independent
     # physical-host proof or authorization to start a real GPU job.
     authenticated_historical_supervisor_loss_proven: Literal[False] = False
@@ -209,6 +212,31 @@ def compile_field_brief(
         )
         if visit == "pc_a_recheck_first" else ()
     )
+    if visit == "pc_a_recheck_first":
+        visit_advice = (
+            "Two independent authenticated observations identify the same "
+            "PC-B listener and the cached native launcher fixture is recent. "
+            "First review the remaining PC-A owner-pair and survival evidence; "
+            "defer repeating the indicated PC-B local fixture/dry-run. "
+            "A real supervisor-loss event and GPU qualification remain unproven."
+        )
+    elif visit == "pc_a_access_review_first":
+        visit_advice = (
+            "PC-A cannot confirm both protected PC-B readiness sources. "
+            "Inspect PC-A attestation URL, token environment and connectivity "
+            "before requesting new PC-B operator work; never guess secrets."
+        )
+    elif visit == "pc_b_read_only_review":
+        visit_advice = (
+            "PC-B evidence is incomplete, stale or inconsistent. "
+            "Arrange a safe read-only local inspection without restarting, "
+            "adopting or stopping an active ComfyUI process."
+        )
+    else:
+        visit_advice = (
+            "PC-B revisit needs have not been independently checked. "
+            "Review the full Issue #93 plan; do not restart running ComfyUI."
+        )
     if pc_b_remote_gates is not None and (
         pc_b_remote_gates.cached_vs_live_owner_identity == "conflict"
     ):
@@ -281,6 +309,7 @@ def compile_field_brief(
         pc_b_remote_passive_gates=pc_b_remote_gates,
         pc_b_visit_triage=visit,
         pc_b_deferred_repeat_checks=deferred,
+        pc_b_next_safe_action=visit_advice,
     )
 
 
