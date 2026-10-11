@@ -699,6 +699,16 @@ def deployment_activate(
             help="With --apply, replace a stopped, Artifex-owned stale task.",
         ),
     ] = False,
+    with_observer: Annotated[
+        bool,
+        typer.Option(
+            "--with-observer",
+            help=(
+                "On PC-B only, preflight and start its independent passive "
+                "watcher before renderer; requires --apply to start either."
+            ),
+        ),
+    ] = False,
     wait_seconds: Annotated[
         float, typer.Option("--wait-seconds", min=0, max=600),
     ] = 90,
@@ -708,6 +718,12 @@ def deployment_activate(
     if role not in {"controller", "renderer"}:
         typer.echo(
             "deployment activate error: --role must be controller or renderer",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if with_observer and role != "renderer":
+        typer.echo(
+            "deployment activate error: --with-observer requires --role renderer",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -731,6 +747,7 @@ def deployment_activate(
                 apply=apply,
                 install_missing=install_missing,
                 replace=replace,
+                with_observer=with_observer,
                 wait_seconds=wait_seconds,
             )
         )
