@@ -27,6 +27,9 @@ class CommandName(StrEnum):
     SERIES = "series"
     SIGNALS = "signals"
     DETAILS = "details"
+    NOTICES = "notices"
+    NOTICE = "notice"
+    NOTICE_DISMISS = "notice-dismiss"
 
 
 class OperatorContext(DiscordModel):
