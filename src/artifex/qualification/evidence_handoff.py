@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from artifex.qualification.discord_completion_evidence import DiscordCompletionEvidence
 from artifex.qualification.discord_control_evidence import DiscordControlEvidence
 from artifex.qualification.models import REQUIRED_STAGES, QualificationStage
+from artifex.qualification.pc_b_evidence_gaps import PCBEvidenceCheck
 
 HandoffRole = Literal["pc_a", "pc_b", "discord"]
 HandoffSafety = Literal[
@@ -113,6 +114,7 @@ class EvidenceHandoffItem(BaseModel):
     safety: HandoffSafety
     next_action: str
     blocked_by_environment: bool = False
+    read_only_argv: tuple[str, ...] | None = None
     automated_execution: Literal[False] = False
     stage_independently_revalidated: Literal[False] = False
 
@@ -127,6 +129,8 @@ class QualificationEvidenceHandoff(BaseModel):
     pc_a_items: int
     pc_b_items: int
     discord_items: int
+    pc_b_evidence_checks: tuple[PCBEvidenceCheck, ...] = ()
+    unresolved_pc_b_evidence_checks: int = 0
     commands_executed: Literal[False] = False
     qualifies_production: Literal[False] = False
 
@@ -139,6 +143,7 @@ def compile_evidence_handoff(
     discord_enabled: bool,
     control_evidence: DiscordControlEvidence,
     completion_evidence: DiscordCompletionEvidence,
+    pc_b_evidence_checks: tuple[PCBEvidenceCheck, ...] = (),
 ) -> QualificationEvidenceHandoff:
     """Build only advisory, role-scoped next work from already observed facts."""
     items: list[EvidenceHandoffItem] = []
@@ -153,6 +158,24 @@ def compile_evidence_handoff(
                 "do not force a ComfyUI restart or attempt GPU qualification."
             ),
             blocked_by_environment=True,
+        ))
+
+    for proof in pc_b_evidence_checks:
+        # A positively correlated *identity* is not Issue #93 survival or
+        # GPU qualification; see the explicit not-qualified proof flags.
+        if proof.assessment == "identity_correlated":
+            continue
+        items.append(EvidenceHandoffItem(
+            id="pc-b-" + proof.proof,
+            stage=None, recorded_status=None,
+            responsible_role=proof.responsible_role,
+            supporting_roles=(
+                ("pc_b",) if proof.responsible_role == "pc_a" else ("pc_a",)
+            ),
+            safety="read_only_review",
+            next_action=proof.next_action,
+            read_only_argv=proof.read_only_argv,
+            blocked_by_environment=not environment_ready,
         ))
 
     if session_id is None:
@@ -258,4 +281,9 @@ def compile_evidence_handoff(
         pc_a_items=sum(item.responsible_role == "pc_a" for item in result),
         pc_b_items=sum(item.responsible_role == "pc_b" for item in result),
         discord_items=sum(item.responsible_role == "discord" for item in result),
+        pc_b_evidence_checks=pc_b_evidence_checks,
+        unresolved_pc_b_evidence_checks=sum(
+            proof.assessment != "identity_correlated"
+            for proof in pc_b_evidence_checks
+        ),
     )
