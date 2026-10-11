@@ -982,6 +982,12 @@ def onboard_inspect(
     ] = None,
     config: ConfigOption = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
+    discord_live: Annotated[
+        bool, typer.Option(
+            "--discord-live",
+            help="On PC-A only: verify Discord via bounded read-only REST GET requests.",
+        ),
+    ] = False,
 ) -> None:
     """Read-only bounded discovery of native binaries, models and setup gaps."""
     if role not in {"controller", "renderer"}:
@@ -989,13 +995,26 @@ def onboard_inspect(
         raise typer.Exit(code=1)
     try:
         if role == "renderer":
+            if discord_live:
+                raise ValueError("--discord-live applies only to controller inspection")
             if root is None:
                 raise ValueError("--comfy-root is required for renderer inspection")
             payload = discover_renderer(root).model_dump(mode="json")
         else:
             if root is not None:
                 raise ValueError("--comfy-root applies only to renderer inspection")
-            payload = discover_controller(_settings(config)).model_dump(mode="json")
+            settings = _settings(config)
+            payload = discover_controller(settings).model_dump(mode="json")
+            if settings.discord.enabled:
+                payload["discord_preflight"] = asyncio.run(
+                    probe_discord(settings.discord, live=discord_live)
+                )
+            else:
+                payload["discord_preflight"] = {
+                    "status": "disabled",
+                    "live_verified": False,
+                    "writes_performed": 0,
+                }
         _print_payload(payload, as_json=json_output)
     except (OSError, ValueError, TypeError) as exc:
         typer.echo(f"onboard inspect error: {exc}", err=True)
@@ -3421,16 +3440,33 @@ def qualify_overview(
         typer.Option("--output", help="Optional new JSON report file, never overwritten."),
     ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = True,
+    discord_live: Annotated[
+        bool, typer.Option(
+            "--discord-live",
+            help="Include read-only Discord REST diagnostics in this single overview.",
+        ),
+    ] = False,
 ) -> None:
     """Show PC-A/PC-B safety, stored 14-stage progress and next action in one pass."""
-    from artifex.qualification.overview import compile_qualification_overview
+    from artifex.qualification.overview import (
+        DiscordPreflightObservation,
+        compile_qualification_overview,
+    )
 
     chosen = config or Path("config/local.yaml")
     try:
         if chosen.is_symlink() or not chosen.is_file():
             raise ValueError("Existing non-symlinked PC-A configuration is required")
+        settings = _settings(chosen)
+        discord_result = (
+            DiscordPreflightObservation.model_validate(
+                asyncio.run(probe_discord(settings.discord, live=discord_live))
+            )
+            if settings.discord.enabled else None
+        )
         report = compile_qualification_overview(
-            _settings(chosen), session_id=session_id,
+            settings, session_id=session_id,
+            discord_preflight=discord_result,
             controller_config=chosen, renderer_config=renderer_config,
             pc_b_owner_report=pc_b_owner_report,
             pc_b_owner_live=pc_b_owner_live,
