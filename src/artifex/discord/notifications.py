@@ -4,6 +4,11 @@ from artifex.config.models import DiscordConfig
 from artifex.discord.models import NotificationKind
 
 
+def completion_marker(pack_id: str) -> str:
+    """Machine-readable line identifying the one Pack completion message."""
+    return f"Artifex-Completion-ID: {pack_id}"
+
+
 class NotificationPolicy:
     def __init__(self, config: DiscordConfig) -> None:
         self._config = config
