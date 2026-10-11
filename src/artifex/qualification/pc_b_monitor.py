@@ -26,8 +26,8 @@ from artifex.config.models import ArtifexSettings
 from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.owner_handoff import correlate_live_pc_b_owner_report
 from artifex.qualification.owner_pair import _valid_owner
-from artifex.render_node.client import fetch_renderer_owner_audit
 from artifex.qualification.survival_review import review_live_pc_b_survival_evidence
+from artifex.render_node.client import fetch_renderer_owner_audit
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
 _SNAPSHOT = "pc-b-passive-monitor.json"
