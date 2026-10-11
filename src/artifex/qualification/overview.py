@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
 from artifex.qualification.models import (
@@ -141,6 +141,25 @@ def _triage_step(
     )
 
 
+class DiscordPreflightObservation(BaseModel):
+    """Operational checks only; never a Discord delivery/interaction receipt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ready: bool
+    live_verified: bool
+    requests_sent: int = Field(ge=0)
+    writes_performed: Literal[0]
+    checks: dict[str, bool]
+    problems: list[str]
+
+    @model_validator(mode="after")
+    def ensure_live_claim_requires_observations(self) -> "DiscordPreflightObservation":
+        if self.live_verified and (not self.ready or self.requests_sent == 0):
+            raise ValueError("Live Discord readiness requires successful API observations")
+        return self
+
+
 class QualificationOverview(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -155,6 +174,11 @@ class QualificationOverview(BaseModel):
     production_qualified: Literal[False] = False
     mutated_services: Literal[False] = False
     commands_executed: Literal[False] = False
+    discord_delivery_verified: Literal[False] = False
+    discord_preflight_status: Literal[
+        "disabled", "not_checked", "local_only", "live_ready", "blocked"
+    ] = "not_checked"
+    discord_preflight: DiscordPreflightObservation | None = None
     environment_ready: bool
     recorded_pass_count: int
     recorded_skipped_count: int
@@ -212,6 +236,7 @@ def compile_qualification_overview(
     pc_b_survival_report: Path | None = None,
     pc_b_survival_live: bool = False,
     readiness: QualificationReadiness | None = None,
+    discord_preflight: DiscordPreflightObservation | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
     """One current read-only observation, one plan, no independent PASS."""
@@ -349,8 +374,52 @@ def compile_qualification_overview(
             "Inspect pc_b_survival_review; never restart ComfyUI to force a match."
         )
         command = None
+    discord_status: Literal[
+        "disabled", "not_checked", "local_only", "live_ready", "blocked"
+    ]
+    if not settings.discord.enabled:
+        discord_status = "disabled"
+        discord_preflight = None
+    elif discord_preflight is None:
+        discord_status = "not_checked"
+    elif not discord_preflight.ready:
+        discord_status = "blocked"
+    elif not discord_preflight.live_verified:
+        discord_status = "local_only"
+    else:
+        discord_status = "live_ready"
+
+    if plan.environment_ready_observed and (
+        correlation is None or correlation.status == "correlated_read_only"
+    ) and (
+        survival is None or survival.status == "replayed_and_live_identity_matched"
+    ):
+        if discord_status == "local_only":
+            priority = (
+                "Discord configuration is present, but no real API readiness "
+                "was checked. Run the same overview with --discord-live; "
+                "this makes only read-only Discord GET requests."
+            )
+            command = (
+                "uv", "run", "artifex", "qualify", "overview", "--discord-live",
+                "--config", str(controller_config), "--json",
+            )
+        elif discord_status == "blocked":
+            reason = (
+                discord_preflight.problems[0]
+                if discord_preflight is not None and discord_preflight.problems
+                else "Discord operational prerequisites are missing"
+            )
+            priority = (
+                f"Discord operational preflight is not ready: {reason}. "
+                "Inspect Discord guild/channel configuration and permissions "
+                "without assuming message delivery."
+            )
+            command = None
+
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
+        discord_preflight_status=discord_status, discord_preflight=discord_preflight,
         environment_ready=(
             plan.environment_ready_observed
             and (correlation is None or correlation.status == "correlated_read_only")
