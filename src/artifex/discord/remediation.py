@@ -97,6 +97,34 @@ def discord_repair_actions(
         )
         return actions
 
+    if checks.get("channel_type_supported") is False:
+        if checks.get("private_thread") is True:
+            add(
+                "private_thread_unverifiable", "discord_server", "discord.channel_id",
+                "A private thread requires membership proof that this GET-only "
+                "probe cannot establish. Select a normal private text channel "
+                "for the first qualification; do not change permissions or "
+                "join a thread automatically.",
+            )
+        else:
+            add(
+                "unsupported_channel_type", "pc_a", "discord.channel_id",
+                "The configured Discord channel is not a text or public thread "
+                "channel. Choose an intended private text channel and update "
+                "discord.channel_id on PC-A; do not create one automatically.",
+            )
+        return actions
+
+    if checks.get("public_thread_active") is False:
+        add(
+            "public_thread_inactive", "discord_server", "discord.channel_id",
+            "The configured public thread is archived or its active state "
+            "could not be verified. Prefer a normal private text channel, "
+            "or manually inspect thread status before retrying. Do not "
+            "automatically unarchive, post, or change Discord permissions.",
+        )
+        return actions
+
     if checks.get("view_channel") is False:
         add(
             "view_channel", "discord_server", None,

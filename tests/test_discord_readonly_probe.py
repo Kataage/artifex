@@ -307,3 +307,82 @@ def test_not_checked_live_facts_never_become_permission_defects() -> None:
         live_requested=False,
         requests_sent=0,
     ) == []
+
+
+def _public_thread_endpoints(metadata: object) -> dict[str, object]:
+    endpoints = _endpoints()
+    endpoints["/channels/88"] = {
+        "guild_id": "77", "type": 11, "parent_id": "89",
+        "thread_metadata": metadata,
+    }
+    endpoints["/channels/89"] = {
+        "guild_id": "77", "type": 0, "permission_overwrites": [],
+    }
+    roles = endpoints["/guilds/77/roles"]
+    assert isinstance(roles, list)
+    role = roles[1]
+    assert isinstance(role, dict)
+    role["permissions"] = str(int(role["permissions"]) | (1 << 38))
+    return endpoints
+
+
+@pytest.mark.asyncio
+async def test_readonly_probe_accepts_active_public_thread_with_parent_permissions() -> None:
+    calls: list[str] = []
+    async with _client(_public_thread_endpoints({"archived": False}), calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert result["ready"] is True, result
+    assert result["live_verified"] is True
+    assert result["checks"]["public_thread_active"] is True
+    assert result["checks"]["send_messages"] is True
+    assert result["remediation"] == []
+    assert len(calls) == 8
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", [{"archived": True}, {}, None, {"archived": "false"}])
+async def test_archived_or_unverifiable_public_thread_is_not_live_ready(
+    metadata: object,
+) -> None:
+    calls: list[str] = []
+    async with _client(_public_thread_endpoints(metadata), calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert result["ready"] is False
+    assert result["live_verified"] is False
+    assert result["checks"]["public_thread_active"] is False
+    assert result["checks"]["channel_type_supported"] is True
+    assert [action["code"] for action in result["remediation"]] == [
+        "public_thread_inactive",
+    ]
+    assert result["remediation"][0]["automatically_applied"] is False
+    assert result["writes_performed"] == 0
+    assert len(calls) == 5
+    assert "secret-test-token" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel_type", "expected_code"),
+    [(12, "private_thread_unverifiable"), (2, "unsupported_channel_type")],
+)
+async def test_unusable_channel_types_have_specific_manual_guidance(
+    channel_type: int, expected_code: str,
+) -> None:
+    endpoints = _endpoints()
+    endpoints["/channels/88"] = {"guild_id": "77", "type": channel_type}
+    calls: list[str] = []
+    async with _client(endpoints, calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert result["ready"] is False
+    assert result["live_verified"] is False
+    assert result["checks"]["channel_type_supported"] is False
+    assert [a["code"] for a in result["remediation"]] == [expected_code]
+    assert result["remediation"][0]["automatically_applied"] is False
+    assert result["writes_performed"] == 0
+    assert len(calls) == 5
