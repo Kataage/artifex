@@ -15,6 +15,10 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.discord_completion_evidence import (
+    DiscordCompletionEvidence,
+    inspect_discord_completion_evidence,
+)
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     QualificationStage,
@@ -193,6 +197,7 @@ class QualificationOverview(BaseModel):
         "disabled", "not_checked", "local_only", "live_ready", "blocked"
     ] = "not_checked"
     discord_preflight: DiscordPreflightObservation | None = None
+    discord_completion_evidence: DiscordCompletionEvidence
     environment_ready: bool
     recorded_pass_count: int
     recorded_skipped_count: int
@@ -251,6 +256,7 @@ def compile_qualification_overview(
     pc_b_survival_live: bool = False,
     readiness: QualificationReadiness | None = None,
     discord_preflight: DiscordPreflightObservation | None = None,
+    discord_completion_evidence: DiscordCompletionEvidence | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
     """One current read-only observation, one plan, no independent PASS."""
@@ -433,9 +439,14 @@ def compile_qualification_overview(
             )
             command = None
 
+    completion_evidence = (
+        discord_completion_evidence if discord_completion_evidence is not None
+        else inspect_discord_completion_evidence(settings)
+    )
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
         discord_preflight_status=discord_status, discord_preflight=discord_preflight,
+        discord_completion_evidence=completion_evidence,
         environment_ready=(
             plan.environment_ready_observed
             and (correlation is None or correlation.status == "correlated_read_only")
