@@ -1,5 +1,28 @@
 # Target Windows Production Qualification
 
+## Durable Discord qualification receipts (no automatic qualification)
+
+After **real, authorized** `/artifex` controls return a successful Discord
+interaction response, Artifex records a minimal SQLite
+`discord.interaction_completed` receipt (command, interaction/user/guild/
+channel/role IDs and success flag; no message text or bot token).
+Ordinary health-event retention now preserves these qualification receipts
+alongside existing daemon loop provenance so routine telemetry pruning
+during an eight-hour run cannot erase evidence already collected.
+
+The first `discord_controls` stage evaluation selects the latest bounded
+real interactions after the session began. The recorded PASS is bound to
+six concrete event IDs; subsequent `qualify verify` runs re-read **those
+same IDs** and reject missing, modified, reused, unauthorized or out-of-
+session interactions rather than replacing a missing receipt with newer
+activity. This is durable local evidence, not proof that a notice reached
+the configured destination, and does not replace the actual Discord
+notification delivery and response-loss tests or the two-PC GPU/soak gates.
+These retained minimal receipts are qualification records and are **not**
+covered by the ordinary event quota; retain and protect the PC-A SQLite
+database as production qualification evidence.
+
+
 ## Discord diagnostic remediation guidance (read-only)
 
 The existing PC-A onboarding, qualification overview, and standalone
