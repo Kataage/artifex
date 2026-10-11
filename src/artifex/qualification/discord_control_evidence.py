@@ -62,7 +62,7 @@ def _created_at(raw: object) -> datetime | None:
     if not isinstance(raw, str):
         return None
     try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
     # SQLAlchemy's SQLite DateTime storage omits tzinfo even with timezone=True.
