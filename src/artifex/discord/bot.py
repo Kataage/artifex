@@ -217,6 +217,21 @@ class ArtifexDiscordClient(discord.Client):
             await channel.send(message, view=view)
         return True
 
+    async def find_completion_message(self, pack_id: str) -> str | None:
+        """Look for a Pack marker in messages posted by this exact bot.
+
+        Absence from bounded history is inconclusive and never authorizes a
+        resend. Exceptions from the Discord API propagate to the maintenance
+        worker, which leaves the Pack quarantined as uncertain.
+        """
+        channel = self._notification_channel()
+        bot_user = self.user
+        if channel is None or bot_user is None:
+            return None
+        return await find_completion_in_history(
+            channel, pack_id=pack_id, bot_user_id=bot_user.id
+        )
+
     def _notification_channel(
         self,
     ) -> discord.TextChannel | discord.Thread | None:
