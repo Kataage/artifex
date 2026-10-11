@@ -120,6 +120,7 @@ jobs:
       - run: uv run artifex maintenance fence --help
       - run: uv run artifex maintenance drain --help
       - run: uv run artifex deployment activate --help
+      - run: uv run pytest -q tests/test_deployment_activation.py
       - run: uv run artifex deployment verify --help
       - run: uv run artifex deployment pair-export --help
       - run: uv run artifex deployment pair-check --help
