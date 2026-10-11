@@ -137,9 +137,8 @@ class RuntimeDaemon:
             or not self._scheduler.is_finalized_pack(pack_id)
         ):
             return
-        self._telemetry.record(
-            "daemon.pack_finalized", EventSeverity.INFO,
-            {"pack_id": pack_id, "run_id": self._continuous_run_id},
+        self._telemetry.record_daemon_pack_finalized_once(
+            pack_id, self._continuous_run_id
         )
 
 
