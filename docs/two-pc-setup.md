@@ -1,5 +1,39 @@
 # Two-PC Artifex topology
 
+## PC-A: fileless read-only live pair inspection
+
+After the PC-B independent observer and renderer are activated, PC-A can
+inspect the two native Windows hosts **without** exporting a JSON file on PC-B
+or manually copying a report to PC-A:
+
+```powershell
+uv run artifex deployment pair-live --config config/local.yaml --json
+```
+
+This command never uses `--apply`, installs tasks, starts or restarts ComfyUI,
+sends GPU prompts, changes admissions, sends Discord messages or records
+qualification stage PASS results. It combines three independent observations:
+(1) PC-A's verified native controller task plus an authenticated live PC-B
+installation report (renderer task, separate watcher, fresh PID-verified
+heartbeat), (2) PC-A controller, LLM, ComfyUI and workflow dependency
+readiness checks without `/prompt`, and (3) the existing protected PC-B
+installation and cached no-GPU Python launcher evidence endpoints.
+
+The JSON result contains only fixed status categories, each probe's outcome
+and `next_action`. It deliberately excludes PC-B report bodies, remote LAN
+URLs, bearer values, process PIDs, filesystem paths and arbitrary exception
+text. Probe failures do not erase the other successful observations.
+`read_only_prerequisites_observed=true` and
+`status=observed_prerequisites` require all three independent checks
+to be consistent. **This is not** permission to submit a real GPU job or
+proof of an actual supervisor exit, 14-stage production qualification or an
+8-hour soak. Each remote read is point-in-time, not an atomic timeline.
+
+The existing `deployment pair-export` / `deployment pair-check` evidence
+workflow is still available for explicit portable reports. Use the
+`qualify field-brief` diagnostic for deeper Issue #93 evidence and
+remaining qualification gaps.
+
 ## One-command PC-B observer-first activation (explicit opt-in)
 
 On native Windows **PC-B**, after reviewing its existing
