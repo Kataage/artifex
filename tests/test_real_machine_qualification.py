@@ -50,7 +50,7 @@ from artifex.qualification.maintenance import QualificationEvidenceMaintenance
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
-from artifex.telemetry import TelemetryRepository
+from artifex.telemetry import EventSeverity, TelemetryRepository
 
 
 def _settings(tmp_path: Path, asset: Path) -> ArtifexSettings:
