@@ -15,7 +15,11 @@ read-only PC-B owner/survival GETs. It produces a **diagnostic summary**
 with the missing/conflicting evidence counts, current owner and survival
 observation statuses, historical monitor status, saved stage counts,
 highest-priority blocker, safe Issue #93 command vectors, and one unresolved
-task each for PC-A, PC-B and Discord. The PC-B YAML path is **advisory**;
+task each for PC-A, PC-B and Discord. `cross_observation_identity` checks
+the separately acquired owner/trace/Issue #93 listener (PID, normalized
+creation instant, hostname) and reports `match`, `conflict`, or
+`not_comparable`. A mismatch triggers safe read-only investigation, not
+automatic ComfyUI process action. The PC-B YAML path is **advisory**;
 it is not opened or executed remotely. All addresses, tokens, directories,
 and model locations remain configurable.
 
