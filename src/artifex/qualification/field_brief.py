@@ -26,6 +26,10 @@ from artifex.qualification.overview import (
     QualificationOverview,
     compile_qualification_overview,
 )
+from artifex.qualification.pc_b_remote_field_gates import (
+    RemotePCBPassiveFieldGates,
+    inspect_remote_pc_b_passive_gates,
+)
 
 
 class FieldRoleTask(BaseModel):
@@ -65,6 +69,7 @@ class QualificationFieldBrief(BaseModel):
     next_priority: str
     issue_93_field_plan: Issue93FieldPlan
     next_role_tasks: tuple[FieldRoleTask, ...]
+    pc_b_remote_passive_gates: RemotePCBPassiveFieldGates | None = None
     # Correlation, saved stages, and "ready" diagnostics are not independent
     # physical-host proof or authorization to start a real GPU job.
     authenticated_historical_supervisor_loss_proven: Literal[False] = False
@@ -126,6 +131,7 @@ def compile_field_brief(
     controller_config: Path,
     renderer_config: Path,
     checked_utc: datetime | None = None,
+    pc_b_remote_gates: RemotePCBPassiveFieldGates | None = None,
 ) -> QualificationFieldBrief:
     """Summarize already observed data; never re-run another remote probe."""
     field_plan = compile_issue93_field_plan(
@@ -224,6 +230,7 @@ def compile_field_brief(
         next_priority=priority,
         issue_93_field_plan=field_plan,
         next_role_tasks=tuple(next_tasks),
+        pc_b_remote_passive_gates=pc_b_remote_gates,
     )
 
 
@@ -249,8 +256,13 @@ def collect_field_brief(
         pc_b_owner_live=settings.render_nodes.primary_node() is not None,
         pc_b_survival_live=settings.render_nodes.primary_node() is not None,
     )
+    # This final check uses only the PC-B API's existing protected
+    # installation report and background-cached no-GPU launcher evidence.
+    # It does not run the PC-B local fixture as part of a request.
+    remote_gates = inspect_remote_pc_b_passive_gates(settings)
     return compile_field_brief(
         issue93, overview,
         controller_config=controller_config,
         renderer_config=renderer_config,
+        pc_b_remote_gates=remote_gates,
     )

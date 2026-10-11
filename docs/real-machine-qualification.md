@@ -15,7 +15,11 @@ read-only PC-B owner/survival GETs. It produces a **diagnostic summary**
 with the missing/conflicting evidence counts, current owner and survival
 observation statuses, historical monitor status, saved stage counts,
 highest-priority blocker, safe Issue #93 command vectors, and one unresolved
-task each for PC-A, PC-B and Discord. `cross_observation_identity` checks
+task each for PC-A, PC-B and Discord. The report also includes
+`pc_b_remote_passive_gates`, a redacted independent diagnostic based
+on **existing Bearer-authenticated GETs** to the PC-B installation audit
+and the background-cached owner/launcher readiness report. No new PC-B
+server endpoint or operator-run local fixture is needed. `cross_observation_identity` checks
 the separately acquired owner/trace/Issue #93 listener (PID, normalized
 creation instant, hostname) and reports `match`, `conflict`, or
 `not_comparable`. A mismatch triggers safe read-only investigation, not
@@ -33,6 +37,19 @@ persisted or displayed. A failed source is **never** treated as a matching
 process, and all physical qualification still requires fresh authenticated
 evidence. Invalid or foreign locally stored qualification sessions remain
 hard errors rather than falling back to older records.
+
+The passive PC-B subreport shows observed Task Scheduler and watcher status,
+cached no-GPU launcher fixture and real ComfyUI owner check status, plus only
+fixed blocker codes. It omits PC-B process IDs, paths, command lines, private
+report contents, LAN URLs and Bearer tokens. It uses **two independent
+authenticated GETs** with eight-second timeouts each, and never starts a
+launcher fixture on request. If one GET fails, the other result is retained
+without a fabricated PASS; missing token/endpoint makes both `not_requested`.
+Installation evidence must be recent (up to two minutes), the background
+fixture cache recent (up to ten minutes), on the configured node and same
+host, and consistent with PID creation timestamps. Even
+`observed_prerequisites` is observational **only**, not authenticated
+historical supervisor-loss proof, GPU qualification or permission to restart.
 
 Use `--save` to preserve a new **non-authoritative** JSON diagnostic under
 the configured `qualification.evidence_dir/field-brief/`, or use `--output`
