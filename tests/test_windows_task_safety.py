@@ -215,15 +215,11 @@ def test_start_script_rechecks_protected_task_policy_inside_final_powershell(
     assert "[string]$policy.MultipleInstances -cne 'IgnoreNew'" in script
     assert "$null -eq $policy.ExecutionTimeLimit" in script
     assert "[double]$policy.ExecutionTimeLimit.TotalSeconds -ne 0" in script
-    assert script.index("expected exactly one action") < script.index(
-        "Start-ScheduledTask"
-    )
-    assert script.index("protected scheduler policy changed") < script.index(
-        "Start-ScheduledTask"
-    )
-    assert script.index("changed after preflight") < script.index(
-        "Start-ScheduledTask"
-    )
+    # Comments may mention Start-ScheduledTask; compare the actual command.
+    actual_start = script.index("\\nStart-ScheduledTask -TaskName")
+    assert script.index("expected exactly one action") < actual_start
+    assert script.index("protected scheduler policy changed") < actual_start
+    assert script.index("changed after preflight") < actual_start
 
 
 def test_controller_start_script_still_checks_for_multiple_actions() -> None:
