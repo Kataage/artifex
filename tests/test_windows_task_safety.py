@@ -216,7 +216,7 @@ def test_start_script_rechecks_protected_task_policy_inside_final_powershell(
     assert "$null -eq $policy.ExecutionTimeLimit" in script
     assert "[double]$policy.ExecutionTimeLimit.TotalSeconds -ne 0" in script
     # Comments may mention Start-ScheduledTask; compare the actual command.
-    actual_start = script.index("\\nStart-ScheduledTask -TaskName")
+    actual_start = script.index("\nStart-ScheduledTask -TaskName")
     assert script.index("expected exactly one action") < actual_start
     assert script.index("protected scheduler policy changed") < actual_start
     assert script.index("changed after preflight") < actual_start
