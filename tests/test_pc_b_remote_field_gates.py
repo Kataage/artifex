@@ -166,9 +166,7 @@ def test_both_or_one_missing_read_are_bounded_and_nonqualifying() -> None:
 
 
 def test_native_utc_plus_nine_cached_timestamps_compare_equivalently() -> None:
-    owner = _owner(
-        collected=datetime(2026, 10, 12, 11, tzinfo=datetime.now().astimezone().tzinfo),
-    )
+    owner = _owner()
     # Use an exact +09:00 timestamp for deterministic cross-OS behavior.
     owner.report["collected_utc"] = "2026-10-12T11:00:00+09:00"
     assert _compile(_installation(), owner).status == "observed_prerequisites"
