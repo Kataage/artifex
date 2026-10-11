@@ -1,3 +1,4 @@
+from artifex.operations.completion_notifications import CompletionNotificationMaintenance
 from artifex.operations.health import (
     ComponentHealth,
     ComponentState,
@@ -8,6 +9,7 @@ from artifex.operations.maintenance import MaintenanceGroup, SignalIngestionMain
 from artifex.operations.supervisor import HealthSupervisor
 
 __all__ = [
+    "CompletionNotificationMaintenance",
     "ComponentHealth",
     "ComponentState",
     "HealthChecker",

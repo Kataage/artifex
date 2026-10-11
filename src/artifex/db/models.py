@@ -255,6 +255,17 @@ class PolicyDecisionRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class CompletionNotificationRow(Base):
+    __tablename__ = "completion_notifications"
+
+    pack_id: Mapped[str] = mapped_column(
+        ForeignKey("packs.id"), primary_key=True
+    )
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AgentEventRow(Base):
     __tablename__ = "agent_events"
 

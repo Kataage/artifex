@@ -6,7 +6,13 @@ from typing import Any
 from sqlalchemy import select
 
 from artifex.db import Database
-from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow, SettingRow
+from artifex.db.models import (
+    CompletionNotificationRow,
+    GenerationAttemptRow,
+    PackRow,
+    SceneRow,
+    SettingRow,
+)
 from artifex.domain import AgentState, PackState, SceneState
 from artifex.runtime.transitions import (
     validate_agent_transition,
@@ -131,6 +137,19 @@ class RuntimeStore:
             row.updated_at = now
             if checkpoint_patch:
                 row.checkpoint_json = {**row.checkpoint_json, **checkpoint_patch}
+            # Finalize and enqueue in one DB transaction.
+            if (
+                target is PackState.FINALIZED
+                and session.get(CompletionNotificationRow, pack_id) is None
+            ):
+                session.add(
+                    CompletionNotificationRow(
+                        pack_id=pack_id,
+                        state="pending",
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
         return target
 
     def transition_scene(

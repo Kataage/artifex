@@ -682,6 +682,23 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         signal_maintenance,
         lora_discovery_maintenance,
     ]
+    if (
+        settings.discord.enabled
+        and settings.discord.notify_completion
+        and settings.discord.channel_id is not None
+        and discord_runtime is not None
+    ):
+        from artifex.operations.completion_notifications import (
+            CompletionNotificationMaintenance,
+        )
+
+        maintenance_tasks.append(
+            CompletionNotificationMaintenance(
+                core.database,
+                core.telemetry,
+                discord_runtime,
+            )
+        )
     if settings.qualification.auto_collect_enabled:
         maintenance_tasks.append(QualificationEvidenceMaintenance(
             QualificationService(

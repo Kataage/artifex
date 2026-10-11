@@ -56,6 +56,37 @@ class TelemetryRepository:
             event_id = row.id
         return self.require(event_id)
 
+    def record_daemon_pack_finalized_once(self, pack_id: str, run_id: str) -> bool:
+        """Atomically append a unique Pack proof for this continuous loop.
+
+        This is invoked only after the scheduler has checked persisted Pack
+        FINALIZED/archive evidence. It cannot reconstruct proof if PC-A died
+        before the call; the real-machine qualification must still fail closed.
+        """
+        key = f"daemon.pack_finalized:{run_id}:{pack_id}"
+        if len(key) > 200:
+            raise ValueError("daemon Pack proof key is too long")
+        now = datetime.now(UTC)
+        with self._database.session() as session:
+            if session.get(SettingRow, key) is not None:
+                return False
+            session.add(
+                SettingRow(
+                    key=key,
+                    value_json={"run_id": run_id, "pack_id": pack_id},
+                    updated_at=now,
+                )
+            )
+            session.add(
+                AgentEventRow(
+                    event_type="daemon.pack_finalized",
+                    severity=EventSeverity.INFO.value,
+                    payload_json={"run_id": run_id, "pack_id": pack_id},
+                    created_at=now,
+                )
+            )
+        return True
+
     def require(self, event_id: int) -> OperationalEvent:
         with self._database.session() as session:
             row = session.get(AgentEventRow, event_id)
