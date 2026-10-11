@@ -49,7 +49,12 @@ class ReviewView(discord.ui.View):
         role_ids: tuple[int, ...] = ()
         if isinstance(user, discord.Member):
             role_ids = tuple(role.id for role in user.roles)
-        return OperatorContext(user_id=user.id, role_ids=role_ids)
+        return OperatorContext(
+            user_id=user.id,
+            role_ids=role_ids,
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+        )
 
     async def _run(
         self,
@@ -172,6 +177,30 @@ async def find_completion_in_history(
     return None
 
 
+def assess_notification_channel_access(
+    channel: discord.TextChannel | discord.Thread | None,
+    *,
+    require_history: bool = False,
+) -> tuple[bool, str]:
+    """Fail closed on missing channel, membership, or Discord permissions."""
+    if channel is None:
+        return False, "Configured Discord notification channel is not cached or accessible."
+    member = channel.guild.me
+    if member is None:
+        return False, "Discord bot membership is not resolved for the channel."
+    permissions = channel.permissions_for(member)
+    if not permissions.view_channel:
+        return False, "Discord bot lacks View Channel permission."
+    if isinstance(channel, discord.Thread):
+        if not permissions.send_messages_in_threads:
+            return False, "Discord bot lacks Send Messages in Threads permission."
+    elif not permissions.send_messages:
+        return False, "Discord bot lacks Send Messages permission."
+    if require_history and not permissions.read_message_history:
+        return False, "Discord bot lacks Read Message History permission."
+    return True, "Discord notification channel permissions verified."
+
+
 class ArtifexDiscordClient(discord.Client):
     def __init__(
         self,
@@ -216,11 +245,22 @@ class ArtifexDiscordClient(discord.Client):
                 pass
         await super().close()
 
+    def notification_readiness(self) -> tuple[bool, str]:
+        if not self.is_ready():
+            return False, "Discord bot is not connected and ready."
+        if self._config.channel_id is None:
+            return False, "Discord notification channel_id is not configured."
+        return assess_notification_channel_access(
+            self._notification_channel(),
+            require_history=self._config.notify_completion,
+        )
+
     async def notify(self, notification: Notification) -> bool:
         if not self._notifications.enabled(notification.kind):
             return False
         channel = self._notification_channel()
-        if channel is None:
+        accessible, _ = assess_notification_channel_access(channel)
+        if not accessible or channel is None:
             return False
 
         message = f"**{notification.title}**\n{notification.body}"[:1900]
@@ -247,6 +287,11 @@ class ArtifexDiscordClient(discord.Client):
         bot_user = self.user
         if channel is None or bot_user is None:
             return None
+        accessible, reason = assess_notification_channel_access(
+            channel, require_history=True
+        )
+        if not accessible:
+            raise PermissionError(reason)
         return await find_completion_in_history(
             channel, pack_id=pack_id, bot_user_id=bot_user.id
         )
@@ -257,16 +302,26 @@ class ArtifexDiscordClient(discord.Client):
         if self._config.channel_id is None:
             return None
         channel = self.get_channel(self._config.channel_id)
-        if isinstance(channel, (discord.TextChannel, discord.Thread)):
-            return channel
-        return None
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            return None
+        if (
+            self._config.guild_id is not None
+            and channel.guild.id != self._config.guild_id
+        ):
+            return None
+        return channel
 
     def _context(self, interaction: discord.Interaction) -> OperatorContext:
         user = interaction.user
         role_ids: tuple[int, ...] = ()
         if isinstance(user, discord.Member):
             role_ids = tuple(role.id for role in user.roles)
-        return OperatorContext(user_id=user.id, role_ids=role_ids)
+        return OperatorContext(
+            user_id=user.id,
+            role_ids=role_ids,
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+        )
 
     async def _route(
         self,

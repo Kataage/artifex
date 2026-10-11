@@ -35,6 +35,8 @@ class CommandName(StrEnum):
 class OperatorContext(DiscordModel):
     user_id: int = Field(ge=1)
     role_ids: tuple[int, ...] = ()
+    guild_id: int | None = Field(default=None, ge=1)
+    channel_id: int | None = Field(default=None, ge=1)
 
 
 class CommandRequest(DiscordModel):

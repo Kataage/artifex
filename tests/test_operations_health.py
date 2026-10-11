@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from artifex.config.models import ArtifexSettings, StorageConfig
+from artifex.config.models import ArtifexSettings, DiscordConfig, StorageConfig
 from artifex.db import Database
 from artifex.discord.models import Notification, NotificationKind
 from artifex.domain import AgentState
@@ -206,4 +206,48 @@ async def test_persistent_backend_failure_blocks_and_surfaces_backend_alert(
         item.kind is NotificationKind.BACKEND and "llm" in item.title.casefold()
         for item in notifications.items
     )
+    database.dispose()
+
+
+def test_discord_health_reports_missing_channel_permission_as_degraded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'discord-health.sqlite3').as_posix()}")
+    database.migrate()
+    telemetry = TelemetryRepository(database)
+    config = ArtifexSettings(
+        discord=DiscordConfig(
+            enabled=True,
+            allowed_user_ids=(100,),
+            guild_id=77,
+            channel_id=88,
+            token_env="ARTIFEX_TEST_DISCORD_TOKEN",
+        )
+    )
+    monkeypatch.setenv("ARTIFEX_TEST_DISCORD_TOKEN", "test-token")
+    checker = HealthChecker(
+        config, database, telemetry,
+        discord_connected=lambda: True,
+        discord_notification_probe=lambda: (
+            False, "Discord bot lacks Read Message History permission.",
+        ),
+    )
+    result = checker._check_discord()
+    assert result.state is ComponentState.DEGRADED
+    assert "Read Message History" in result.detail
+    assert result.blocking is False
+
+    good = HealthChecker(
+        config, database, telemetry,
+        discord_connected=lambda: True,
+        discord_notification_probe=lambda: (True, "permissions verified"),
+    )
+    assert good._check_discord().state is ComponentState.HEALTHY
+
+    disconnected = HealthChecker(
+        config, database, telemetry,
+        discord_connected=lambda: False,
+        discord_notification_probe=lambda: (True, "permissions verified"),
+    )
+    assert disconnected._check_discord().state is ComponentState.UNHEALTHY
     database.dispose()
