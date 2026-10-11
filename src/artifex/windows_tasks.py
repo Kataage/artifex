@@ -383,12 +383,34 @@ if ($null -eq $task) {{ throw 'Artifex scheduled task does not exist' }}
 if ($task.Description -ne {marker}) {{
   throw 'Refusing to start a task not owned by Artifex'
 }}
-$action = @($task.Actions)[0]
+# Recheck ALL actions at Start-ScheduledTask time, not only the first.
+# A replaced task with multiple actions could run an unrelated program even
+# when the first action still matches the Python preflight.
+$actions = @($task.Actions)
+if ($actions.Count -ne 1) {{
+  throw 'Refusing to start Artifex task: expected exactly one action'
+}}
+$action = $actions[0]
 if (
   $action.Execute -cne {_literal(execute)} -or
   $action.Arguments -cne {_literal(arguments)} -or
   $action.WorkingDirectory -cne {_literal(working_directory)}
 ) {{ throw 'Artifex scheduled task changed after preflight; refusing to start' }}
+if ({'$true' if role in {'renderer', 'survival-observer'} else '$false'}) {{
+  # The Python matcher checked these already; a task could be edited between
+  # that check and Start-ScheduledTask. Reject unsafe or missing properties.
+  $policy = $task.Settings
+  if (
+    $null -eq $policy -or
+    $null -eq $policy.AllowHardTerminate -or
+    [bool]$policy.AllowHardTerminate -ne $false -or
+    [string]$policy.MultipleInstances -cne 'IgnoreNew' -or
+    $null -eq $policy.ExecutionTimeLimit -or
+    [double]$policy.ExecutionTimeLimit.TotalSeconds -ne 0
+  ) {{
+    throw 'Refusing to start Artifex task: protected scheduler policy changed'
+  }}
+}}
 if ([string]$task.State -eq 'Running') {{ exit 0 }}
 Start-ScheduledTask -TaskName {name} -TaskPath '\\'
 """
