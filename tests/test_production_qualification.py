@@ -12,6 +12,7 @@ from artifex.comfy import ComfyExecutionResult, ComfyOutput
 from artifex.comfy.errors import ComfyErrorKind, ComfyUIError, ComfyUITimeoutError
 from artifex.config.models import (
     AgentConfig,
+    EditorialConfig,
     CharacterRegistryConfig,
     LoRARegistryConfig,
     OperationsConfig,
@@ -19,7 +20,9 @@ from artifex.config.models import (
 )
 from artifex.db import Database
 from artifex.db.models import (
+    CharacterRow,
     EvaluationRow,
+    PackInventoryRow,
     GenerationAttemptRow,
     PackRow,
     ReviewQueueRow,
@@ -27,12 +30,14 @@ from artifex.db.models import (
 )
 from artifex.domain import (
     AgentState,
+    SceneState,
     CharacterProfile,
     LoRAPolicy,
     LoRAProfile,
     LoRAState,
     PackState,
 )
+from artifex.editorial import EditorialRepository, EditorialService, PackInventoryRepository
 from artifex.evaluation import (
     AttemptSelector,
     EvaluationEngine,
@@ -870,5 +875,110 @@ async def test_restart_after_archive_commit_reuses_same_files_and_manifest(
         pack = session.get(PackRow, planned.pack_id)
         assert pack is not None
         assert pack.checkpoint_json["archive_manifest_sha256"] == first_digest
+    assert reviews.list_open() == ()
+    database.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("crash_boundary", ["after_series", "after_character_use"])
+async def test_post_archive_restart_replays_series_and_character_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, crash_boundary: str,
+) -> None:
+    database, _, _, packs, reviews, coordinator, backend = _qualification(tmp_path)
+    series = coordinator._series
+    series.create(
+        title="Unattended continuity",
+        character_ids=("char-1",),
+        series_id="series-restart",
+    )
+    plan = _plan("single_feature", ("char-1",)).model_copy(
+        update={"series_id": "series-restart", "episode_number": 1}
+    )
+    planned = packs.create_planned_pack(plan, concept_id=None)
+    original_record_use = coordinator._characters.record_use
+    original_transition_pack = coordinator._runtime.transition_pack
+
+    if crash_boundary == "after_series":
+        def fail_character_use(*args, **kwargs):
+            del args, kwargs
+            raise SystemExit("PC-A exited after series update")
+
+        monkeypatch.setattr(coordinator._characters, "record_use", fail_character_use)
+    else:
+        def fail_finalize(pack_id, target, **kwargs):
+            if target is PackState.FINALIZED:
+                raise SystemExit("PC-A exited after character counter commit")
+            return original_transition_pack(pack_id, target, **kwargs)
+
+        monkeypatch.setattr(coordinator._runtime, "transition_pack", fail_finalize)
+
+    with pytest.raises(SystemExit, match="PC-A exited"):
+        await coordinator.run_pack(planned.pack_id)
+    assert packs.require(planned.pack_id).state is PackState.EVALUATING
+    assert series.require("series-restart").prior_pack_ids == (planned.pack_id,)
+    assert series.require("series-restart").current_episode == 1
+    original_count = coordinator._characters.require("char-1").total_generated
+    assert original_count == (0 if crash_boundary == "after_series" else 1)
+
+    monkeypatch.setattr(coordinator._characters, "record_use", original_record_use)
+    monkeypatch.setattr(coordinator._runtime, "transition_pack", original_transition_pack)
+    await coordinator.recover_pack(planned.pack_id)
+
+    assert packs.require(planned.pack_id).state is PackState.FINALIZED
+    assert backend.calls == 1
+    assert coordinator._characters.require("char-1").total_generated == 1
+    completed = series.require("series-restart")
+    assert completed.current_episode == 1
+    assert completed.prior_pack_ids == (planned.pack_id,)
+    with database.session() as session:
+        pack = session.get(PackRow, planned.pack_id)
+        assert pack is not None
+        assert pack.checkpoint_json["character_usage_ids"] == ["char-1"]
+    assert reviews.list_open() == ()
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_editorial_inventory_recovers_finalized_pack_after_pc_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, _, _, packs, reviews, coordinator, backend = _qualification(tmp_path)
+    config = EditorialConfig(mode="continuous")
+    inventory = PackInventoryRepository(database, expiry_hours=24)
+    editorial = EditorialService(
+        database,
+        config,
+        coordinator._series,
+        inventory,
+        EditorialRepository(database),
+    )
+    coordinator._editorial = editorial
+    planned = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)), concept_id=None
+    )
+
+    def fail_inventory(*args, **kwargs):
+        del args, kwargs
+        raise SystemExit("PC-A exited after Pack FINALIZED")
+
+    monkeypatch.setattr(editorial, "mark_finalized_pack", fail_inventory)
+    with pytest.raises(SystemExit, match="Pack FINALIZED"):
+        await coordinator.run_pack(planned.pack_id)
+
+    assert packs.require(planned.pack_id).state is PackState.FINALIZED
+    assert backend.calls == 1
+    with database.session() as session:
+        assert session.get(PackInventoryRow, planned.pack_id) is None
+
+    # The editorial inventory reconciliation is called by the scheduler on
+    # restart, even though FINALIZED Packs are no longer in its recovery list.
+    counts = editorial.inventory_counts()
+    assert counts.available == 1
+    with database.session() as session:
+        item = session.get(PackInventoryRow, planned.pack_id)
+        assert item is not None
+        assert item.metadata_json["format"] == "single_feature"
+        assert item.metadata_json["series_id"] is None
+        assert item.metadata_json["concept_id"] is None
     assert reviews.list_open() == ()
     database.dispose()
