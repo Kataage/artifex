@@ -1,5 +1,33 @@
 # Target Windows Production Qualification
 
+## Six real Discord control receipts in read-only qualification overview
+
+The existing PC-A `uv run artifex qualify overview --config config/local.yaml --json`
+now includes **`discord_control_evidence`** alongside
+`discord_completion_evidence`. The first is scoped to the selected actual
+qualification session's start time and the configured Discord guild, channel,
+authorized users/roles, and **six distinct interaction IDs**.
+
+It reports which of `status`, `pause`, `resume`, `approve`, `reject`,
+and `retry` have *eligible-looking, saved* successful interaction responses,
+which commands remain missing, a capped 5,000-event scan status and a concrete,
+safe next action. If the session/database/schema is missing, it reports
+`no_session`, `missing_database`, or `missing_schema`, not a false zero.
+Out-of-session, malformed, duplicate, wrong-guild/channel/user, and
+unsuccessful interactions are never counted. The snapshot contains neither
+raw Discord content nor operator identities.
+
+**Neither local telemetry nor preflight constitutes proof of a working
+control.** The overview does not call Discord, start GPU tasks, respond to
+messages, register a PASS, or revalidate the six exact recorded event IDs.
+Even when all six command names are observed, the control stage must still
+be recorded and independently revalidated using the authoritative
+`qualify collect` and `qualify verify` paths. Likewise, an API-accepted or
+message-ID-verified *completion notice* is not a control interaction.
+`discord_delivery_verified=false`, `production_qualified=false`,
+the real 14-stage qualification and Issues #40/#93 remain unchanged.
+
+
 ## Read-only Discord completion evidence in existing qualification overview
 
 On PC-A the existing command now includes a `discord_completion_evidence`

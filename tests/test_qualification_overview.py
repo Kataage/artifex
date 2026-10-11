@@ -641,6 +641,59 @@ def test_overview_cli_reports_missing_discord_database_without_creating_it(
     assert payload["discord_completion_evidence"]["status"] == "missing_database"
     assert payload["discord_completion_evidence"]["total"] is None
     assert payload["discord_delivery_verified"] is False
+    assert payload["discord_control_evidence"]["status"] == "no_session"
+    assert payload["discord_control_evidence"]["matched_distinct_interactions"] is None
+    assert payload["discord_control_evidence"]["qualifies_discord_controls"] is False
     assert payload["production_qualified"] is False
     assert payload["commands_executed"] is False
     assert not database_path.parent.exists()
+
+
+
+def test_overview_control_receipts_are_bound_to_selected_session_only(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    root = tmp_path / "evidence"
+    selected = "20261009T120000Z-bbbbbbbb"
+    _session(root, selected)
+    settings = _settings(root)
+    settings.discord.enabled = True
+    settings.discord.guild_id = 123
+    settings.discord.channel_id = 456
+    settings.discord.allowed_user_ids = (789,)
+    db_path = tmp_path / "event-rows.sqlite3"
+    settings.storage.database_url = f"sqlite:///{db_path.as_posix()}"
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "CREATE TABLE agent_events "
+            "(id INTEGER, event_type TEXT, created_at TEXT, payload_json TEXT)"
+        )
+        db.execute(
+            "INSERT INTO agent_events VALUES (?, ?, ?, ?)",
+            (
+                1, "discord.interaction_completed", NOW.isoformat(),
+                json.dumps({
+                    "command": "status", "interaction_id": "111",
+                    "guild_id": 123, "channel_id": 456,
+                    "user_id": 789, "role_ids": [], "response_ok": True,
+                }),
+            ),
+        )
+    states = {stage.value: "pending" for stage in REQUIRED_STAGES}
+    overview = compile_qualification_overview(
+        settings, session_id=selected,
+        readiness=_report(ready=True, stages=states), now=NOW,
+    )
+    assert overview.discord_control_evidence.status == "incomplete"
+    assert overview.discord_control_evidence.session_id == selected
+    assert overview.discord_control_evidence.observed_commands == ("status",)
+    assert overview.discord_control_evidence.matched_distinct_interactions == 1
+    assert len(overview.discord_control_evidence.missing_commands) == 5
+    assert overview.discord_delivery_verified is False
+    assert overview.unresolved_stage_count == 14
+    assert overview.production_qualified is False
+    assert QualificationOverview.model_validate(
+        overview.model_dump(mode="json")
+    ).discord_control_evidence == overview.discord_control_evidence
