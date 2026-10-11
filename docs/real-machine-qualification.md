@@ -51,6 +51,37 @@ host, and consistent with PID creation timestamps. Even
 `observed_prerequisites` is observational **only**, not authenticated
 historical supervisor-loss proof, GPU qualification or permission to restart.
 
+### PC-B visit triage from current authenticated owner evidence
+
+The `qualify field-brief` command additionally compares the cached no-GPU
+launcher snapshot to its **independently sampled current authenticated owner**
+using the same node ID, case-normalized PC-B hostname, actual listener PID,
+and timezone-normalized native Windows creation instant. Only a fresh,
+Bearer-checked, correlated owner report and independently valid cached
+installation/fixture evidence can yield
+`cached_vs_live_owner_identity=match`. An identity disagreement is
+`conflict`, forces `pc_b_remote_passive_gates.status=needs_evidence`,
+and requests a **read-only** investigation; missing, stale or unverified
+observations remain `not_comparable`. Neither a matching PID nor matching
+timestamp *alone* proves identity. Raw PID and process paths are not
+included in this subreport.
+
+`pc_b_visit_triage`, `pc_b_next_safe_action`, and
+`pc_b_deferred_repeat_checks` help reduce redundant PC-B operator work.
+Only when the current authenticated owner and the earlier native fixture
+agree, and there is no contradictory Issue #93 evidence, can the brief
+suggest `pc_a_recheck_first`: postpone repeating
+`pc-b-launcher-owner` or `pc-b-observer-dry-run` and inspect the remaining
+PC-A owner-pair/trace evidence first. Those commands remain present in the
+**full original** `issue_93_field_plan`; their deferral is not a completed
+proof. Unreachable or unconfigured PC-B authentication is
+`pc_a_access_review_first` (review PC-A settings, never guess a token).
+Inconsistent or incomplete native evidence requires
+`pc_b_read_only_review`, never an automatically initiated process action.
+Two separate authenticated point-in-time reads do not prove uninterrupted
+survival or authenticate historical supervisor loss; no PASS, restart, GPU
+job, or qualification status is emitted.
+
 Use `--save` to preserve a new **non-authoritative** JSON diagnostic under
 the configured `qualification.evidence_dir/field-brief/`, or use `--output`
 for a specific exclusive-create PC-A JSON path. Without these flags the
