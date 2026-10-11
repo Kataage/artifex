@@ -165,7 +165,7 @@ async def find_completion_in_history(
     async for message in channel.history(limit=limit):
         if (
             message.author.id == bot_user_id
-            and message.content.startswith("**Artifex Pack completed**\\n")
+            and message.content.startswith("**Artifex Pack completed**\n")
             and marker in message.content.splitlines()
         ):
             return str(message.id)
