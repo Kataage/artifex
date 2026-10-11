@@ -23,6 +23,10 @@ from artifex.qualification.discord_control_evidence import (
     DiscordControlEvidence,
     inspect_discord_control_evidence,
 )
+from artifex.qualification.evidence_handoff import (
+    QualificationEvidenceHandoff,
+    compile_evidence_handoff,
+)
 from artifex.qualification.models import (
     REQUIRED_STAGES,
     QualificationStage,
@@ -203,6 +207,7 @@ class QualificationOverview(BaseModel):
     discord_preflight: DiscordPreflightObservation | None = None
     discord_completion_evidence: DiscordCompletionEvidence
     discord_control_evidence: DiscordControlEvidence
+    evidence_handoff: QualificationEvidenceHandoff
     environment_ready: bool
     recorded_pass_count: int
     recorded_skipped_count: int
@@ -461,16 +466,26 @@ def compile_qualification_overview(
             now=current,
         )
     )
+    environment_ready = (
+        plan.environment_ready_observed
+        and (correlation is None or correlation.status == "correlated_read_only")
+        and (survival is None or survival.status == "replayed_and_live_identity_matched")
+    )
+    handoff = compile_evidence_handoff(
+        session_id=selected,
+        recorded_stages={item.stage: item.recorded_status for item in stages},
+        environment_ready=environment_ready,
+        discord_enabled=settings.discord.enabled,
+        control_evidence=control_evidence,
+        completion_evidence=completion_evidence,
+    )
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
         discord_preflight_status=discord_status, discord_preflight=discord_preflight,
         discord_completion_evidence=completion_evidence,
         discord_control_evidence=control_evidence,
-        environment_ready=(
-            plan.environment_ready_observed
-            and (correlation is None or correlation.status == "correlated_read_only")
-            and (survival is None or survival.status == "replayed_and_live_identity_matched")
-        ),
+        evidence_handoff=handoff,
+        environment_ready=environment_ready,
         recorded_pass_count=passed, recorded_skipped_count=skipped,
         unresolved_stage_count=unresolved, stages=tuple(stages),
         next_priority=priority, next_safe_command=command,
