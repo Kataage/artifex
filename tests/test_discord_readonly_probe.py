@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 import pytest
@@ -195,4 +196,5 @@ def test_overwrite_precedence_and_administrator_override() -> None:
 def test_discord_probe_cli_is_registered_without_attempting_live_access() -> None:
     result = CliRunner().invoke(app, ["discord", "probe", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--live" in result.output
+    help_text = re.sub(r"\\x1b\\[[0-9;]*m", "", result.output)
+    assert "--live" in help_text
