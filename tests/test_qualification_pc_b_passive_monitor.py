@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -262,3 +263,89 @@ def test_monitor_interval_has_floor() -> None:
             _settings(Path("data/qualification")), Mock(),
             interval_seconds=299,
         )
+
+
+def test_monitor_read_fails_closed_on_oversize_and_path_swap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path / "evidence")
+    root = settings.qualification.evidence_dir
+    root.mkdir()
+    path = root / "pc-b-passive-monitor.json"
+    sample = PCBEvidenceMonitorSnapshot(
+        captured_utc=NOW,
+        controller_host=socket.gethostname(),
+        session_id=SESSION,
+        node_id="gpu-b",
+        endpoint_fingerprint=monitor._fingerprint(settings),
+        owner_status="correlated_read_only",
+        survival_status="replayed_and_live_identity_matched",
+        owner_check_failed=False,
+        survival_check_failed=False,
+    )
+    path.write_bytes(b"x" * (monitor._MAX_BYTES + 1))
+    def view() -> monitor.PCBEvidenceMonitorView:
+        return read_pc_b_evidence_monitor(
+            settings, session_id=SESSION, now=NOW, max_age_seconds=1800,
+        )
+    assert view().status == "invalid"
+
+    path.write_text(sample.model_dump_json(), encoding="utf-8")
+    outside = tmp_path / "outside.json"
+    outside.write_text(sample.model_dump_json(), encoding="utf-8")
+    try:
+        probe = tmp_path / "symlink-probe"
+        probe.symlink_to(outside)
+        probe.unlink()
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks unavailable on this Windows host")
+
+    native_open = os.open
+    swapped = False
+
+    def swap_during_open(file: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                         flags: int, *args: object, **kwargs: object) -> int:
+        nonlocal swapped
+        if os.fspath(file) == os.fspath(path) and not swapped:
+            swapped = True
+            path.unlink()
+            path.symlink_to(outside)
+        return native_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(monitor.os, "open", swap_during_open)
+    assert view().status == "invalid"
+    assert swapped is True
+    assert outside.read_text(encoding="utf-8") == sample.model_dump_json()
+
+
+def test_monitor_reader_rejects_in_place_edit_during_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path / "evidence")
+    root = settings.qualification.evidence_dir
+    root.mkdir()
+    path = root / "pc-b-passive-monitor.json"
+    sample = PCBEvidenceMonitorSnapshot(
+        captured_utc=NOW, controller_host=socket.gethostname(),
+        session_id=SESSION, node_id="gpu-b",
+        endpoint_fingerprint=monitor._fingerprint(settings),
+        owner_status="blocked", survival_status="blocked",
+        owner_check_failed=False, survival_check_failed=False,
+    )
+    path.write_text(sample.model_dump_json(), encoding="utf-8")
+    native_fstat = os.fstat
+    calls = 0
+
+    def changed_after_read(fd: int) -> os.stat_result:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            with path.open("ab") as handle:
+                handle.write(b" ")
+        return native_fstat(fd)
+
+    monkeypatch.setattr(monitor.os, "fstat", changed_after_read)
+    assert read_pc_b_evidence_monitor(
+        settings, session_id=SESSION, now=NOW, max_age_seconds=1800,
+    ).status == "invalid"
+    assert calls >= 2
