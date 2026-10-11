@@ -1,5 +1,43 @@
 # Two-PC Artifex topology
 
+## Discord diagnostic remediation guidance (read-only)
+
+The existing PC-A onboarding, qualification overview, and standalone
+Discord probe now include a structured `remediation` list in each enabled
+Discord preflight result. Each step supplies a stable `code`, whether it
+belongs on `pc_a` or in the `discord_server`, an optional exact PC-A YAML
+`config_field`, and a specific safe instruction. All steps are explicitly
+marked `safety: manual_review` and `automatically_applied: false`.
+
+This reduces guesswork without requiring additional commands:
+
+- Missing `discord.guild_id`, `discord.channel_id`, or an allowed operator
+  ID/role: use Discord Developer Mode to copy **actual** identifiers, then
+  update the listed PC-A config key. Do not guess or relax authorization.
+- Missing token: place the bot credential in the configured environment
+  variable on PC-A; no token is printed, stored in YAML or embedded in a
+  suggested command.
+- Missing View Channel, Send Messages or Read Message History: review the
+  bot's effective Discord channel permissions and overwrites. Grant only
+  the required permission; do not grant Administrator merely to clear a
+  diagnostic.
+- Missing guild slash commands: verify the app's command-install scope and
+  inspect normal bot startup synchronization. Do not restart a production
+  daemon solely to clear this check.
+- Failed or incomplete Discord REST checks: inspect bounded HTTP status,
+  membership and network access. An unobserved permission is **unknown**,
+  not necessarily denied; never resend uncertain completion notices on that
+  basis.
+
+The `qualify overview` next-priority text uses the first specific
+`remediation` instruction only when its PC-A/PC-B environment checks are
+already ready. Existing GPU, owner-survival and soak blockers still take
+priority. A Discord repair plan is not evidence of a changed permission,
+a delivered notice or a successful bot interaction. No automatic config
+write, Discord API mutation, renderer restart or qualification PASS is
+introduced. Real PC-A/PC-B evidence remains required for #40 and #93.
+
+
 ## Discord readiness integrated into onboarding and qualification
 
 On PC-A, Discord readiness now appears in **existing** read-only reports,

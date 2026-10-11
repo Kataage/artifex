@@ -11,6 +11,7 @@ from artifex.cli import app
 from artifex.config.models import DiscordConfig
 from artifex.discord.models import CommandName
 from artifex.discord.preflight import effective_channel_permissions, probe_discord
+from artifex.discord.remediation import discord_repair_actions
 
 
 def _config() -> DiscordConfig:
@@ -198,3 +199,111 @@ def test_discord_probe_cli_is_registered_without_attempting_live_access() -> Non
     assert result.exit_code == 0, result.output
     help_text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "--live" in help_text
+
+
+def test_missing_pc_a_discord_fields_produce_precise_secret_free_guidance() -> None:
+    config = DiscordConfig.model_construct(
+        enabled=True, token_env="ARTIFEX_TEST_SECRET_NAME",
+        guild_id=None, channel_id=None,
+        allowed_user_ids=(), allowed_role_ids=(),
+        command_prefix="!artifex ",
+        notify_completion=True,
+    )
+    actions = discord_repair_actions(
+        config,
+        {
+            "enabled": True,
+            "operator_allowlist": False,
+            "guild_configured": False,
+            "channel_configured": False,
+            "credential_present": False,
+        },
+        live_requested=False,
+        requests_sent=0,
+    )
+    assert [item["code"] for item in actions] == [
+        "operator_allowlist", "guild_id", "channel_id", "bot_token",
+    ]
+    assert all(item["automatically_applied"] is False for item in actions)
+    assert all(item["safety"] == "manual_review" for item in actions)
+    assert actions[-1]["config_field"] == "discord.token_env"
+    assert "ARTIFEX_TEST_SECRET_NAME" in actions[-1]["instruction"]
+
+
+@pytest.mark.asyncio
+async def test_live_missing_channel_permissions_proposes_only_needed_repairs() -> None:
+    calls: list[str] = []
+    async with _client(_endpoints(history=False, send=False), calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    codes = [item["code"] for item in result["remediation"]]
+    assert codes == ["send_messages", "read_message_history"]
+    assert all(action["scope"] == "discord_server" for action in result["remediation"])
+    assert all(action["automatically_applied"] is False for action in result["remediation"])
+    assert "secret-test-token" not in json.dumps(result)
+    assert result["writes_performed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_missing_commands_proposes_registration_review_without_auto_restart() -> None:
+    calls: list[str] = []
+    async with _client(_endpoints(commands=False), calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert [step["code"] for step in result["remediation"]] == ["guild_commands"]
+    assert "normal Artifex bot startup" in result["remediation"][0]["instruction"]
+    assert result["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_live_network_failure_has_bounded_non_secret_recovery_advice() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(429, text="secret-test-token")
+
+    async with httpx.AsyncClient(
+        base_url="https://discord.com/api/v10",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert [a["code"] for a in result["remediation"]] == ["verify_bot_access"]
+    assert result["requests_sent"] == 1
+    assert "secret-test-token" not in json.dumps(result)
+    assert "429" in result["problems"][0]
+
+
+@pytest.mark.asyncio
+async def test_healthy_discord_produces_no_manual_repairs() -> None:
+    calls: list[str] = []
+    async with _client(_endpoints(), calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert result["ready"] is True
+    assert result["remediation"] == []
+
+
+def test_not_checked_live_facts_never_become_permission_defects() -> None:
+    config = _config()
+    assert discord_repair_actions(
+        config,
+        {
+            "enabled": True,
+            "operator_allowlist": True,
+            "guild_configured": True,
+            "channel_configured": True,
+            "credential_present": True,
+        },
+        live_requested=False,
+        requests_sent=0,
+    ) == []
+    assert discord_repair_actions(
+        DiscordConfig(),
+        {},
+        live_requested=False,
+        requests_sent=0,
+    ) == []

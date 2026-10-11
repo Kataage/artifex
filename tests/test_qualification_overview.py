@@ -513,3 +513,56 @@ def test_controller_onboard_inspect_includes_discord_without_extra_command(
     )
     assert reject.exit_code == 1
     assert calls == [False, True]
+
+
+def test_qualification_overview_prioritizes_specific_discord_repair(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    blocked = DiscordPreflightObservation(
+        ready=False, live_verified=False, requests_sent=7,
+        writes_performed=0,
+        checks={
+            "bot_identity_verified": True,
+            "view_channel": True,
+            "send_messages": False,
+        },
+        problems=["Discord channel is missing view, send or history permission."],
+        remediation=[{
+            "code": "send_messages",
+            "scope": "discord_server",
+            "config_field": None,
+            "instruction": "Review channel Send Messages permission without editing automatically.",
+            "safety": "manual_review",
+            "automatically_applied": False,
+        }],
+    )
+    report = compile_qualification_overview(
+        settings, readiness=_report(ready=True),
+        discord_preflight=blocked, now=NOW,
+    )
+    assert report.discord_preflight_status == "blocked"
+    assert report.discord_preflight is not None
+    assert report.discord_preflight.remediation[0].code == "send_messages"
+    assert "Send Messages permission" in report.next_priority
+    assert report.next_safe_command is None
+    assert report.commands_executed is False
+    assert report.discord_delivery_verified is False
+    assert report.production_qualified is False
+
+
+def test_discord_remediation_cannot_claim_a_permission_change() -> None:
+    with pytest.raises(ValueError):
+        DiscordPreflightObservation(
+            ready=False, live_verified=False, requests_sent=1,
+            writes_performed=0, checks={}, problems=[],
+            remediation=[{
+                "code": "view_channel",
+                "scope": "discord_server",
+                "config_field": None,
+                "instruction": "In Discord, review the configured channel.",
+                "safety": "manual_review",
+                "automatically_applied": True,
+            }],
+        )
