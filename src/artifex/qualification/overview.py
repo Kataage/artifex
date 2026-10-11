@@ -154,7 +154,7 @@ class DiscordPreflightObservation(BaseModel):
     problems: list[str]
 
     @model_validator(mode="after")
-    def ensure_live_claim_requires_observations(self) -> "DiscordPreflightObservation":
+    def ensure_live_claim_requires_observations(self) -> DiscordPreflightObservation:
         if self.live_verified and (not self.ready or self.requests_sent == 0):
             raise ValueError("Live Discord readiness requires successful API observations")
         return self
