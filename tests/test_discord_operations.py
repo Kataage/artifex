@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from artifex.characters import CharacterRegistry
 from artifex.config.models import ProductionConfig
 from artifex.db import Database
-from artifex.db.models import ConceptRow, PackRow, SceneRow
+from artifex.db.models import CompletionNotificationRow, ConceptRow, PackRow, SceneRow
 from artifex.discord import ArtifexRemoteOperations, CommandName, CommandRequest
 from artifex.domain import (
     AgentState,
@@ -280,4 +282,164 @@ def test_hard_blocked_generated_scene_can_be_retried(
         assert scene.state == SceneState.PLANNED.value
         assert scene.payload_json["operator_retry"] is True
         assert pack.state == PackState.PLANNED.value
+    database.dispose()
+
+
+def _completion_notice(
+    database: Database,
+    *,
+    pack_id: str,
+    state: str,
+    message_id: str | None = None,
+) -> None:
+    now = datetime.now(UTC)
+    with database.session() as session:
+        session.add(
+            PackRow(
+                id=pack_id,
+                state=PackState.FINALIZED.value,
+                format_type="single_feature",
+                payload_json={},
+                checkpoint_json={
+                    "archive_complete": True,
+                    "archive_manifest_sha256": "a" * 64,
+                },
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            CompletionNotificationRow(
+                pack_id=pack_id,
+                state=state,
+                discord_message_id=message_id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def test_notice_inventory_and_detail_are_read_only(tmp_path: Path) -> None:
+    database, _, _, operations = _setup(tmp_path)
+    _completion_notice(database, pack_id="pack-uncertain", state="uncertain")
+    _completion_notice(database, pack_id="pack-pending", state="pending")
+    _completion_notice(
+        database, pack_id="pack-sent", state="sent", message_id="123456",
+    )
+    listing = operations.execute(CommandRequest(name=CommandName.NOTICES))
+    assert listing.ok
+    assert listing.data["counts"] == {
+        "uncertain": 1, "pending": 1, "sent": 1,
+    }
+    assert len(listing.data["unresolved"]) == 2
+    detail = operations.execute(
+        CommandRequest(name=CommandName.NOTICE, args=("pack-uncertain",))
+    )
+    assert detail.data["state"] == "uncertain"
+    assert detail.data["archive_complete"] is True
+    assert detail.data["discord_message_id"] is None
+    assert "UNKNOWN" not in detail.message
+    with database.session() as session:
+        notice = session.get(CompletionNotificationRow, "pack-uncertain")
+        assert notice is not None
+        assert notice.state == "uncertain"
+        assert notice.dismissed_at is None
+    database.dispose()
+
+
+def test_notice_dismiss_requires_authenticated_actor_reason_and_confirmation(
+    tmp_path: Path,
+) -> None:
+    database, _, _, operations = _setup(tmp_path)
+    _completion_notice(database, pack_id="pack-uncertain", state="uncertain")
+    invalid = [
+        CommandRequest(
+            name=CommandName.NOTICE_DISMISS,
+            args=("pack-uncertain", "Confirmed no notification required", "DISMISS"),
+        ),
+        CommandRequest(
+            name=CommandName.NOTICE_DISMISS,
+            args=("pack-uncertain", "Confirmed no notification required", "CONFIRM"),
+            operator_user_id=17,
+        ),
+        CommandRequest(
+            name=CommandName.NOTICE_DISMISS,
+            args=("pack-uncertain", "short", "DISMISS"),
+            operator_user_id=17,
+        ),
+        CommandRequest(
+            name=CommandName.NOTICE_DISMISS,
+            args=("pack-uncertain", "@everyone please suppress this", "DISMISS"),
+            operator_user_id=17,
+        ),
+    ]
+    for request in invalid:
+        with pytest.raises(ValueError):
+            operations.execute(request)
+    with database.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-uncertain")
+        assert row is not None
+        assert row.state == "uncertain"
+
+    success = operations.execute(
+        CommandRequest(
+            name=CommandName.NOTICE_DISMISS,
+            args=(
+                "pack-uncertain",
+                "Operator verified that no notification should be sent",
+                "DISMISS",
+            ),
+            operator_user_id=17,
+        )
+    )
+    assert success.ok
+    assert success.data["state"] == "dismissed"
+    assert "UNVERIFIED" in success.message
+    detail = operations.execute(
+        CommandRequest(name=CommandName.NOTICE, args=("pack-uncertain",))
+    )
+    assert detail.data["state"] == "dismissed"
+    assert detail.data["dismissed_by_user_id"] == "17"
+    assert "Operator verified" in detail.data["dismissal_reason"]
+    with database.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-uncertain")
+        assert row is not None
+        assert row.discord_message_id is None
+        assert row.dismissed_at is not None
+    with pytest.raises(ValueError, match="existing uncertain"):
+        operations.execute(
+            CommandRequest(
+                name=CommandName.NOTICE_DISMISS,
+                args=("pack-uncertain", "Duplicate dismissal attempt", "DISMISS"),
+                operator_user_id=17,
+            )
+        )
+    database.dispose()
+
+
+def test_notice_dismiss_cannot_change_sent_or_active_notification(
+    tmp_path: Path,
+) -> None:
+    database, _, _, operations = _setup(tmp_path)
+    _completion_notice(
+        database, pack_id="pack-sent", state="sent", message_id="991100",
+    )
+    _completion_notice(database, pack_id="pack-pending", state="pending")
+    _completion_notice(database, pack_id="pack-sending", state="sending")
+    for pack_id in ("pack-sent", "pack-pending", "pack-sending"):
+        with pytest.raises(ValueError, match="existing uncertain"):
+            operations.execute(
+                CommandRequest(
+                    name=CommandName.NOTICE_DISMISS,
+                    args=(
+                        pack_id,
+                        "Operator requested explicit safe dismissal",
+                        "DISMISS",
+                    ),
+                    operator_user_id=17,
+                )
+            )
+    assert operations.execute(
+        CommandRequest(name=CommandName.NOTICE, args=("pack-sent",))
+    ).data["discord_message_id"] == "991100"
     database.dispose()
