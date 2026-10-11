@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from artifex.cli import app
-from artifex.config.models import ArtifexSettings
+from artifex.config.models import ArtifexSettings, RenderNodeConfig
 from artifex.deployment import DeploymentCheck, DeploymentReport
 from artifex.deployment_pair_live import (
     PairLiveReadiness,
@@ -26,7 +26,6 @@ NOW = datetime(2026, 10, 12, 6, tzinfo=UTC)
 def _settings() -> ArtifexSettings:
     settings = ArtifexSettings()
     settings.render_nodes.primary = "gpu-b"
-    from artifex.config.models import RenderNodeConfig
     settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
         base_url="http://192.0.2.55:8188",
         attestation_url="http://192.0.2.55:8190",
