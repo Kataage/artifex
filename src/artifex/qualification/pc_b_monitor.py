@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import socket
+import stat
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -114,6 +115,47 @@ def _safe_existing_parent(path: Path) -> bool:
     )
 
 
+def _read_bounded_monitor_snapshot(path: Path) -> bytes:
+    """Read only the same bounded regular file identified before and after open.
+
+    In particular, do not stat one inode and read another after a path swap.
+    Linux O_NOFOLLOW rejects final-component symlinks at open; Windows uses
+    lstat/fstat identity checks because O_NOFOLLOW is not available there.
+    """
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_size > _MAX_BYTES:
+        raise ValueError("Unsafe or oversized monitor snapshot")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+            or opened.st_size != before.st_size
+            or opened.st_mtime_ns != before.st_mtime_ns
+        ):
+            raise ValueError("Monitor snapshot changed before open")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            payload = stream.read(_MAX_BYTES + 1)
+        finished = os.fstat(fd)
+        after = path.lstat()
+        if (
+            len(payload) > _MAX_BYTES
+            or not stat.S_ISREG(after.st_mode)
+            or (finished.st_dev, finished.st_ino) != (opened.st_dev, opened.st_ino)
+            or (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino)
+            or (finished.st_size, finished.st_mtime_ns)
+            != (opened.st_size, opened.st_mtime_ns)
+            or (after.st_size, after.st_mtime_ns)
+            != (opened.st_size, opened.st_mtime_ns)
+        ):
+            raise ValueError("Monitor snapshot changed during read")
+        return payload
+    finally:
+        os.close(fd)
+
+
 def read_pc_b_evidence_monitor(
     settings: ArtifexSettings, *, session_id: str | None,
     now: datetime, max_age_seconds: int,
@@ -135,9 +177,8 @@ def read_pc_b_evidence_monitor(
             next_action="No safe saved PC-B monitor observation exists yet; use live read-only checks.",
         )
     try:
-        if path.stat().st_size > _MAX_BYTES:
-            raise ValueError("oversized")
-        snapshot = PCBEvidenceMonitorSnapshot.model_validate_json(path.read_bytes())
+        payload = _read_bounded_monitor_snapshot(path)
+        snapshot = PCBEvidenceMonitorSnapshot.model_validate_json(payload)
     except (OSError, ValueError):
         return PCBEvidenceMonitorView(
             status="invalid",
