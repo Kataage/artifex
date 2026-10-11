@@ -1,5 +1,36 @@
 # Target Windows Production Qualification
 
+## Read-only Discord completion evidence in existing qualification overview
+
+On PC-A the existing command now includes a `discord_completion_evidence`
+object automatically, without additional flags, Discord writes, GPU work,
+SQLite migrations or file creation:
+
+```powershell
+uv run artifex qualify overview --config config/local.yaml --json
+```
+
+It opens only the *already-existing* configured SQLite database in read-only
+mode. Missing databases, outdated schema, unsupported backends, and inaccessible
+files report explicit statuses rather than misleading `0` counts.
+The aggregate shows `pending`, `sending`, `uncertain`, `dismissed`,
+`sent_api_only`, `sent_without_receipt` (older rows) and
+`sent_history_verified`. Contradictory receipt/state pairs are reported
+as `inconsistent`, not successful delivery. It exposes no credentials or
+message body and supplies a safe `next_action` to inspect unresolved notices.
+
+`sent_history_verified` means the local database **previously** recorded
+a positive bot-authored exact Pack/ID match. The overview itself does not
+perform a fresh Discord message GET, prove that anyone read a message,
+or count a successfully delivered slash command. Consequently the existing
+`discord_delivery_verified=false`, per-stage
+`independently_revalidated=false`, `production_qualified=false`,
+Issue #40's 14 stages and Issue #93's physical PC-B ownership checks
+remain unchanged. The Discord control stage still needs six genuine
+authorized interaction receipts, independently of completion notification
+counts. The summary never automatically sends, dismisses or retries notices.
+
+
 ## Automatic read-only Discord completion receipt verification
 
 Discord's successful send API returns a message ID, but that alone is
