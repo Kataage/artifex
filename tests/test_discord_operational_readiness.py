@@ -51,7 +51,7 @@ def test_discord_notification_access_requires_member_and_send_permissions() -> N
 
 def test_completion_history_access_is_stricter_than_sending() -> None:
     channel = _channel(history=False)
-    assert assess_notification_channel_access(channel) [0] is True
+    assert assess_notification_channel_access(channel)[0] is True
     ok, message = assess_notification_channel_access(
         channel, require_history=True,
     )
