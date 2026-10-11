@@ -48,4 +48,13 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         engine.dispose()
 
     assert EXPECTED_TABLES <= tables
-    assert current_revision(url) == "0012_completion_operator_triage"
+    assert current_revision(url) == "0013_completion_receipt_verification"
+    engine = create_engine(url)
+    try:
+        column_names = {
+            column["name"]
+            for column in inspect(engine).get_columns("completion_notifications")
+        }
+    finally:
+        engine.dispose()
+    assert "discord_verified_at" in column_names
