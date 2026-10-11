@@ -844,7 +844,7 @@ async def test_restart_after_archive_commit_reuses_same_files_and_manifest(
     original_finalize = archive.finalize
 
     def crash_after_archive(pack_id: str):
-        result = original_finalize(pack_id)
+        original_finalize(pack_id)
         raise SystemExit("controller stopped after durable archive checkpoint")
 
     monkeypatch.setattr(archive, "finalize", crash_after_archive)
