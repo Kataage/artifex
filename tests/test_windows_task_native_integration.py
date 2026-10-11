@@ -91,6 +91,99 @@ def test_native_guard_refuses_test_owned_tcp_listener(
             pytest.fail("A listening mock upstream must prevent replacement")
 
 
+@pytest.mark.parametrize("role", ["renderer", "survival-observer"])
+@pytest.mark.parametrize(
+    ("policy_case", "expected_start"),
+    [
+        ("safe", True),
+        ("missing_policy", False),
+        ("missing_hard_terminate", False),
+        ("hard_terminate_enabled", False),
+        ("parallel_instances", False),
+        ("finite_time_limit", False),
+        ("missing_limit", False),
+        ("multiple_actions", False),
+    ],
+)
+def test_native_start_rechecks_policy_after_python_preflight_without_real_tasks(
+    role: str, policy_case: str, expected_start: bool,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mock BOTH native Task Scheduler cmdlets; never register or run a real task."""
+    import artifex.windows_tasks as tasks
+
+    config = tmp_path / "render-node.yaml"
+    config.write_text("render_agent: {}\n", encoding="utf-8")
+    exe = "C:/Safe/python.exe"
+    arguments = "-m artifex.cli render-node serve"
+    workdir = "C:/Safe"
+    monkeypatch.setattr(tasks, "_command", lambda role, config: (
+        exe, arguments, workdir,
+    ))
+    policy = (
+        "$null" if policy_case == "missing_policy" else
+        "[pscustomobject]@{AllowHardTerminate="
+        + ("$true" if policy_case == "hard_terminate_enabled" else
+           "$null" if policy_case == "missing_hard_terminate" else "$false")
+        + "; MultipleInstances="
+        + ("'Parallel'" if policy_case == "parallel_instances" else "'IgnoreNew'")
+        + "; ExecutionTimeLimit="
+        + ("$null" if policy_case == "missing_limit" else
+           "([TimeSpan]::FromSeconds(600))" if policy_case == "finite_time_limit"
+           else "([TimeSpan]::Zero)")
+        + "}"
+    )
+    many = (
+        "@([pscustomobject]@{Execute='C:/Safe/python.exe'; "
+        "Arguments='-m artifex.cli render-node serve'; "
+        "WorkingDirectory='C:/Safe'}, "
+        "[pscustomobject]@{Execute='evil.exe'; Arguments=''; WorkingDirectory='.'})"
+        if policy_case == "multiple_actions"
+        else "@([pscustomobject]@{Execute='C:/Safe/python.exe'; "
+        "Arguments='-m artifex.cli render-node serve'; "
+        "WorkingDirectory='C:/Safe'})"
+    )
+    marker = "Artifex managed autostart v1/" + role
+    mock_cmdlets = f"""
+$fakeTask = [pscustomobject]@{{
+  Description='{marker}'
+  State='Ready'
+  Actions={many}
+  Settings={policy}
+}}
+function Get-ScheduledTask {{
+  param([string]$TaskName, [string]$TaskPath)
+  return $fakeTask
+}}
+function Start-ScheduledTask {{
+  param([string]$TaskName, [string]$TaskPath)
+  'ISOLATED_SAFE_START'
+}}
+"""
+    trusted = tasks.StartupTaskStatus(
+        role=role, task_name="Artifex-" + role,
+        installed=True, managed=True, state="Ready",
+        execute=exe, arguments=arguments, working_directory=workdir,
+        action_count=1, allow_hard_terminate=False,
+        multiple_instances="IgnoreNew", execution_time_limit_seconds=0,
+    )
+    # Python's first and last checks see the safe task while the actual
+    # PowerShell start-time read sees a mutated task in this fake.
+    monkeypatch.setattr(tasks, "task_status", lambda _: trusted)
+    original_powershell = tasks._run_powershell
+    monkeypatch.setattr(
+        tasks, "_run_powershell",
+        lambda code: original_powershell(mock_cmdlets + code),
+    )
+    if expected_start:
+        status, action = tasks.activate_task(role, config=config)
+        assert action == "started"
+        assert status == trusted
+    else:
+        with pytest.raises(RuntimeError, match="Refusing to start Artifex task"):
+            tasks.activate_task(role, config=config)
+
+
 def test_native_unknown_task_settings_remain_null_without_registration() -> None:
     """Shadow Get-ScheduledTask inside PowerShell; do not touch real tasks."""
     fake_task = r"""

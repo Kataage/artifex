@@ -1,5 +1,28 @@
 # Two-PC Artifex topology
 
+## Windows Task Scheduler start-time safety recheck
+
+The PC-A/PC-B bring-up command `uv run artifex deployment activate` is
+preview-only by default. An operator may use `--apply` on the **corresponding
+local Windows PC** after reviewing the task, but the final PowerShell
+`Start-ScheduledTask` operation now checks the task's owner marker, exactly
+one action, and the expected executable, arguments and working directory.
+For the renderer and independent survival-observer tasks, the same final
+read also requires `AllowHardTerminate=false`,
+`MultipleInstances=IgnoreNew`, and an unlimited
+`ExecutionTimeLimit=0`. Missing, changed or unsafe properties cause
+an error **before** starting the task, even if the earlier Python
+configuration check saw a safe registration. There is no automatic
+task repair, replacement, supervisor restart, ComfyUI process stop,
+GPU render, or qualification-stage PASS.
+
+These guards are tested on the native Windows CI runner with mock
+`Get-ScheduledTask` and `Start-ScheduledTask` cmdlets, which never
+register or run a real production task. The user's real PC-A and PC-B
+still require an operator-host qualification observation; native CI
+does not demonstrate actual uninterrupted ComfyUI survival, 14-stage
+GPU evidence or an eight-hour soak.
+
 ## Discord diagnostic remediation guidance (read-only)
 
 The existing PC-A onboarding, qualification overview, and standalone

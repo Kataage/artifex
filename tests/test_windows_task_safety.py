@@ -196,6 +196,44 @@ def test_renderer_script_replacement_requires_probed_port() -> None:
         )
 
 
+@pytest.mark.parametrize("role", ["renderer", "survival-observer"])
+def test_start_script_rechecks_protected_task_policy_inside_final_powershell(
+    role: str,
+) -> None:
+    from artifex.windows_tasks import _start_script
+
+    script = _start_script(
+        role,  # type: ignore[arg-type]
+        execute=r"C:\Artifex\python.exe",
+        arguments="-m artifex.cli render-node serve",
+        working_directory=r"C:\Artifex",
+    )
+    assert "Get-ScheduledTask" in script
+    assert "$actions.Count -ne 1" in script
+    assert "$null -eq $policy.AllowHardTerminate" in script
+    assert "[bool]$policy.AllowHardTerminate -ne $false" in script
+    assert "[string]$policy.MultipleInstances -cne 'IgnoreNew'" in script
+    assert "$null -eq $policy.ExecutionTimeLimit" in script
+    assert "[double]$policy.ExecutionTimeLimit.TotalSeconds -ne 0" in script
+    # Comments may mention Start-ScheduledTask; compare the actual command.
+    actual_start = script.index("\nStart-ScheduledTask -TaskName")
+    assert script.index("expected exactly one action") < actual_start
+    assert script.index("protected scheduler policy changed") < actual_start
+    assert script.index("changed after preflight") < actual_start
+
+
+def test_controller_start_script_still_checks_for_multiple_actions() -> None:
+    from artifex.windows_tasks import _start_script
+
+    script = _start_script(
+        "controller", execute="python.exe",
+        arguments="-m artifex.cli daemon", working_directory="C:/Artifex",
+    )
+    assert "$actions.Count -ne 1" in script
+    assert "if ($false) {" in script
+    assert "Start-ScheduledTask" in script
+
+
 def test_scheduler_status_preserves_missing_policy_properties() -> None:
     from artifex.windows_tasks import _status_script
 
