@@ -181,8 +181,14 @@ def assess_notification_channel_access(
     channel: discord.TextChannel | discord.Thread | None,
     *,
     require_history: bool = False,
+    require_send: bool = True,
 ) -> tuple[bool, str]:
-    """Fail closed on missing channel, membership, or Discord permissions."""
+    """Check cached access without granting permission or mutating a thread.
+
+    Sending and read-only history reconciliation have different requirements.
+    An archived thread must never be implicitly unarchived by a notification,
+    but its existing message history can still establish positive delivery.
+    """
     if channel is None:
         return False, "Configured Discord notification channel is not cached or accessible."
     member = channel.guild.me
@@ -192,9 +198,16 @@ def assess_notification_channel_access(
     if not permissions.view_channel:
         return False, "Discord bot lacks View Channel permission."
     if isinstance(channel, discord.Thread):
-        if not permissions.send_messages_in_threads:
-            return False, "Discord bot lacks Send Messages in Threads permission."
-    elif not permissions.send_messages:
+        if channel.type is not discord.ChannelType.public_thread:
+            return False, "Only public Discord threads are supported for notifications."
+        if require_send:
+            if channel.archived is not False:
+                return False, "Discord public thread is archived or its state is unknown."
+            if channel.locked is not False:
+                return False, "Discord public thread is locked or its state is unknown."
+            if not permissions.send_messages_in_threads:
+                return False, "Discord bot lacks Send Messages in Threads permission."
+    elif require_send and not permissions.send_messages:
         return False, "Discord bot lacks Send Messages permission."
     if require_history and not permissions.read_message_history:
         return False, "Discord bot lacks Read Message History permission."
@@ -288,7 +301,7 @@ class ArtifexDiscordClient(discord.Client):
         if channel is None or bot_user is None:
             return None
         accessible, reason = assess_notification_channel_access(
-            channel, require_history=True
+            channel, require_history=True, require_send=False
         )
         if not accessible:
             raise PermissionError(reason)
