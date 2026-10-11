@@ -49,7 +49,12 @@ class ReviewView(discord.ui.View):
         role_ids: tuple[int, ...] = ()
         if isinstance(user, discord.Member):
             role_ids = tuple(role.id for role in user.roles)
-        return OperatorContext(user_id=user.id, role_ids=role_ids)
+        return OperatorContext(
+            user_id=user.id,
+            role_ids=role_ids,
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+        )
 
     async def _run(
         self,
@@ -266,7 +271,12 @@ class ArtifexDiscordClient(discord.Client):
         role_ids: tuple[int, ...] = ()
         if isinstance(user, discord.Member):
             role_ids = tuple(role.id for role in user.roles)
-        return OperatorContext(user_id=user.id, role_ids=role_ids)
+        return OperatorContext(
+            user_id=user.id,
+            role_ids=role_ids,
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+        )
 
     async def _route(
         self,
