@@ -4,6 +4,7 @@ import json
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -434,3 +435,81 @@ def test_discord_snapshot_cannot_claim_live_without_api_observation() -> None:
             ready=True, live_verified=True, requests_sent=8,
             writes_performed=1, checks={}, problems=[],
         )
+
+
+def test_controller_overview_live_option_reuses_discord_probe_without_sending(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import artifex.cli as cli_module
+    import artifex.qualification.overview as overview_module
+
+    config = tmp_path / "local.yaml"
+    config.write_text("discord: true\n", encoding="utf-8")
+    settings = _settings(tmp_path / "evidence-empty")
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    calls: list[bool] = []
+
+    async def fake_probe(discord_config: object, *, live: bool = False) -> dict:
+        assert discord_config is settings.discord
+        calls.append(live)
+        return _discord_probe(live=live).model_dump(mode="json")
+
+    monkeypatch.setattr(cli_module, "_settings", lambda path: settings)
+    monkeypatch.setattr(cli_module, "probe_discord", fake_probe)
+    monkeypatch.setattr(
+        overview_module, "diagnose_qualification_readiness",
+        lambda *args, **kwargs: _report(ready=True),
+    )
+    result = CliRunner().invoke(
+        app, ["qualify", "overview", "--config", str(config),
+              "--discord-live", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["discord_preflight_status"] == "live_ready"
+    assert payload["discord_preflight"]["requests_sent"] == 8
+    assert payload["discord_delivery_verified"] is False
+    assert payload["production_qualified"] is False
+    assert calls == [True]
+
+
+def test_controller_onboard_inspect_includes_discord_without_extra_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.cli as cli_module
+
+    settings = ArtifexSettings()
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    calls: list[bool] = []
+
+    async def fake_probe(discord_config: object, *, live: bool = False) -> dict:
+        assert discord_config is settings.discord
+        calls.append(live)
+        return _discord_probe(live=live).model_dump(mode="json")
+
+    monkeypatch.setattr(cli_module, "_settings", lambda path: settings)
+    monkeypatch.setattr(cli_module, "probe_discord", fake_probe)
+    monkeypatch.setattr(
+        cli_module, "discover_controller",
+        lambda config: SimpleNamespace(model_dump=lambda mode: {"status": "ok"}),
+    )
+    local = CliRunner().invoke(
+        app, ["onboard", "inspect", "--role", "controller", "--json"],
+    )
+    assert local.exit_code == 0, local.output
+    assert json.loads(local.output)["discord_preflight"]["live_verified"] is False
+
+    live = CliRunner().invoke(
+        app, ["onboard", "inspect", "--role", "controller", "--discord-live", "--json"],
+    )
+    assert live.exit_code == 0, live.output
+    assert json.loads(live.output)["discord_preflight"]["live_verified"] is True
+    assert calls == [False, True]
+
+    reject = CliRunner().invoke(
+        app, ["onboard", "inspect", "--role", "renderer", "--discord-live", "--json"],
+    )
+    assert reject.exit_code == 1
+    assert calls == [False, True]
