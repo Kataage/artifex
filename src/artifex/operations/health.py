@@ -67,6 +67,7 @@ class HealthChecker:
         *,
         comfy: ComfyUIClient | None = None,
         discord_connected: DiscordConnectionProbe | None = None,
+        discord_notification_probe: Callable[[], tuple[bool, str]] | None = None,
         llm_probe: Callable[[], Awaitable[ComponentHealth]] | None = None,
         evaluator_probe: Callable[[], Awaitable[ComponentHealth]] | None = None,
         research_probe: Callable[[], Awaitable[tuple[ProviderHealth, ...]]] | None = None,
@@ -76,6 +77,7 @@ class HealthChecker:
         self._telemetry = telemetry
         self._comfy = comfy
         self._discord_connected = discord_connected
+        self._discord_notification_probe = discord_notification_probe
         self._llm_probe = llm_probe
         self._evaluator_probe = evaluator_probe
         self._research_probe = research_probe
@@ -340,10 +342,19 @@ class HealthChecker:
                 detail="Discord client is configured but not connected.",
                 blocking=False,
             )
+        if self._discord_notification_probe is not None:
+            accessible, detail = self._discord_notification_probe()
+            if not accessible:
+                return ComponentHealth(
+                    name="discord",
+                    state=ComponentState.DEGRADED,
+                    detail=detail,
+                    blocking=False,
+                )
         return ComponentHealth(
             name="discord",
             state=ComponentState.HEALTHY,
-            detail="Discord configuration/connection is ready.",
+            detail="Discord configuration/connection and channel are ready.",
             blocking=False,
         )
 
