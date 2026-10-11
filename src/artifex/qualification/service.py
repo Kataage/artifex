@@ -1047,12 +1047,12 @@ class QualificationService:
         *,
         since: datetime,
     ) -> None:
-        """Trust only successfully delivered, authorized Discord interactions.
+        """Revalidate persisted successful, authorized Discord interactions.
 
-        The CLI cannot create these events by listing command names. Every
-        required action must be observed on the configured guild/channel
-        after the qualification session started; verification reads SQLite
-        again and compares the original event IDs.
+        First qualification selects a bounded recent set of real events.
+        Subsequent verification looks up the exact six stored event IDs,
+        rather than accidentally switching evidence when newer interactions
+        arrive. Routine telemetry pruning must preserve these receipts.
         """
         config = self._settings.discord
         if not config.enabled:
@@ -1063,17 +1063,46 @@ class QualificationService:
         if set(details) - allowed:
             raise ValueError("discord_controls rejects manually supplied claims")
         required = {"status", "pause", "resume", "approve", "reject", "retry"}
-        with self._database.session() as db_session:
-            events = db_session.scalars(
+        now = _utcnow()
+        stored = details.get("observed_interactions")
+        if stored is not None:
+            if not isinstance(stored, list) or len(stored) != len(required):
+                raise ValueError("discord_controls stored interaction evidence is malformed")
+            event_ids: list[int] = []
+            for item in stored:
+                if not isinstance(item, dict):
+                    raise ValueError("discord_controls stored interaction evidence is malformed")
+                event_id = item.get("event_id")
+                if type(event_id) is not int or event_id <= 0:
+                    raise ValueError("discord_controls stored event IDs are invalid")
+                event_ids.append(event_id)
+            if len(set(event_ids)) != len(required):
+                raise ValueError("discord_controls stored event IDs are not unique")
+            query = (
+                select(AgentEventRow)
+                .where(
+                    AgentEventRow.id.in_(event_ids),
+                    AgentEventRow.event_type == "discord.interaction_completed",
+                    AgentEventRow.created_at >= since,
+                    AgentEventRow.created_at <= now,
+                )
+            )
+        else:
+            query = (
                 select(AgentEventRow)
                 .where(
                     AgentEventRow.event_type == "discord.interaction_completed",
                     AgentEventRow.created_at >= since,
-                    AgentEventRow.created_at <= _utcnow(),
+                    AgentEventRow.created_at <= now,
                 )
-                .order_by(AgentEventRow.created_at.asc(), AgentEventRow.id.asc())
+                .order_by(AgentEventRow.created_at.desc(), AgentEventRow.id.desc())
                 .limit(5000)
-            ).all()
+            )
+        with self._database.session() as db_session:
+            events = db_session.scalars(query).all()
+        # With an existing receipt set, use stable chronological ordering;
+        # selecting by exact IDs also detects missing/pruned or altered rows.
+        events.sort(key=lambda item: (item.created_at, item.id), reverse=True)
         observed: dict[str, dict[str, object]] = {}
         seen_interactions: set[str] = set()
         for event in events:
@@ -1090,9 +1119,9 @@ class QualificationService:
                 continue
             user_id = payload.get("user_id")
             roles = payload.get("role_ids")
-            if not isinstance(user_id, int) or not isinstance(roles, list):
+            if type(user_id) is not int or not isinstance(roles, list):
                 continue
-            if not all(isinstance(role, int) for role in roles):
+            if not all(type(role) is int for role in roles):
                 continue
             if (
                 user_id not in config.allowed_user_ids
