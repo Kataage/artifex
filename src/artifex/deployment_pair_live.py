@@ -225,18 +225,18 @@ async def collect_pair_live_readiness(
             installation_fn, settings, controller_config=controller_config,
         )
     except Exception:  # noqa: BLE001 - status-only diagnosis, no secret echo
-        pass
+        installation = None
     try:
         controller = await controller_fn(
             settings, role="controller", require_autostart=True,
             render_smoke=False,
         )
-    except Exception:  # noqa: BLE001 - preserve the other two GET observations
-        pass
+    except Exception:  # noqa: BLE001 - preserve other GET observations
+        controller = None
     try:
         cached = await asyncio.to_thread(cached_fn, settings)
     except Exception:  # noqa: BLE001 - do not discard valid native/LLM checks
-        pass
+        cached = None
     return compile_pair_live_readiness(
         node_id=node_id,
         installation=installation, controller=controller, cached=cached,
