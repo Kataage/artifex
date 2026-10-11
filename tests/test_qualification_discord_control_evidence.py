@@ -108,10 +108,10 @@ def test_session_scoped_distinct_authorized_six_controls_fail_closed(
     start = now - timedelta(minutes=20)
     before = start - timedelta(minutes=1)
     _event(telemetry, "approve", "100", when=before)
-    _event(telemetry, "status", "101", when=now)
+    _event(telemetry, "approve", "101", when=now)  # older duplicate
+    _event(telemetry, "status", "101", when=now)  # latest wins, as in service
     _event(telemetry, "pause", "102", when=now, user=999, roles=[555])
     _event(telemetry, "resume", "103", when=now, channel=666)
-    _event(telemetry, "approve", "101", when=now)  # duplicate Discord interaction
     _event(telemetry, "reject", "104", when=now, user=999)
     _event(telemetry, "retry", "105", when=now, response_ok=False)
     _event(telemetry, "retry", "106", when=now, roles=[True])
