@@ -379,7 +379,7 @@ def test_discord_config_only_never_qualifies_real_message_delivery(
     assert result.discord_preflight.live_verified is False
     assert result.next_safe_command == (
         "uv", "run", "artifex", "qualify", "overview", "--discord-live",
-        "--config", "C:/Artifex/local.yaml", "--json",
+        "--config", str(Path("C:/Artifex/local.yaml")), "--json",
     )
     assert result.discord_delivery_verified is False
     assert result.production_qualified is False
