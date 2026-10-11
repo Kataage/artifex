@@ -66,3 +66,39 @@ def test_series_status_persists(tmp_path: Path) -> None:
     paused = repository.set_status("series-1", SeriesStatus.PAUSED)
     assert paused.status is SeriesStatus.PAUSED
     database.dispose()
+
+
+def test_completed_series_episode_replay_is_idempotent_and_validated(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'replay.sqlite3').as_posix()}")
+    database.migrate()
+    repository = SeriesRepository(database)
+    repository.create(
+        title="Replay-safe Series",
+        character_ids=("char-a",),
+        series_id="series-replay",
+    )
+    first = repository.record_completed_pack(
+        "series-replay",
+        pack_id="pack-1",
+        episode_number=1,
+        continuity_updates={"room": "window"},
+        hooks_added=("letter",),
+    )
+    replayed = repository.record_completed_pack(
+        "series-replay",
+        pack_id="pack-1",
+        episode_number=1,
+        continuity_updates={"room": "conflicting update"},
+        hooks_added=("duplicate",),
+    )
+    assert replayed == first
+    assert replayed.prior_pack_ids == ("pack-1",)
+    assert replayed.current_episode == 1
+    assert replayed.unresolved_hooks == ("letter",)
+    with pytest.raises(ValueError, match="already recorded as episode 1"):
+        repository.record_completed_pack(
+            "series-replay", pack_id="pack-1", episode_number=2,
+        )
+    database.dispose()

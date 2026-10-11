@@ -97,7 +97,12 @@ class PackInventoryRepository:
                         reserved_at=None,
                         consumed_at=current if legacy_consumed else None,
                         expires_at=expires_at,
-                        metadata_json={"migrated_legacy": True},
+                        metadata_json={
+                            "migrated_legacy": True,
+                            "series_id": pack.series_id,
+                            "concept_id": pack.concept_id,
+                            "format": pack.format_type,
+                        },
                         updated_at=current,
                     )
                 )

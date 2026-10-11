@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from artifex.characters.matching import contains_alias
 from artifex.db import Database
-from artifex.db.models import CharacterRow
+from artifex.db.models import CharacterRow, PackRow
 from artifex.domain import CharacterProfile
 
 
@@ -116,12 +116,31 @@ class CharacterRegistry:
         matches.sort(key=lambda item: (-item[0], item[1]))
         return tuple(character_id for _, character_id in matches)
 
-    def record_use(self, character_ids: Iterable[str]) -> None:
+    def record_use(
+        self,
+        character_ids: Iterable[str],
+        *,
+        pack_id: str | None = None,
+    ) -> None:
         now = datetime.now(UTC)
         ids = tuple(dict.fromkeys(character_ids))
         if not ids:
             return
         with self._database.session() as session:
+            pack = None
+            if pack_id is not None:
+                pack = session.get(PackRow, pack_id)
+                if pack is None:
+                    raise KeyError(f"unknown Pack for character usage: {pack_id}")
+                if pack.checkpoint_json.get("archive_complete") is not True:
+                    raise ValueError("character usage requires committed Pack archive")
+                recorded = pack.checkpoint_json.get("character_usage_ids")
+                if recorded is not None:
+                    if recorded != list(ids):
+                        raise ValueError(
+                            f"Pack {pack_id} already counted a different character roster"
+                        )
+                    return
             rows = session.scalars(
                 select(CharacterRow).where(CharacterRow.id.in_(ids))
             ).all()
@@ -136,6 +155,13 @@ class CharacterRegistry:
                 payload["last_used_at"] = now.isoformat()
                 payload["total_generated"] = row.total_generated
                 row.profile_json = payload
+            if pack is not None:
+                # Record the per-Pack usage marker in the SAME SQLite
+                # transaction as the counters: a crash cannot commit only one.
+                pack.checkpoint_json = {
+                    **pack.checkpoint_json,
+                    "character_usage_ids": list(ids),
+                }
 
     @staticmethod
     def _profile_from_row(row: CharacterRow) -> CharacterProfile:

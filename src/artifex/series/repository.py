@@ -115,14 +115,23 @@ class SeriesRepository:
             if row is None:
                 raise KeyError(f"unknown series: {series_id}")
             current = self._profile_from_row(row)
+            # The series transaction can commit before PC-A saves the Pack
+            # FINALIZED state. Repeating the same episode must be a no-op
+            # rather than blocking recovery or duplicating its summary.
+            if pack_id in current.prior_pack_ids:
+                recorded_episode = current.prior_pack_ids.index(pack_id) + 1
+                if episode_number != recorded_episode:
+                    raise ValueError(
+                        f"series {series_id} pack {pack_id} already recorded as "
+                        f"episode {recorded_episode}, got {episode_number}"
+                    )
+                return current
             expected_episode = current.current_episode + 1
             if episode_number != expected_episode:
                 raise ValueError(
                     f"series {series_id} expected episode {expected_episode}, "
                     f"got {episode_number}"
                 )
-            if pack_id in current.prior_pack_ids:
-                raise ValueError(f"pack already recorded in series: {pack_id}")
 
             continuity = dict(current.continuity_state)
             continuity.update(dict(continuity_updates or {}))
