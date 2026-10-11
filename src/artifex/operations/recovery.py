@@ -11,6 +11,7 @@ from artifex.db import Database
 from artifex.db.models import PackRow, SceneRow
 from artifex.domain import PackState, SceneState
 from artifex.evaluation.repository import GenerationAttemptRepository
+from artifex.review import ReviewQueueRepository
 from artifex.runtime import RuntimeStore
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
@@ -19,7 +20,8 @@ class RecoveryState(StrEnum):
     NOOP = "noop"
     RECOVERED = "recovered"
     WAITING = "waiting"
-    RESUBMIT = "resubmit"
+    RESUBMIT = "resubmit"  # Legacy result; uncertain GPU jobs must not resubmit.
+    REVIEW = "review"
     BACKEND_UNAVAILABLE = "backend_unavailable"
 
 
@@ -31,6 +33,7 @@ class RecoveryResult(BaseModel):
     recovered_scenes: tuple[str, ...] = ()
     waiting_scenes: tuple[str, ...] = ()
     resubmit_scenes: tuple[str, ...] = ()
+    review_scenes: tuple[str, ...] = ()
 
 
 class RecoveryComfyClient(Protocol):
@@ -53,6 +56,7 @@ class RecoveryManager:
         self._attempts = attempts
         self._comfy = comfy
         self._telemetry = telemetry
+        self._reviews = ReviewQueueRepository(database)
 
     async def recover_pack(self, pack_id: str) -> RecoveryResult:
         with self._database.session() as session:
@@ -69,6 +73,7 @@ class RecoveryManager:
         recovered: list[str] = []
         waiting: list[str] = []
         resubmit: list[str] = []
+        review: list[str] = []
 
         for scene_id, scene_state in sorted(scene_states.items()):
             if scene_state is not SceneState.GENERATING:
@@ -76,25 +81,31 @@ class RecoveryManager:
 
             attempt = self._attempts.latest_for_scene(scene_id)
             if attempt is None:
-                self._mark_scene_for_resubmit(
+                # A missing receipt is not evidence that /prompt was never sent.
+                # Never create a replacement GPU job from an ambiguous crash.
+                self._mark_scene_for_review(
                     scene_id,
-                    reason="generating scene has no persisted attempt",
+                    reason="generating scene has no persisted attempt; "
+                    "original GPU submission cannot be ruled out",
+                    attempt_id=None,
                 )
-                resubmit.append(scene_id)
+                review.append(scene_id)
                 continue
 
             prompt_id = self._prompt_id(attempt.provenance_json)
             if prompt_id is None:
                 self._attempts.record_backend_status(
                     attempt.id,
-                    status="lost",
-                    error={"reason": "persisted attempt has no comfy_prompt_id"},
+                    status="uncertain",
+                    error={"reason": "ComfyUI submission outcome unknown: no prompt ID"},
                 )
-                self._mark_scene_for_resubmit(
+                self._mark_scene_for_review(
                     scene_id,
-                    reason="persisted attempt has no comfy_prompt_id",
+                    reason="ComfyUI submission outcome unknown after restart: "
+                    "persisted attempt has no prompt ID",
+                    attempt_id=attempt.id,
                 )
-                resubmit.append(scene_id)
+                review.append(scene_id)
                 continue
 
             try:
@@ -118,6 +129,7 @@ class RecoveryManager:
                     recovered_scenes=tuple(recovered),
                     waiting_scenes=tuple(waiting),
                     resubmit_scenes=tuple(resubmit),
+                    review_scenes=tuple(review),
                 )
 
             if history is not None and history.completed:
@@ -146,6 +158,7 @@ class RecoveryManager:
                     recovered_scenes=tuple(recovered),
                     waiting_scenes=tuple(waiting),
                     resubmit_scenes=tuple(resubmit),
+                    review_scenes=tuple(review),
                 )
 
             if self._queue_contains_prompt(queue, prompt_id):
@@ -153,22 +166,28 @@ class RecoveryManager:
                 waiting.append(scene_id)
                 continue
 
+            # History can be evicted and queues can be emptied even after
+            # /prompt succeeded. Absence cannot authorize a duplicate render.
             self._attempts.record_backend_status(
                 attempt.id,
-                status="lost",
+                status="uncertain",
                 error={
-                    "reason": "prompt missing from both ComfyUI history and queue",
+                    "reason": "prompt absent from ComfyUI history and queue",
                     "prompt_id": prompt_id,
                 },
             )
-            self._mark_scene_for_resubmit(
+            self._mark_scene_for_review(
                 scene_id,
-                reason="prompt missing from ComfyUI history and queue",
+                reason="previously accepted ComfyUI prompt is missing from "
+                "history and queue; reconcile before any new GPU work",
+                attempt_id=attempt.id,
             )
-            resubmit.append(scene_id)
+            review.append(scene_id)
 
         if waiting:
             state = RecoveryState.WAITING
+        elif review:
+            state = RecoveryState.REVIEW
         elif resubmit:
             state = RecoveryState.RESUBMIT
         elif recovered:
@@ -185,6 +204,7 @@ class RecoveryManager:
                 "recovered": recovered,
                 "waiting": waiting,
                 "resubmit": resubmit,
+                "review": review,
             },
         )
         return RecoveryResult(
@@ -193,6 +213,7 @@ class RecoveryManager:
             recovered_scenes=tuple(recovered),
             waiting_scenes=tuple(waiting),
             resubmit_scenes=tuple(resubmit),
+            review_scenes=tuple(review),
         )
 
     def _record_completed(
@@ -217,17 +238,34 @@ class RecoveryManager:
             payload_patch={"recovered_attempt_id": attempt_id},
         )
 
-    def _mark_scene_for_resubmit(self, scene_id: str, *, reason: str) -> None:
+    def _mark_scene_for_review(
+        self,
+        scene_id: str,
+        *,
+        reason: str,
+        attempt_id: str | None,
+    ) -> None:
+        # Persist the review first. If the controller crashes before the
+        # scene transition, the next recovery will find the existing item.
+        if self._reviews.find_open(subject_type="scene", subject_id=scene_id) is None:
+            self._reviews.enqueue(
+                subject_type="scene",
+                subject_id=scene_id,
+                reason=reason,
+                payload={"attempt_id": attempt_id},
+            )
         self._runtime.transition_scene(
             scene_id,
-            SceneState.RETRY,
-            payload_patch={"recovery_reason": reason},
+            SceneState.REVIEW,
+            payload_patch={
+                "recovery_reason": reason,
+                "recovery_attempt_id": attempt_id,
+            },
         )
-        self._runtime.transition_scene(scene_id, SceneState.READY)
         self._telemetry.record(
-            "recovery.scene_resubmit",
+            "recovery.scene_submission_uncertain",
             EventSeverity.WARNING,
-            {"scene_id": scene_id, "reason": reason},
+            {"scene_id": scene_id, "attempt_id": attempt_id, "reason": reason},
         )
 
     @staticmethod
