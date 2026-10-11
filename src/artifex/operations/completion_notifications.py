@@ -8,6 +8,7 @@ as successfully delivered or retry it without reconciliation.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -16,6 +17,7 @@ from sqlalchemy import select
 from artifex.db import Database
 from artifex.db.models import CompletionNotificationRow, PackRow
 from artifex.discord.models import Notification, NotificationKind
+from artifex.discord.notifications import completion_marker
 from artifex.domain import PackState
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
@@ -23,6 +25,7 @@ from artifex.telemetry import EventSeverity, TelemetryRepository
 class CompletionSink(Protocol):
     def is_ready(self) -> bool: ...
     async def notify(self, notification: Notification) -> bool: ...
+    async def find_completion_message(self, pack_id: str) -> str | None: ...
 
 
 class CompletionNotificationMaintenance:
@@ -33,13 +36,20 @@ class CompletionNotificationMaintenance:
         sink: CompletionSink,
         *,
         batch_size: int = 10,
+        reconcile_batch_size: int = 3,
+        reconcile_interval_seconds: float = 120.0,
     ) -> None:
-        if batch_size < 1:
-            raise ValueError("batch_size must be positive")
+        if batch_size < 1 or reconcile_batch_size < 1:
+            raise ValueError("batch sizes must be positive")
+        if reconcile_interval_seconds < 0:
+            raise ValueError("reconcile interval cannot be negative")
         self._database = database
         self._telemetry = telemetry
         self._sink = sink
         self._batch_size = batch_size
+        self._reconcile_batch_size = reconcile_batch_size
+        self._reconcile_interval_seconds = reconcile_interval_seconds
+        self._last_reconcile_monotonic: float | None = None
 
         # Only reconcile claims from a *previous* process. This is called
         # before the daemon begins its maintenance loop, not during a send.
@@ -98,7 +108,10 @@ class CompletionNotificationMaintenance:
             notice = Notification(
                 kind=NotificationKind.COMPLETION,
                 title="Artifex Pack completed",
-                body=f"Pack: {pack_id}\nFormat: {kind}\nArchive: finalized",
+                body=(
+                    f"Pack: {pack_id}\nFormat: {kind}\nArchive: finalized\n"
+                    f"{completion_marker(pack_id)}"
+                ),
             )
             try:
                 sent = await self._sink.notify(notice)
@@ -125,7 +138,70 @@ class CompletionNotificationMaintenance:
                 {"pack_id": pack_id},
             )
             delivered += 1
+        await self._reconcile_uncertain()
         return delivered
+
+    async def _reconcile_uncertain(self) -> None:
+        """Find confirmed posts; never retry based on a negative history scan."""
+        now = time.monotonic()
+        if (
+            self._last_reconcile_monotonic is not None
+            and now - self._last_reconcile_monotonic
+            < self._reconcile_interval_seconds
+        ):
+            return
+        self._last_reconcile_monotonic = now
+
+        with self._database.session() as session:
+            ids = session.scalars(
+                select(CompletionNotificationRow.pack_id)
+                .where(CompletionNotificationRow.state == "uncertain")
+                .order_by(
+                    CompletionNotificationRow.updated_at.asc(),
+                    CompletionNotificationRow.pack_id.asc(),
+                )
+                .limit(self._reconcile_batch_size)
+            ).all()
+
+        for pack_id in ids:
+            try:
+                message_id = await self._sink.find_completion_message(pack_id)
+            except Exception as exc:  # noqa: BLE001
+                self._telemetry.record(
+                    "discord.completion_reconcile_failed",
+                    EventSeverity.WARNING,
+                    {"pack_id": pack_id, "reason": type(exc).__name__},
+                )
+                continue
+
+            if message_id is not None and (
+                not message_id.isdecimal() or int(message_id) < 1
+            ):
+                self._telemetry.record(
+                    "discord.completion_reconcile_failed",
+                    EventSeverity.WARNING,
+                    {"pack_id": pack_id, "reason": "invalid_remote_message_id"},
+                )
+                continue
+
+            with self._database.session() as session:
+                item = session.get(CompletionNotificationRow, pack_id)
+                if item is None or item.state != "uncertain":
+                    continue
+                if message_id is None:
+                    # Rotate past this Pack to avoid repeatedly scanning only
+                    # the oldest uncertain records. Absence proves nothing.
+                    item.updated_at = datetime.now(UTC)
+                    continue
+                item.state = "sent"
+                item.discord_message_id = message_id
+                item.updated_at = datetime.now(UTC)
+
+            self._telemetry.record(
+                "discord.completion_reconciled",
+                EventSeverity.INFO,
+                {"pack_id": pack_id, "discord_message_id": message_id},
+            )
 
     def _set_state(self, pack_id: str, state: str) -> None:
         with self._database.session() as session:
