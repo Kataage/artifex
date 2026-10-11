@@ -162,14 +162,14 @@ def compile_pair_live_readiness(
         action: NextAction = "review_remaining_real_machine_qualification"
     elif installation is None or controller is None or cached is None:
         status = "probe_unavailable"
-        action = (
-            "restore_pc_b_authenticated_diagnostics"
-            if installation is not None and (
-                installation.status in {"pc_b_unreachable", "pc_b_unconfigured"}
-            ) or cached is None and installation is not None
-            else "inspect_pc_a_config_and_tasks"
-            if installation is None else "inspect_controller_or_workflow_dependencies"
-        )
+        if installation is None:
+            action = "inspect_pc_a_config_and_tasks"
+        elif installation.status in {"pc_b_unreachable", "pc_b_unconfigured"}:
+            action = "restore_pc_b_authenticated_diagnostics"
+        elif controller is None:
+            action = "inspect_controller_or_workflow_dependencies"
+        else:
+            action = "restore_pc_b_authenticated_diagnostics"
     else:
         status = "needs_setup"
         if installation.status in {"pc_b_unreachable", "pc_b_unconfigured"}:
