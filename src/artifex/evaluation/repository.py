@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from artifex.db import Database
 from artifex.db.models import EvaluationRow, GenerationAttemptRow
+from artifex.domain import ContentRating
 from artifex.evaluation.models import EvaluationResult
 
 
@@ -142,6 +143,34 @@ class EvaluationRepository:
     ) -> None:
         self._database = database
         self._id_factory = id_factory
+
+    def for_attempt(self, attempt_id: str) -> EvaluationResult | None:
+        """Rehydrate a durably recorded evaluation after an unclean restart.
+
+        A completed evaluation is immutable for a GenerationAttempt. Reuse its
+        original scores and classification, never call the vision provider
+        again while a scene is still EVALUATING.
+        """
+        with self._database.session() as session:
+            row = session.scalar(
+                select(EvaluationRow).where(EvaluationRow.attempt_id == attempt_id)
+            )
+            if row is None:
+                return None
+            return EvaluationResult.model_validate(
+                {
+                    "attempt_id": row.attempt_id,
+                    "state": row.result_state,
+                    "scores": row.scores_json,
+                    "reasons": row.reasons_json,
+                    "content_rating": row.classification_json.get(
+                        "content_rating", ContentRating.GENERAL.value
+                    ),
+                    "content_labels": row.classification_json.get(
+                        "content_labels", []
+                    ),
+                }
+            )
 
     def record(self, result: EvaluationResult) -> EvaluationRow:
         now = datetime.now(UTC)
