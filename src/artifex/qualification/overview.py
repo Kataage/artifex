@@ -32,8 +32,8 @@ from artifex.qualification.models import (
     QualificationStage,
     QualificationStatus,
 )
-from artifex.qualification.owner_handoff import (
-    PCBOwnerCorrelation,
+from artifex.qualification.pc_b_evidence_gaps import compile_pc_b_evidence_checks
+from artifex.qualification.owner_handoff import (    PCBOwnerCorrelation,
     correlate_live_pc_b_owner_report,
     correlate_pc_b_owner_report,
 )
@@ -471,6 +471,11 @@ def compile_qualification_overview(
         and (correlation is None or correlation.status == "correlated_read_only")
         and (survival is None or survival.status == "replayed_and_live_identity_matched")
     )
+    pc_b_checks = compile_pc_b_evidence_checks(
+        pc_b_configured=settings.render_nodes.primary_node() is not None,
+        owner=correlation, survival=survival,
+        controller_config=controller_config,
+    )
     handoff = compile_evidence_handoff(
         session_id=selected,
         recorded_stages={item.stage: item.recorded_status for item in stages},
@@ -478,6 +483,7 @@ def compile_qualification_overview(
         discord_enabled=settings.discord.enabled,
         control_evidence=control_evidence,
         completion_evidence=completion_evidence,
+        pc_b_evidence_checks=pc_b_checks,
     )
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
