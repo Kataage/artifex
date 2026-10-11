@@ -4,6 +4,7 @@ import json
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -18,6 +19,7 @@ from artifex.qualification.models import (
     QualificationStatus,
 )
 from artifex.qualification.overview import (
+    DiscordPreflightObservation,
     QualificationOverview,
     compile_qualification_overview,
     latest_saved_session_id,
@@ -350,3 +352,164 @@ def test_explicit_session_absence_and_mismatching_injected_stage_are_errors(
             _settings(root), session_id=selected,
             readiness=_report(ready=True), now=NOW,
         )
+
+
+def _discord_probe(*, live: bool, ready: bool = True) -> DiscordPreflightObservation:
+    return DiscordPreflightObservation(
+        ready=ready, live_verified=live and ready,
+        requests_sent=8 if live else 0, writes_performed=0,
+        checks={"guild_slash_commands_synced": ready},
+        problems=[] if ready else ["Discord guild command synchronization missing"],
+    )
+
+
+def test_discord_config_only_never_qualifies_real_message_delivery(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=True),
+        discord_preflight=_discord_probe(live=False),
+        now=NOW, controller_config=Path("C:/Artifex/local.yaml"),
+    )
+    assert result.discord_preflight_status == "local_only"
+    assert result.discord_preflight is not None
+    assert result.discord_preflight.live_verified is False
+    assert result.next_safe_command == (
+        "uv", "run", "artifex", "qualify", "overview", "--discord-live",
+        "--config", str(Path("C:/Artifex/local.yaml")), "--json",
+    )
+    assert result.discord_delivery_verified is False
+    assert result.production_qualified is False
+    assert result.action_plan.production_qualified is False
+
+
+def test_real_read_only_discord_preflight_does_not_pass_discord_stage(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=True),
+        discord_preflight=_discord_probe(live=True),
+        now=NOW,
+    )
+    assert result.discord_preflight_status == "live_ready"
+    assert result.discord_preflight is not None
+    assert result.discord_preflight.live_verified is True
+    assert result.discord_delivery_verified is False
+    assert result.unresolved_stage_count == 14
+    assert next(
+        stage for stage in result.stages if stage.stage == "discord_controls"
+    ).recorded_status == "not_inspected"
+    assert result.production_qualified is False
+
+
+def test_blocked_discord_preflight_does_not_hide_pc_b_readiness_failures(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path / "no-sessions")
+    settings.discord.enabled = True
+    blocked = _discord_probe(live=True, ready=False)
+    result = compile_qualification_overview(
+        settings, readiness=_report(ready=False),
+        discord_preflight=blocked, now=NOW,
+    )
+    assert result.discord_preflight_status == "blocked"
+    assert result.environment_ready is False
+    assert result.next_safe_command is None
+    assert "read-only checks" in result.next_priority
+    assert result.discord_delivery_verified is False
+
+
+def test_discord_snapshot_cannot_claim_live_without_api_observation() -> None:
+    with pytest.raises(ValueError, match="API observations"):
+        DiscordPreflightObservation(
+            ready=True, live_verified=True, requests_sent=0,
+            writes_performed=0, checks={}, problems=[],
+        )
+    with pytest.raises(ValueError):
+        DiscordPreflightObservation(
+            ready=True, live_verified=True, requests_sent=8,
+            writes_performed=1, checks={}, problems=[],
+        )
+
+
+def test_controller_overview_live_option_reuses_discord_probe_without_sending(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import artifex.cli as cli_module
+    import artifex.qualification.overview as overview_module
+
+    config = tmp_path / "local.yaml"
+    config.write_text("discord: true\n", encoding="utf-8")
+    settings = _settings(tmp_path / "evidence-empty")
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    calls: list[bool] = []
+
+    async def fake_probe(discord_config: object, *, live: bool = False) -> dict:
+        assert discord_config is settings.discord
+        calls.append(live)
+        return _discord_probe(live=live).model_dump(mode="json")
+
+    monkeypatch.setattr(cli_module, "_settings", lambda path: settings)
+    monkeypatch.setattr(cli_module, "probe_discord", fake_probe)
+    monkeypatch.setattr(
+        overview_module, "diagnose_qualification_readiness",
+        lambda *args, **kwargs: _report(ready=True),
+    )
+    result = CliRunner().invoke(
+        app, ["qualify", "overview", "--config", str(config),
+              "--discord-live", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["discord_preflight_status"] == "live_ready"
+    assert payload["discord_preflight"]["requests_sent"] == 8
+    assert payload["discord_delivery_verified"] is False
+    assert payload["production_qualified"] is False
+    assert calls == [True]
+
+
+def test_controller_onboard_inspect_includes_discord_without_extra_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.cli as cli_module
+
+    settings = ArtifexSettings()
+    settings.discord.enabled = True
+    settings.discord.allowed_user_ids = (100,)
+    calls: list[bool] = []
+
+    async def fake_probe(discord_config: object, *, live: bool = False) -> dict:
+        assert discord_config is settings.discord
+        calls.append(live)
+        return _discord_probe(live=live).model_dump(mode="json")
+
+    monkeypatch.setattr(cli_module, "_settings", lambda path: settings)
+    monkeypatch.setattr(cli_module, "probe_discord", fake_probe)
+    monkeypatch.setattr(
+        cli_module, "discover_controller",
+        lambda config: SimpleNamespace(model_dump=lambda mode: {"status": "ok"}),
+    )
+    local = CliRunner().invoke(
+        app, ["onboard", "inspect", "--role", "controller", "--json"],
+    )
+    assert local.exit_code == 0, local.output
+    assert json.loads(local.output)["discord_preflight"]["live_verified"] is False
+
+    live = CliRunner().invoke(
+        app, ["onboard", "inspect", "--role", "controller", "--discord-live", "--json"],
+    )
+    assert live.exit_code == 0, live.output
+    assert json.loads(live.output)["discord_preflight"]["live_verified"] is True
+    assert calls == [False, True]
+
+    reject = CliRunner().invoke(
+        app, ["onboard", "inspect", "--role", "renderer", "--discord-live", "--json"],
+    )
+    assert reject.exit_code == 1
+    assert calls == [False, True]
