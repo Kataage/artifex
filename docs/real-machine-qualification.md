@@ -2,6 +2,13 @@
 
 ## Periodic PC-B passive evidence monitor (native PC-A daemon)
 
+Saved passive-monitor JSON is consumed through a size-capped (32 KiB),
+descriptor-identity-checked regular-file read. A file that is replaced,
+modified during reading, or switched to a symlink is rejected as invalid;
+the overview must not read an alternate file after inspecting another inode.
+This hardening affects only the local historical diagnostic reader, and
+does not authorize a qualification PASS or any ComfyUI action.
+
 Artifex's existing native PC-A daemon can refresh PC-B owner identity and
 supervisor-survival trace diagnostics automatically **after a real local
 qualification session exists**. This feature is enabled by default when a
