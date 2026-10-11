@@ -57,6 +57,12 @@ class DiscordCommandRouter:
             )
 
         try:
-            return self._operations.execute(CommandRequest(name=command, args=args))
+            return self._operations.execute(
+                CommandRequest(
+                    name=command,
+                    args=args,
+                    operator_user_id=context.user_id,
+                )
+            )
         except (KeyError, ValueError, RuntimeError) as exc:
             return CommandResponse(ok=False, message=str(exc))
