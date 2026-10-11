@@ -29,73 +29,73 @@ _StageInstructions = tuple[HandoffRole, tuple[HandoffRole, ...], HandoffSafety, 
 _STAGE_HANDOFF: dict[QualificationStage, _StageInstructions] = {
     QualificationStage.DOCTOR: (
         "pc_a", ("pc_b",), "read_only_review",
-        "Review native PC-A doctor baseline, configured models and authenticated "
-        "PC-B readiness. A stored PASS is not a fresh observation.",
+        ("Review native PC-A doctor baseline, configured models and authenticated "
+        "PC-B readiness. A stored PASS is not a fresh observation."),
     ),
     QualificationStage.SINGLE_CHARACTER: (
         "pc_a", ("pc_b",), "normal_production",
-        "Use normal Artifex production for a real single-character Pack created "
-        "after this session started. Preview its persisted archive evidence.",
+        ("Use normal Artifex production for a real single-character Pack created "
+        "after this session started. Preview its persisted archive evidence."),
     ),
     QualificationStage.LORA_REQUIRED: (
         "pc_a", ("pc_b",), "normal_production",
-        "Observe a real post-session Pack whose render actually used a required "
-        "LoRA. Do not simulate a LoRA load or manufacture a Pack.",
+        ("Observe a real post-session Pack whose render actually used a required "
+        "LoRA. Do not simulate a LoRA load or manufacture a Pack."),
     ),
     QualificationStage.DUO: (
         "pc_a", ("pc_b",), "normal_production",
-        "Observe an actual two-character Pack from normal production with "
-        "reproducible post-session archive evidence.",
+        ("Observe an actual two-character Pack from normal production with "
+        "reproducible post-session archive evidence."),
     ),
     QualificationStage.GROUP: (
         "pc_a", ("pc_b",), "normal_production",
-        "Observe an actual three-or-more-character Pack from normal production "
-        "with independently inspectable provenance.",
+        ("Observe an actual three-or-more-character Pack from normal production "
+        "with independently inspectable provenance."),
     ),
     QualificationStage.PUBLIC_MEMBER: (
         "pc_a", ("pc_b",), "normal_production",
-        "Use existing publication-safe production to verify public/member "
-        "variants from actual post-session finalized Pack records.",
+        ("Use existing publication-safe production to verify public/member "
+        "variants from actual post-session finalized Pack records."),
     ),
     QualificationStage.SERIES_CONTINUATION: (
         "pc_a", ("pc_b",), "normal_production",
-        "Observe genuine series continuation in post-session Pack records. "
-        "Do not insert artificial continuity markers.",
+        ("Observe genuine series continuation in post-session Pack records. "
+        "Do not insert artificial continuity markers."),
     ),
     QualificationStage.FORCED_RETRY: (
         "pc_a", ("pc_b",), "normal_production",
-        "Require an actual recorded production retry; do not inject a failure "
-        "into an occupied GPU job merely to satisfy this stage.",
+        ("Require an actual recorded production retry; do not inject a failure "
+        "into an occupied GPU job merely to satisfy this stage."),
     ),
     QualificationStage.RESTART_GENERATION: (
         "pc_b", ("pc_a",), "controlled_gpu_window",
-        "Schedule a controlled real-machine restart/recovery observation only "
-        "after confirming renderer ownership and no conflicting active GPU work.",
+        ("Schedule a controlled real-machine restart/recovery observation only "
+        "after confirming renderer ownership and no conflicting active GPU work."),
     ),
     QualificationStage.BACKEND_RECOVERY: (
         "pc_b", ("pc_a",), "controlled_gpu_window",
-        "Prove real ComfyUI/backend recovery in a separately approved safe "
-        "maintenance window. Never terminate an unknown running process.",
+        ("Prove real ComfyUI/backend recovery in a separately approved safe "
+        "maintenance window. Never terminate an unknown running process."),
     ),
     QualificationStage.UNATTENDED_MULTI_PACK: (
         "pc_a", ("pc_b",), "long_running_observation",
-        "Observe genuine autonomous post-session multi-Pack production with "
-        "continuous daemon and renderer provenance, without fabricating runs.",
+        ("Observe genuine autonomous post-session multi-Pack production with "
+        "continuous daemon and renderer provenance, without fabricating runs."),
     ),
     QualificationStage.OVERNIGHT_SOAK: (
         "pc_a", ("pc_b",), "long_running_observation",
-        "Run and independently review a real minimum eight-hour target-machine "
-        "trace covering PC-A, PC-B GPU/resources, ownership and failures.",
+        ("Run and independently review a real minimum eight-hour target-machine "
+        "trace covering PC-A, PC-B GPU/resources, ownership and failures."),
     ),
     QualificationStage.DISCORD_CONTROLS: (
         "discord", ("pc_a",), "authorized_interaction",
-        "Use real authorized Discord controls after session start; complete "
-        "each missing successful response and preserve the exact event IDs.",
+        ("Use real authorized Discord controls after session start; complete "
+        "each missing successful response and preserve the exact event IDs."),
     ),
     QualificationStage.ARCHIVE_REPRODUCTION: (
         "pc_a", ("pc_b",), "archive_reproduction",
-        "Replay a genuine archived Pack with verified original provenance and "
-        "matching output; an existing image alone cannot satisfy this stage.",
+        ("Replay a genuine archived Pack with verified original provenance and "
+        "matching output; an existing image alone cannot satisfy this stage."),
     ),
 }
 
