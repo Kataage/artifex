@@ -263,6 +263,9 @@ class CompletionNotificationRow(Base):
     )
     state: Mapped[str] = mapped_column(String(32), index=True)
     discord_message_id: Mapped[str | None] = mapped_column(String(40))
+    dismissal_reason: Mapped[str | None] = mapped_column(Text)
+    dismissed_by_user_id: Mapped[str | None] = mapped_column(String(40))
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
