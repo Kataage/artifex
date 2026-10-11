@@ -30,7 +30,6 @@ from artifex.db.models import (
 )
 from artifex.domain import (
     AgentState,
-    SceneState,
     CharacterProfile,
     LoRAPolicy,
     LoRAProfile,
