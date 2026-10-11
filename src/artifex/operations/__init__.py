@@ -9,6 +9,7 @@ from artifex.operations.maintenance import MaintenanceGroup, SignalIngestionMain
 from artifex.operations.supervisor import HealthSupervisor
 
 __all__ = [
+    "CompletionNotificationMaintenance",
     "ComponentHealth",
     "ComponentState",
     "HealthChecker",
