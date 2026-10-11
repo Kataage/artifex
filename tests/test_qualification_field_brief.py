@@ -159,6 +159,78 @@ def test_missing_proof_stays_unqualified_and_next_steps_are_role_scoped() -> Non
     )
 
 
+def _remote_gates(
+    *, status: str = "observed_prerequisites",
+    agreement: str = "match",
+):
+    from artifex.qualification.pc_b_remote_field_gates import (
+        compile_remote_pc_b_passive_gates,
+    )
+
+    base = compile_remote_pc_b_passive_gates(
+        node_id="gpu-b", configured=False,
+        installation=None, cached_owner=None,
+        attempted=0, checked_utc=NOW,
+    )
+    return base.model_copy(update={
+        "status": status,
+        "cached_vs_live_owner_identity": agreement,
+    })
+
+
+def test_verified_cache_and_current_owner_defer_only_redundant_pc_b_rechecks() -> None:
+    report = compile_field_brief(
+        _issue93(),
+        _overview(ready=True),
+        controller_config=Path("C:/controller.yaml"),
+        renderer_config=PC_B_CONFIG,
+        pc_b_remote_gates=_remote_gates(),
+    )
+    assert report.pc_b_visit_triage == "pc_a_recheck_first"
+    assert set(report.pc_b_deferred_repeat_checks) == {
+        "pc-b-launcher-owner", "pc-b-observer-dry-run",
+    }
+    # Full conservative plan remains visible; the action isn't completed.
+    assert {
+        step.id for step in report.issue_93_field_plan.steps
+        if step.role == "pc_b"
+    } == set(report.pc_b_deferred_repeat_checks)
+    assert report.issue_93_field_plan.commands_executed is False
+    assert report.production_qualified is False
+    assert report.issue_93_closed is False
+    assert report.issue_40_closed is False
+
+
+@pytest.mark.parametrize(
+    ("status", "agreement", "expected"),
+    [
+        ("needs_evidence", "conflict", "pc_b_read_only_review"),
+        ("unavailable", "not_comparable", "pc_a_access_review_first"),
+        ("unconfigured", "not_comparable", "pc_a_access_review_first"),
+        ("observed_prerequisites", "not_comparable", "pc_b_read_only_review"),
+    ],
+)
+def test_pc_b_visit_triage_never_defers_when_proof_is_missing_or_conflicts(
+    status: str, agreement: str, expected: str,
+) -> None:
+    report = compile_field_brief(
+        _issue93(),
+        _overview(ready=True),
+        controller_config=Path("C:/controller.yaml"),
+        renderer_config=PC_B_CONFIG,
+        pc_b_remote_gates=_remote_gates(status=status, agreement=agreement),
+    )
+    assert report.pc_b_visit_triage == expected
+    assert report.pc_b_deferred_repeat_checks == ()
+    if agreement == "conflict":
+        assert "never restart" not in report.next_priority or (
+            "do not" in report.next_priority
+        )
+        assert "do not" in report.next_priority
+    assert not report.production_qualified
+    assert all(not step.executed for step in report.issue_93_field_plan.steps)
+
+
 def test_positive_correlated_sources_still_do_not_qualify_real_machine() -> None:
     result = compile_field_brief(
         _issue93("observations_correlated", all_observed=True),
@@ -292,7 +364,9 @@ def test_collect_reuses_both_existing_read_only_compilers_without_mutation(
     monkeypatch.setattr(brief_module, "compile_issue93_checklist", issue)
     monkeypatch.setattr(brief_module, "compile_qualification_overview", overview)
 
-    def passive(settings_arg: ArtifexSettings) -> object:
+    def passive(
+        settings_arg: ArtifexSettings, *, current_owner: object | None = None,
+    ) -> object:
         assert settings_arg is settings
         calls.append(("passive", None))
         from artifex.qualification.pc_b_remote_field_gates import (
