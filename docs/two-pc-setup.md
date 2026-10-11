@@ -1,5 +1,33 @@
 # Two-PC Artifex topology
 
+## Crash-safe Pack completion notifications and unattended proof
+
+A committed Pack FINALIZED transition now creates a matching
+`completion_notifications` pending row **in the same SQLite transaction**.
+The configured PC-A Discord maintenance worker claims pending records and
+sends Pack ID / format / archive status through the existing bot. Offline
+Discord keeps items pending. An explicit known-unsent response also returns
+the item to pending. A successful Discord API response marks it sent.
+
+Discord does not provide an Artifex Pack-scoped idempotency guarantee.
+If PC-A crashes during the send or loses the response after Discord may have
+accepted it, the claim remains `sending` or is marked `uncertain`; on
+restart it is quarantined and **not automatically resent**. This prevents
+Artifex-initiated duplicate sends, but it is **not exactly-once delivery**:
+an uncertain notice may need reconciliation with the real Discord channel.
+The outbox is not a substitute for confirming the Discord message.
+
+`daemon.pack_finalized` unattended evidence now uses a durable
+`(run_id, pack_id)` deduplication marker committed atomically with its event.
+It is emitted only when the continuous daemon observes the persisted Pack
+as finalized. A true OS/process crash **between the Pack's FINALIZED commit
+and the daemon's proof event** can still leave the event missing; it is not
+retroactively invented or attributed to a new run. Real-machine unattended
+qualification must remain unpassed without authentic observation evidence.
+Tests simulate DB and send crash boundaries; no operator PC-B GPU runs,
+Windows survival qualification or eight-hour soak were performed.
+
+
 ## Exactly-once post-archive Pack finalization on PC-A restart
 
 A crash after writing the archive but before finalizing the Pack can occur
