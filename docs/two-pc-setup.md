@@ -1,5 +1,24 @@
 # Two-PC Artifex topology
 
+## Fail closed on uncertain ComfyUI submission after PC-A restart
+
+A scene left `generating` without a durably recorded `prompt_id` is
+**not proof that ComfyUI never accepted the POST**. Similarly, a previously
+accepted prompt missing from both `/history` and `/queue` may have been
+completed and evicted or otherwise lost from the remote records. Neither
+state authorizes a new GPU job. Recovery now marks the attempt as
+`uncertain` when present, moves the scene to `review`, and opens a
+deduplicated review-queue item with the original attempt ID. It does not
+reset the scene to `ready` or call `POST /prompt`.
+
+Investigate original PC-B history, logs, and any saved output before
+explicit operator reconciliation. A known prompt still present in queue
+continues waiting, and completed history still follows the original
+no-resubmit image recovery. This fail-closed behavior is tested with mock
+ComfyUI only; it does not qualify production GPU operation or close
+Issues #40/#93.
+
+
 Artifex supports a split native-Windows deployment where the controller and renderer are separate machines.
 
 - **PC-A / controller**: Artifex, local LLM, research/planning, SQLite, archive, evaluation, Discord/Patreon integration.

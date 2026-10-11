@@ -7,10 +7,11 @@ import pytest
 
 from artifex.comfy import ComfyExecutionResult, ComfyOutput
 from artifex.db import Database
-from artifex.db.models import PackRow, SceneRow
+from artifex.db.models import GenerationAttemptRow, PackRow, SceneRow
 from artifex.domain import PackState, SceneState
 from artifex.evaluation import GenerationAttemptRepository
 from artifex.operations.recovery import RecoveryManager, RecoveryState
+from artifex.review import ReviewQueueRepository
 from artifex.runtime import RuntimeStore
 from artifex.telemetry import TelemetryRepository
 
@@ -28,7 +29,8 @@ class FakeComfy:
         return self.queue
 
 
-def _setup(tmp_path: Path):
+def _setup(tmp_path: Path, *, prompt_id: str | None = "prompt-1"):
+
     database = Database(f"sqlite:///{(tmp_path / 'recovery.sqlite3').as_posix()}")
     database.migrate()
     now = datetime.now(UTC)
@@ -60,7 +62,7 @@ def _setup(tmp_path: Path):
         prompt="test",
         negative_prompt="",
         seed=1,
-        provenance={"comfy_prompt_id": "prompt-1"},
+        provenance={"comfy_prompt_id": prompt_id} if prompt_id is not None else {},
         backend_status="running",
     )
     return database, attempts, attempt
@@ -120,7 +122,7 @@ async def test_recovery_waits_for_prompt_still_in_queue(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_recovery_resubmits_only_when_history_and_queue_lost(tmp_path: Path) -> None:
+async def test_recovery_missing_history_and_queue_requires_review_not_resubmit(tmp_path: Path) -> None:
     database, attempts, attempt = _setup(tmp_path)
     manager = RecoveryManager(
         database,
@@ -132,11 +134,86 @@ async def test_recovery_resubmits_only_when_history_and_queue_lost(tmp_path: Pat
 
     recovered = await manager.recover_pack("pack-1")
 
-    assert recovered.state is RecoveryState.RESUBMIT
-    assert recovered.resubmit_scenes == ("scene-1",)
-    assert attempts.require(attempt.id).backend_status == "lost"
+    assert recovered.state is RecoveryState.REVIEW
+    assert recovered.review_scenes == ("scene-1",)
+    assert recovered.resubmit_scenes == ()
+    assert attempts.require(attempt.id).backend_status == "uncertain"
     with database.session() as session:
         scene = session.get(SceneRow, "scene-1")
         assert scene is not None
-        assert scene.state == SceneState.READY.value
+        assert scene.state == SceneState.REVIEW.value
+    item = ReviewQueueRepository(database).find_open(
+        subject_type="scene", subject_id="scene-1"
+    )
+    assert item is not None
+    assert item.payload["attempt_id"] == attempt.id
+    assert "missing" in item.reason
+    assert len(attempts.list_for_scene("scene-1")) == 1
+    assert (await manager.recover_pack("pack-1")).state is RecoveryState.NOOP
+    assert len(ReviewQueueRepository(database).list_open()) == 1
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_recovery_without_prompt_receipt_fails_closed(tmp_path: Path) -> None:
+    database, attempts, attempt = _setup(tmp_path, prompt_id=None)
+    manager = RecoveryManager(
+        database,
+        RuntimeStore(database),
+        attempts,
+        FakeComfy(None),  # type: ignore[arg-type]
+        TelemetryRepository(database),
+    )
+
+    result = await manager.recover_pack("pack-1")
+
+    assert result.state is RecoveryState.REVIEW
+    assert result.review_scenes == ("scene-1",)
+    assert result.resubmit_scenes == ()
+    assert attempts.require(attempt.id).backend_status == "uncertain"
+    with database.session() as session:
+        scene = session.get(SceneRow, "scene-1")
+        assert scene is not None
+        assert scene.state == SceneState.REVIEW.value
+    assert len(attempts.list_for_scene("scene-1")) == 1
+    item = ReviewQueueRepository(database).find_open(
+        subject_type="scene", subject_id="scene-1"
+    )
+    assert item is not None
+    assert item.payload["attempt_id"] == attempt.id
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_recovery_without_persisted_attempt_never_enqueues_gpu(
+    tmp_path: Path,
+) -> None:
+    database, attempts, attempt = _setup(tmp_path)
+    with database.session() as session:
+        saved = session.get(GenerationAttemptRow, attempt.id)
+        assert saved is not None
+        session.delete(saved)
+    manager = RecoveryManager(
+        database,
+        RuntimeStore(database),
+        attempts,
+        FakeComfy(None),  # type: ignore[arg-type]
+        TelemetryRepository(database),
+    )
+
+    result = await manager.recover_pack("pack-1")
+
+    assert result.state is RecoveryState.REVIEW
+    assert result.review_scenes == ("scene-1",)
+    assert result.resubmit_scenes == ()
+    assert attempts.latest_for_scene("scene-1") is None
+    with database.session() as session:
+        scene = session.get(SceneRow, "scene-1")
+        assert scene is not None
+        assert scene.state == SceneState.REVIEW.value
+    item = ReviewQueueRepository(database).find_open(
+        subject_type="scene", subject_id="scene-1"
+    )
+    assert item is not None
+    assert item.payload["attempt_id"] is None
     database.dispose()
