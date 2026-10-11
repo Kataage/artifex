@@ -159,5 +159,11 @@ def inspect_discord_completion_evidence(
 
     return DiscordCompletionEvidence(
         status="inconsistent" if inconsistent else "observed",
-        total=total, next_action=guidance, **counts,
+        total=total, next_action=guidance,
+        pending=counts["pending"], sending=counts["sending"],
+        uncertain=counts["uncertain"], dismissed=counts["dismissed"],
+        sent_api_only=counts["sent_api_only"],
+        sent_history_verified=counts["sent_history_verified"],
+        sent_without_receipt=counts["sent_without_receipt"],
+        inconsistent_rows=counts["inconsistent_rows"],
     )
