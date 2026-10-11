@@ -218,13 +218,21 @@ async def probe_discord(
             raise ValueError("Discord guild role details malformed")
 
         channel_type = channel.get("type")
-        if channel_type in (11, 12):  # public/private threads
-            # Thread permissions inherit from the parent channel; private
-            # thread membership must also be proven and is not probed here.
-            if channel_type == 12:
+        # A private thread needs verified membership, which this GET-only
+        # probe does not establish. Do not infer sendability from role bits.
+        checks["channel_type_supported"] = channel_type in (0, 5, 11)
+        checks["private_thread"] = channel_type == 12
+        if channel_type == 11:  # public thread
+            # Permissions are inherited from the parent, but they do not
+            # establish that an archived thread can receive notifications.
+            metadata = channel.get("thread_metadata")
+            checks["public_thread_active"] = (
+                isinstance(metadata, dict) and metadata.get("archived") is False
+            )
+            if not checks["public_thread_active"]:
                 raise ValueError(
-                    "Private thread membership cannot be proven read-only; "
-                    "configure a regular text channel."
+                    "Discord public thread is archived or its active state "
+                    "cannot be verified read-only"
                 )
             parent_id = _snowflake(channel.get("parent_id"))
             parent = await get(f"/channels/{parent_id}")
@@ -233,6 +241,11 @@ async def probe_discord(
             permission_channel = parent
         elif channel_type in (0, 5):
             permission_channel = channel
+        elif channel_type == 12:
+            raise ValueError(
+                "Private thread membership cannot be proven read-only; "
+                "configure a regular text channel."
+            )
         else:
             raise ValueError("Configured Discord channel is not a supported text channel")
 
