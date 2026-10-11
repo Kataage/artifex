@@ -815,6 +815,18 @@ class ProductionCoordinator:
         attempt_id: str,
         image_path: Path,
     ) -> EvaluationResult:
+        # The controller may have crashed after evaluation was committed but
+        # before its scene selection/policy transition. That evaluation is
+        # authoritative: re-running it would duplicate vision work and the
+        # repository rejects a second row for the same GenerationAttempt.
+        persisted = self._evaluations.for_attempt(attempt_id)
+        if persisted is not None:
+            self._telemetry.record(
+                "generation.evaluation_reused",
+                EventSeverity.INFO,
+                {"scene_id": scene_id, "attempt_id": attempt_id},
+            )
+            return persisted
         row = self._scene_row(scene_id)
         plan = self._scene_plan(row)
         attempt = self._attempts.require(attempt_id)
