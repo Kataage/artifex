@@ -38,6 +38,10 @@ from artifex.qualification.owner_handoff import (
     correlate_pc_b_owner_report,
 )
 from artifex.qualification.pc_b_evidence_gaps import compile_pc_b_evidence_checks
+from artifex.qualification.pc_b_monitor import (
+    PCBEvidenceMonitorView,
+    read_pc_b_evidence_monitor,
+)
 from artifex.qualification.readiness_action_plan import (
     QualificationActionPlan,
     RemediationStep,
@@ -209,6 +213,7 @@ class QualificationOverview(BaseModel):
     discord_completion_evidence: DiscordCompletionEvidence
     discord_control_evidence: DiscordControlEvidence
     evidence_handoff: QualificationEvidenceHandoff
+    pc_b_saved_monitor: PCBEvidenceMonitorView
     environment_ready: bool
     recorded_pass_count: int
     recorded_skipped_count: int
@@ -492,6 +497,10 @@ def compile_qualification_overview(
         discord_completion_evidence=completion_evidence,
         discord_control_evidence=control_evidence,
         evidence_handoff=handoff,
+        pc_b_saved_monitor=read_pc_b_evidence_monitor(
+            settings, session_id=selected, now=current,
+            max_age_seconds=settings.qualification.auto_pc_b_monitor_max_age_seconds,
+        ),
         environment_ready=environment_ready,
         recorded_pass_count=passed, recorded_skipped_count=skipped,
         unresolved_stage_count=unresolved, stages=tuple(stages),
