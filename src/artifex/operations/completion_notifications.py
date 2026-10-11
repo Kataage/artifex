@@ -22,9 +22,20 @@ from artifex.domain import PackState
 from artifex.telemetry import EventSeverity, TelemetryRepository
 
 
+def _valid_message_id(value: object) -> bool:
+    """Accept only a genuine Discord 64-bit snowflake string."""
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= 20
+        and value.isascii()
+        and value.isdecimal()
+        and 0 < int(value) < 2**64
+    )
+
+
 class CompletionSink(Protocol):
     def is_ready(self) -> bool: ...
-    async def notify(self, notification: Notification) -> bool: ...
+    async def notify_completion(self, notification: Notification) -> str | None: ...
     async def find_completion_message(self, pack_id: str) -> str | None: ...
 
 
@@ -114,7 +125,7 @@ class CompletionNotificationMaintenance:
                 ),
             )
             try:
-                sent = await self._sink.notify(notice)
+                message_id = await self._sink.notify_completion(notice)
             except Exception as exc:  # noqa: BLE001
                 # It is unknown whether the remote API accepted the message.
                 self._set_state(pack_id, "uncertain")
@@ -125,17 +136,29 @@ class CompletionNotificationMaintenance:
                 )
                 continue
 
-            if not sent:
-                # The sink explicitly returned without attempting delivery,
-                # e.g. the configured channel is unavailable.
+            if message_id is None:
+                # The sink definitively did not issue a send (no usable channel).
                 self._set_state(pack_id, "pending")
                 continue
 
-            self._set_state(pack_id, "sent")
+            if not _valid_message_id(message_id):
+                # A POST could already have been accepted by Discord.
+                # Never convert an invalid receipt into a safe retry.
+                self._set_state(pack_id, "uncertain")
+                self._telemetry.record(
+                    "discord.completion_uncertain",
+                    EventSeverity.WARNING,
+                    {"pack_id": pack_id, "reason": "invalid_send_message_id"},
+                )
+                continue
+
+            self._set_state(
+                pack_id, "sent", discord_message_id=message_id,
+            )
             self._telemetry.record(
                 "discord.completion_sent",
                 EventSeverity.INFO,
-                {"pack_id": pack_id},
+                {"pack_id": pack_id, "discord_message_id": message_id},
             )
             delivered += 1
         await self._reconcile_uncertain()
@@ -174,12 +197,7 @@ class CompletionNotificationMaintenance:
                 )
                 continue
 
-            if message_id is not None and (
-                len(message_id) > 40
-                or not message_id.isascii()
-                or not message_id.isdecimal()
-                or int(message_id) < 1
-            ):
+            if message_id is not None and not _valid_message_id(message_id):
                 self._telemetry.record(
                     "discord.completion_reconcile_failed",
                     EventSeverity.WARNING,
@@ -206,7 +224,13 @@ class CompletionNotificationMaintenance:
                 {"pack_id": pack_id, "discord_message_id": message_id},
             )
 
-    def _set_state(self, pack_id: str, state: str) -> None:
+    def _set_state(
+        self, pack_id: str, state: str, *, discord_message_id: str | None = None,
+    ) -> None:
+        if discord_message_id is not None and (
+            state != "sent" or not _valid_message_id(discord_message_id)
+        ):
+            raise ValueError("Only a valid Discord send receipt can be stored")
         with self._database.session() as session:
             item = session.get(CompletionNotificationRow, pack_id)
             if item is None:
@@ -216,4 +240,6 @@ class CompletionNotificationMaintenance:
                     f"completion notice state changed during dispatch: {pack_id}"
                 )
             item.state = state
+            if discord_message_id is not None:
+                item.discord_message_id = discord_message_id
             item.updated_at = datetime.now(UTC)

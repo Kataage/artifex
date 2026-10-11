@@ -1,5 +1,25 @@
 # Target Windows Production Qualification
 
+## Discord completion API receipt persistence
+
+When the PC-A bot posts a Pack completion notification, it now records the
+**actual message ID returned by Discord's successful send API** in the
+existing `completion_notifications.discord_message_id` field, atomically
+with its `sent` state. Telemetry also records that message ID. The
+`/artifex notice` operator command can therefore report the original
+API receipt without requiring a second channel-history scan.
+
+A missing, malformed or out-of-range response ID **after a possible POST**
+is not a negative delivery result. Artifex quarantines the notification as
+`uncertain`, never retries that Pack automatically, and allows only its
+existing bounded, bot-author-verified read-only history reconciliation.
+Only a definite *pre-send* refusal (such as a missing channel or disabled
+notification) leaves the notice `pending`. The returned Discord message
+ID establishes API acceptance, **not** that an operator read the message;
+actual production delivery and controls still require real qualification.
+This uses no new bot permissions, no test posts and no GPU operations.
+
+
 ## Runtime Discord thread safety and read-only receipt recovery
 
 The Discord bot's runtime send eligibility now matches its live preflight:

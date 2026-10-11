@@ -18,6 +18,7 @@ class FakeCompletionSink:
     def __init__(self) -> None:
         self.ready = True
         self.deliver = True
+        self.receipt_id: str = "1133557798"
         self.fail_after_send: BaseException | None = None
         self.messages: list[object] = []
         self.history_results: dict[str, str | None] = {}
@@ -34,6 +35,10 @@ class FakeCompletionSink:
         if self.fail_after_send is not None:
             raise self.fail_after_send
         return True
+
+    async def notify_completion(self, notification: object) -> str | None:
+        sent = await self.notify(notification)
+        return self.receipt_id if sent else None
 
     async def find_completion_message(self, pack_id: str) -> str | None:
         self.lookups.append(pack_id)
@@ -87,6 +92,10 @@ async def test_finalization_atomically_enqueues_and_dispatches_once(
     assert _state(db) == "sent"
     assert len(sink.messages) == 1
     assert "pack-1" in sink.messages[0].body  # type: ignore[attr-defined]
+    with db.session() as session:
+        receipt = session.get(CompletionNotificationRow, "pack-1")
+        assert receipt is not None
+        assert receipt.discord_message_id == sink.receipt_id
 
     restarted = CompletionNotificationMaintenance(db, telemetry, sink)
     assert await restarted.maintain() == 0
@@ -303,4 +312,33 @@ async def test_dismissed_notice_is_never_retried_or_reconciled(
         assert row is not None
         assert row.discord_message_id is None
         assert row.dismissed_by_user_id == "77"
+    db.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "receipt_id",
+    ["not-a-snowflake", "0", "", "18446744073709551616", "123456789012345678901"],
+)
+async def test_invalid_success_receipt_is_quarantined_without_resend(
+    tmp_path: Path, receipt_id: str,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.receipt_id = receipt_id
+    worker = CompletionNotificationMaintenance(db, telemetry, sink)
+    assert await worker.maintain() == 0
+    assert _state(db) == "uncertain"
+    assert len(sink.messages) == 1
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None
+        assert row.discord_message_id is None
+    assert await worker.maintain() == 0
+    assert len(sink.messages) == 1
+    assert any(
+        event.event_type == "discord.completion_uncertain"
+        and event.payload["reason"] == "invalid_send_message_id"
+        for event in telemetry.recent()
+    )
     db.dispose()

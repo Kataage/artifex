@@ -289,6 +289,32 @@ class ArtifexDiscordClient(discord.Client):
             await channel.send(message, view=view)
         return True
 
+    async def notify_completion(self, notification: Notification) -> str | None:
+        """Return the Discord API-accepted completion message ID.
+
+        None means the send was definitely not attempted. If the POST may
+        have happened but the response ID is missing or invalid, raise:
+        the durable outbox must quarantine that Pack rather than resend it.
+        """
+        if notification.kind is not NotificationKind.COMPLETION:
+            raise ValueError("Completion receipts require a completion notification")
+        if not self._notifications.enabled(notification.kind):
+            return None
+        channel = self._notification_channel()
+        accessible, _ = assess_notification_channel_access(channel)
+        if not accessible or channel is None:
+            return None
+
+        message = f"**{notification.title}**\n{notification.body}"[:1900]
+        posted = await channel.send(message)
+        message_id = posted.id
+        if (
+            type(message_id) is not int
+            or not 0 < message_id < 2**64
+        ):
+            raise ValueError("Discord returned an invalid message ID after send")
+        return str(message_id)
+
     async def find_completion_message(self, pack_id: str) -> str | None:
         """Look for a Pack marker in messages posted by this exact bot.
 
