@@ -721,3 +721,104 @@ def test_overview_control_receipts_are_bound_to_selected_session_only(
     assert QualificationOverview.model_validate(
         overview.model_dump(mode="json")
     ).discord_control_evidence == overview.discord_control_evidence
+
+
+def test_two_pc_overview_identifies_unrequested_owner_and_survival_proofs(
+    tmp_path: Path,
+) -> None:
+    from artifex.config.models import RenderNodeConfig
+
+    settings = _settings(tmp_path / "no-session")
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://127.0.0.1:8188",
+        attestation_url="http://127.0.0.1:8190",
+    )
+    output = compile_qualification_overview(
+        settings, readiness=_report(ready=True), now=NOW,
+        controller_config=tmp_path / "controller.yaml",
+    )
+    handoff = output.evidence_handoff
+    assert len(handoff.pc_b_evidence_checks) == 2
+    assert handoff.unresolved_pc_b_evidence_checks == 2
+    assert [x.assessment for x in handoff.pc_b_evidence_checks] == [
+        "not_requested", "not_requested",
+    ]
+    assert [x.id for x in handoff.items] == [
+        "pc-b-renderer_owner_identity", "pc-b-supervisor_survival_trace",
+        "start-session",
+    ]
+    assert handoff.items[0].read_only_argv is not None
+    assert "--pc-b-owner-live" in handoff.items[0].read_only_argv
+    assert handoff.items[1].read_only_argv is not None
+    assert "--pc-b-survival-live" in handoff.items[1].read_only_argv
+    assert all(x.automated_execution is False for x in handoff.items)
+    assert output.production_qualified is False
+    assert output.actual_eight_hour_soak_verified is False
+    assert output.pc_b_owner_evidence is None
+    assert output.pc_b_survival_review is None
+
+
+def test_live_correlations_reduce_only_identity_gaps_not_hardware_qualification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import artifex.qualification.overview as overview_module
+    from artifex.config.models import RenderNodeConfig
+    from artifex.qualification.owner_handoff import PCBOwnerCorrelation
+    from artifex.qualification.survival_review import PCBSurvivalEvidenceReview
+
+    settings = _settings(tmp_path / "no-session")
+    settings.render_nodes.primary = "gpu-b"
+    settings.render_nodes.nodes["gpu-b"] = RenderNodeConfig(
+        base_url="http://127.0.0.1:8188",
+        attestation_url="http://127.0.0.1:8190",
+    )
+    owner = PCBOwnerCorrelation(
+        checked_utc=NOW, status="correlated_read_only",
+        reason="listener PID and start instant match",
+        remaining_real_machine_evidence=("supervisor_loss", "eight_hour_soak"),
+        source_mode="authenticated_remote",
+    )
+    survival = PCBSurvivalEvidenceReview(
+        reviewed_utc=NOW, status="replayed_and_live_identity_matched",
+        reason="saved trace consistent with current owner",
+        trace_replayed=True, source_mode="bearer_remote",
+    )
+    calls: list[str] = []
+
+    def fake_owner(*args: object, **kwargs: object) -> PCBOwnerCorrelation:
+        calls.append("owner")
+        return owner
+
+    def fake_survival(*args: object, **kwargs: object) -> PCBSurvivalEvidenceReview:
+        calls.append("survival")
+        return survival
+
+    monkeypatch.setattr(overview_module, "correlate_live_pc_b_owner_report", fake_owner)
+    monkeypatch.setattr(
+        overview_module, "review_live_pc_b_survival_evidence", fake_survival,
+    )
+    output = compile_qualification_overview(
+        settings, readiness=_report(ready=True), now=NOW,
+        pc_b_owner_live=True, pc_b_survival_live=True,
+    )
+    assert calls == ["owner", "survival"]
+    assert output.environment_ready is True
+    assert output.evidence_handoff.unresolved_pc_b_evidence_checks == 0
+    assert all(
+        item.identity_correlated
+        for item in output.evidence_handoff.pc_b_evidence_checks
+    )
+    assert [item.id for item in output.evidence_handoff.items] == ["start-session"]
+    assert all(
+        item.real_gpu_qualified is False
+        and item.supervisor_loss_qualified is False
+        and item.issue_93_closed is False
+        for item in output.evidence_handoff.pc_b_evidence_checks
+    )
+    assert output.production_qualified is False
+    assert output.actual_eight_hour_soak_verified is False
+    assert output.discord_delivery_verified is False
+    assert QualificationOverview.model_validate(
+        output.model_dump(mode="json")
+    ).evidence_handoff == output.evidence_handoff
