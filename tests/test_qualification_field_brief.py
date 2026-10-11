@@ -291,15 +291,29 @@ def test_collect_reuses_both_existing_read_only_compilers_without_mutation(
 
     monkeypatch.setattr(brief_module, "compile_issue93_checklist", issue)
     monkeypatch.setattr(brief_module, "compile_qualification_overview", overview)
+
+    def passive(settings_arg: ArtifexSettings) -> object:
+        assert settings_arg is settings
+        calls.append(("passive", None))
+        from artifex.qualification.pc_b_remote_field_gates import (
+            inspect_remote_pc_b_passive_gates,
+        )
+        return inspect_remote_pc_b_passive_gates(ArtifexSettings(), now=NOW)
+
+    monkeypatch.setattr(brief_module, "inspect_remote_pc_b_passive_gates", passive)
     result = collect_field_brief(
         settings,
         controller_config=Path("C:/controller.yaml"),
         renderer_config=PC_B_CONFIG,
     )
     assert result.production_qualified is False
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert calls[0][0] == "issue93"
     assert calls[1][0] == "overview"
+    assert calls[2][0] == "passive"
+    assert result.pc_b_remote_passive_gates is not None
+    assert result.pc_b_remote_passive_gates.status == "unconfigured"
+    assert result.pc_b_remote_passive_gates.production_qualified is False
     options = calls[1][1]
     assert isinstance(options, dict)
     assert options["pc_b_owner_live"] is remote
