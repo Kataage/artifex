@@ -13,7 +13,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings
-from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.issue93_checklist import (
     Issue93EvidenceChecklist,
     compile_issue93_checklist,
@@ -22,6 +21,7 @@ from artifex.qualification.issue93_field_plan import (
     Issue93FieldPlan,
     compile_issue93_field_plan,
 )
+from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.overview import (
     QualificationOverview,
     compile_qualification_overview,
