@@ -2,6 +2,23 @@
 
 ## Periodic PC-B passive evidence monitor (native PC-A daemon)
 
+The daemon also obtains one fresh, uncached, Bearer-authenticated
+**read-only** PC-B `/v1/owner-audit` GET each interval, independently of the
+cached launcher-readiness report (which may have expired). A verified owner
+produces a SHA-256 digest of its listener PID and UTC-normalized process
+creation time. Only the digest is stored, never raw PID, executable, command
+line, network token or process-ownership receipt.
+
+`pc_b_saved_monitor` now shows `live_owner_status` and
+`identity_change` (`not_comparable`, `unchanged`, `changed`). Only two
+recent, same-controller/session/endpoint, independently verified snapshot
+identities can be compared. Unknown, stale or invalid inputs cannot become
+a positive stability observation. A detected change writes a best-effort
+operational warning and requests a fresh **read-only** identity investigation.
+It does not trigger a restart or register stage PASS/FAIL; it cannot prove
+continuous supervision, actual supervisor loss, or real GPU qualification.
+
+
 Saved passive-monitor JSON is consumed through a size-capped (32 KiB),
 descriptor-identity-checked regular-file read. A file that is replaced,
 modified during reading, or switched to a symlink is rejected as invalid;
