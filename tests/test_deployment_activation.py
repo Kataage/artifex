@@ -649,6 +649,60 @@ def test_deployment_activate_cli_is_preview_first(
     assert requested[-1]["apply"] is True
 
 
+def test_deployment_activate_cli_with_observer_is_explicit_and_pc_b_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.write_text("render_agent: {}\n", encoding="utf-8")
+    calls: list[dict[str, Any]] = []
+
+    async def fake_activate(_: ArtifexSettings, **kwargs: Any) -> ActivationReport:
+        calls.append(kwargs)
+        return ActivationReport(
+            role="renderer",
+            mode="apply" if kwargs["apply"] else "preview",
+            action="started" if kwargs["apply"] else "preview",
+            task_compatible=True, task_detail="matches",
+            task=_task(role="renderer", state="Running"),
+            deployment=_deployment(True), checks_performed=1,
+            task_running_observed=True, ready=True,
+            observer_requested=kwargs["with_observer"],
+            observer_ready=True,
+        )
+
+    monkeypatch.setattr("artifex.cli.activate_deployment", fake_activate)
+    runner = CliRunner()
+    preview = runner.invoke(
+        app, [
+            "deployment", "activate", "--role", "renderer", "--with-observer",
+            "--config", str(config), "--json",
+        ],
+    )
+    assert preview.exit_code == 0, preview.output
+    assert calls[-1]["with_observer"] is True
+    assert calls[-1]["apply"] is False
+    applied = runner.invoke(
+        app, [
+            "deployment", "activate", "--role", "renderer", "--with-observer",
+            "--apply", "--config", str(config), "--json",
+        ],
+    )
+    assert applied.exit_code == 0, applied.output
+    assert calls[-1]["with_observer"] is True
+    assert calls[-1]["apply"] is True
+    assert '"production_qualified": false' in applied.output
+    before = len(calls)
+    invalid = runner.invoke(
+        app, [
+            "deployment", "activate", "--role", "controller",
+            "--with-observer", "--config", str(config),
+        ],
+    )
+    assert invalid.exit_code != 0
+    assert "--role renderer" in invalid.output
+    assert len(calls) == before
+
+
 def test_deployment_activate_cli_refuses_missing_or_invalid_configs(tmp_path: Path) -> None:
     runner = CliRunner()
     missing = runner.invoke(
