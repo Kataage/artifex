@@ -485,7 +485,9 @@ class ProductionCoordinator:
                 hooks_resolved=hooks_resolved,
             )
 
-        self._characters.record_use(record.plan.character_ids)
+        self._characters.record_use(
+            record.plan.character_ids, pack_id=pack_id
+        )
         if record.concept_id is not None:
             self._concepts.set_status(record.concept_id, "finalized")
         self._runtime.transition_pack(
