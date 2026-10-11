@@ -1,5 +1,25 @@
 # Target Windows Production Qualification
 
+## Exactly-once post-archive Pack finalization on PC-A restart
+
+A crash after writing the archive but before finalizing the Pack can occur
+between independent Series, character usage, concept and finalization DB
+commits. The Series repository now treats replay of the **same Pack and
+episode** as an unchanged result, rather than throwing an episode-order error
+or duplicating its story summary. A mismatched episode still fails closed.
+Character generation counters and an explicit per-Pack roster marker are
+committed in **one SQLite transaction**. Restarting the finalization sequence
+cannot count the same Pack twice or change its roster.
+
+A crash **after** the Pack becomes FINALIZED but **before** the editorial
+inventory entry is written is reconciled by existing scheduler inventory sync.
+The reconstructed entry now preserves Pack series ID, concept ID and format,
+instead of creating only an unqualified legacy record. This replay does
+not issue new ComfyUI GPU requests or mutate the already-verified archive.
+Simulated crash-boundary tests cover these DB transitions. Actual production
+Windows/GPU qualification and the eight-hour soak remain pending under #40/#93.
+
+
 
 ## Idempotent Pack archival across PC-A restarts
 
