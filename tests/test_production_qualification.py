@@ -830,3 +830,45 @@ async def test_restart_after_committed_evaluation_reuses_exact_result(
         assert pack.checkpoint_json["archive_complete"] is True
     assert reviews.list_open() == ()
     database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_restart_after_archive_commit_reuses_same_files_and_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, _, _, packs, reviews, coordinator, backend = _qualification(tmp_path)
+    planned = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)), concept_id=None,
+    )
+    archive = coordinator._archive
+    original_finalize = archive.finalize
+
+    def crash_after_archive(pack_id: str):
+        original_finalize(pack_id)
+        raise SystemExit("controller stopped after durable archive checkpoint")
+
+    monkeypatch.setattr(archive, "finalize", crash_after_archive)
+    with pytest.raises(SystemExit, match="durable archive checkpoint"):
+        await coordinator.run_pack(planned.pack_id)
+    assert packs.require(planned.pack_id).state is PackState.EVALUATING
+    with database.session() as session:
+        pack = session.get(PackRow, planned.pack_id)
+        assert pack is not None
+        first_digest = pack.checkpoint_json["archive_manifest_sha256"]
+        manifest_path = Path(pack.payload_json["archive"]["manifest_path"])
+    first_bytes = manifest_path.read_bytes()
+    first_files = sorted(str(p) for p in manifest_path.parent.parent.rglob("*.png"))
+    assert len(first_files) == 1
+
+    monkeypatch.setattr(archive, "finalize", original_finalize)
+    await coordinator.recover_pack(planned.pack_id)
+    assert packs.require(planned.pack_id).state is PackState.FINALIZED
+    assert backend.calls == 1
+    assert manifest_path.read_bytes() == first_bytes
+    assert sorted(str(p) for p in manifest_path.parent.parent.rglob("*.png")) == first_files
+    with database.session() as session:
+        pack = session.get(PackRow, planned.pack_id)
+        assert pack is not None
+        assert pack.checkpoint_json["archive_manifest_sha256"] == first_digest
+    assert reviews.list_open() == ()
+    database.dispose()
