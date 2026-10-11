@@ -329,7 +329,7 @@ def _public_thread_endpoints(metadata: object) -> dict[str, object]:
 @pytest.mark.asyncio
 async def test_readonly_probe_accepts_active_public_thread_with_parent_permissions() -> None:
     calls: list[str] = []
-    async with _client(_public_thread_endpoints({"archived": False}), calls) as client:
+    async with _client(_public_thread_endpoints({"archived": False, "locked": False}), calls) as client:
         result = await probe_discord(
             _config(), live=True, client=client, token="secret-test-token",
         )
@@ -386,3 +386,34 @@ async def test_unusable_channel_types_have_specific_manual_guidance(
     assert result["remediation"][0]["automatically_applied"] is False
     assert result["writes_performed"] == 0
     assert len(calls) == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"archived": False, "locked": True},
+        {"archived": False},
+        {"archived": False, "locked": "false"},
+    ],
+)
+async def test_public_thread_lock_state_must_be_explicitly_unlocked(
+    metadata: object,
+) -> None:
+    calls: list[str] = []
+    async with _client(_public_thread_endpoints(metadata), calls) as client:
+        result = await probe_discord(
+            _config(), live=True, client=client, token="secret-test-token",
+        )
+    assert result["ready"] is False
+    assert result["live_verified"] is False
+    assert result["checks"]["public_thread_active"] is True
+    assert result["checks"]["public_thread_unlocked"] is False
+    assert [item["code"] for item in result["remediation"]] == [
+        "public_thread_locked",
+    ]
+    assert all(action["automatically_applied"] is False
+               for action in result["remediation"])
+    assert result["writes_performed"] == 0
+    assert len(calls) == 5
+    assert "secret-test-token" not in json.dumps(result)

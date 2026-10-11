@@ -125,6 +125,16 @@ def discord_repair_actions(
         )
         return actions
 
+    if checks.get("public_thread_unlocked") is False:
+        add(
+            "public_thread_locked", "discord_server", "discord.channel_id",
+            "The configured public thread is locked or its lock state is "
+            "unknown. Prefer a normal private text channel or manually "
+            "confirm the status before retrying. Do not unlock, grant "
+            "Manage Threads, or send any automatic recovery message.",
+        )
+        return actions
+
     if checks.get("view_channel") is False:
         add(
             "view_channel", "discord_server", None,

@@ -234,6 +234,14 @@ async def probe_discord(
                     "Discord public thread is archived or its active state "
                     "cannot be verified read-only"
                 )
+            checks["public_thread_unlocked"] = (
+                isinstance(metadata, dict) and metadata.get("locked") is False
+            )
+            if not checks["public_thread_unlocked"]:
+                raise ValueError(
+                    "Discord public thread is locked or its unlocked state "
+                    "cannot be verified read-only"
+                )
             parent_id = _snowflake(channel.get("parent_id"))
             parent = await get(f"/channels/{parent_id}")
             if not isinstance(parent, dict) or parent.get("guild_id") != str(config.guild_id):

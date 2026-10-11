@@ -1,5 +1,24 @@
 # Target Windows Production Qualification
 
+## Runtime Discord thread safety and read-only receipt recovery
+
+The Discord bot's runtime send eligibility now matches its live preflight:
+only explicitly active, **unlocked public threads** qualify for new
+notifications. Locked, archived, private, or unverifiable thread states
+do not authorize a send, an implicit unarchive, a permission change, or
+a retry to another channel. Prefer an ordinary private text channel for
+operations. The read-only preflight reports a manual repair hint for a
+locked or unknown-lock public thread; it does not request Manage Threads.
+
+**Recovery is deliberately separate from sending.** A cached archived
+public thread can still be examined via read-only channel history, when
+View Channel and Read Message History are present, to positively match a
+previously accepted bot-authored Pack notification. Failure or absence
+of history never proves non-delivery and never triggers a duplicate send.
+A successful preflight is still not evidence of a delivered notification
+or completed real-machine qualification. Issues #40/#93 remain open.
+
+
 ## Durable Discord qualification receipts (no automatic qualification)
 
 After **real, authorized** `/artifex` controls return a successful Discord
