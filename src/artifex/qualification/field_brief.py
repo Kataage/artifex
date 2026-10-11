@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.issue93_checklist import (
     Issue93EvidenceChecklist,
     compile_issue93_checklist,
@@ -52,6 +53,7 @@ class QualificationFieldBrief(BaseModel):
     owner_live_status: str
     survival_live_status: str
     saved_monitor_status: str
+    cross_observation_identity: Literal["not_comparable", "match", "conflict"]
     environment_ready: bool
     recorded_pass_stages: int = Field(ge=0)
     recorded_skipped_stages: int = Field(ge=0)
@@ -75,6 +77,44 @@ class QualificationFieldBrief(BaseModel):
     commands_executed: Literal[False] = False
 
 
+def _cross_observation_identity(
+    issue93: Issue93EvidenceChecklist,
+    overview: QualificationOverview,
+) -> Literal["not_comparable", "match", "conflict"]:
+    """Require agreement across the *separately acquired* current identities.
+
+    Positive statuses on independent reads do not prove they refer to the
+    same process. Compare (PID, UTC creation instant, host), not PID alone.
+    """
+    owner = overview.pc_b_owner_evidence
+    survival = overview.pc_b_survival_review
+    if (
+        issue93.status != "observations_correlated"
+        or owner is None or owner.status != "correlated_read_only"
+        or not owner.remote_bearer_checked
+        or survival is None
+        or survival.status != "replayed_and_live_identity_matched"
+        or not survival.remote_bearer_checked
+    ):
+        return "not_comparable"
+    raw = (
+        (issue93.current_comfyui_listener_pid,
+         issue93.current_comfyui_started_utc,
+         issue93.current_pc_b_hostname),
+        (owner.live_listener_pid, owner.live_listener_started_utc,
+         owner.live_host),
+        (survival.current_listener_pid, survival.current_listener_started_utc,
+         survival.live_host),
+    )
+    identities: list[tuple[int, datetime, str]] = []
+    for pid, timestamp, host in raw:
+        started = native_creation_instant(timestamp)
+        if pid is None or pid < 1 or started is None or not host or not host.strip():
+            return "not_comparable"
+        identities.append((pid, started, host.strip().casefold()))
+    return "match" if len(set(identities)) == 1 else "conflict"
+
+
 def compile_field_brief(
     issue93: Issue93EvidenceChecklist,
     overview: QualificationOverview,
@@ -93,6 +133,7 @@ def compile_field_brief(
     survival = overview.pc_b_survival_review
     owner_status = owner.status if owner is not None else "not_requested"
     survival_status = survival.status if survival is not None else "not_requested"
+    cross_identity = _cross_observation_identity(issue93, overview)
     next_tasks: list[FieldRoleTask] = []
     # One role-owned unresolved task per machine/service keeps the brief small.
     # The complete worklist remains accessible through qualify overview.
@@ -111,7 +152,13 @@ def compile_field_brief(
                 next_action=item.next_action,
             ))
 
-    if issue93.status == "conflict":
+    if cross_identity == "conflict":
+        priority = (
+            "Independent authenticated PC-B observations identify different "
+            "listener processes or hosts. Read-only inspect PID and creation "
+            "time before trusting any historical report; never restart ComfyUI."
+        )
+    elif issue93.status == "conflict":
         priority = (
             "PC-B evidence shows conflicting listener identities. Review "
             "native PID/creation-time and source timestamps read-only; "
@@ -150,6 +197,7 @@ def compile_field_brief(
         owner_live_status=owner_status,
         survival_live_status=survival_status,
         saved_monitor_status=overview.pc_b_saved_monitor.status,
+        cross_observation_identity=cross_identity,
         environment_ready=overview.environment_ready,
         recorded_pass_stages=overview.recorded_pass_count,
         recorded_skipped_stages=overview.recorded_skipped_count,
