@@ -118,7 +118,13 @@ can qualify those respective real-machine gates in Issue #40/#93.
 The probe is intentionally strict about `guild_id` and `channel_id`.
 For a private Discord thread, membership cannot reliably be proven by
 read-only API checks; choose a normal text channel for the first live
-qualification. It stops after the first failed HTTP request without
+qualification. Public threads are accepted only when the API explicitly
+reports `thread_metadata.archived: false` and inherited parent permissions
+pass. An archived thread or missing/malformed activity status fails closed
+with a manual repair hint; Artifex will not unarchive a thread, post a
+test message or infer delivery from permission bits. Unsupported channel
+types and private threads produce distinct guidance, not a claim that
+View Channel or Send Messages was denied. It stops after the first failed HTTP request without
 retries, does not hide rate limits or invalid credentials as success,
 and returns nonzero exit status if a required check fails.
 
