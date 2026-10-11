@@ -15,6 +15,10 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.discord_control_evidence import (
+    DiscordControlEvidence,
+    inspect_discord_control_evidence,
+)
 from artifex.qualification.discord_completion_evidence import (
     DiscordCompletionEvidence,
     inspect_discord_completion_evidence,
@@ -198,6 +202,7 @@ class QualificationOverview(BaseModel):
     ] = "not_checked"
     discord_preflight: DiscordPreflightObservation | None = None
     discord_completion_evidence: DiscordCompletionEvidence
+    discord_control_evidence: DiscordControlEvidence
     environment_ready: bool
     recorded_pass_count: int
     recorded_skipped_count: int
@@ -257,6 +262,7 @@ def compile_qualification_overview(
     readiness: QualificationReadiness | None = None,
     discord_preflight: DiscordPreflightObservation | None = None,
     discord_completion_evidence: DiscordCompletionEvidence | None = None,
+    discord_control_evidence: DiscordControlEvidence | None = None,
     now: datetime | None = None,
 ) -> QualificationOverview:
     """One current read-only observation, one plan, no independent PASS."""
@@ -443,10 +449,23 @@ def compile_qualification_overview(
         discord_completion_evidence if discord_completion_evidence is not None
         else inspect_discord_completion_evidence(settings)
     )
+    control_evidence = (
+        discord_control_evidence if discord_control_evidence is not None
+        else inspect_discord_control_evidence(
+            settings,
+            session_id=selected,
+            session_started=(
+                _read_session(settings.qualification.evidence_dir, selected).created_at
+                if selected is not None else None
+            ),
+            now=current,
+        )
+    )
     return QualificationOverview(
         captured_utc=current, session_id=selected, session_selection=source,
         discord_preflight_status=discord_status, discord_preflight=discord_preflight,
         discord_completion_evidence=completion_evidence,
+        discord_control_evidence=control_evidence,
         environment_ready=(
             plan.environment_ready_observed
             and (correlation is None or correlation.status == "correlated_read_only")
