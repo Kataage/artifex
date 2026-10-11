@@ -96,7 +96,10 @@ def compile_field_brief(
     next_tasks: list[FieldRoleTask] = []
     # One role-owned unresolved task per machine/service keeps the brief small.
     # The complete worklist remains accessible through qualify overview.
-    for role in ("pc_a", "pc_b", "discord"):
+    roles: tuple[Literal["pc_a", "pc_b", "discord"], ...] = (
+        "pc_a", "pc_b", "discord",
+    )
+    for role in roles:
         item = next(
             (entry for entry in overview.evidence_handoff.items
              if entry.responsible_role == role),
