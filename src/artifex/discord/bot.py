@@ -177,6 +177,30 @@ async def find_completion_in_history(
     return None
 
 
+def assess_notification_channel_access(
+    channel: discord.TextChannel | discord.Thread | None,
+    *,
+    require_history: bool = False,
+) -> tuple[bool, str]:
+    """Fail closed on missing channel, membership, or Discord permissions."""
+    if channel is None:
+        return False, "Configured Discord notification channel is not cached or accessible."
+    member = channel.guild.me
+    if member is None:
+        return False, "Discord bot membership is not resolved for the channel."
+    permissions = channel.permissions_for(member)
+    if not permissions.view_channel:
+        return False, "Discord bot lacks View Channel permission."
+    if isinstance(channel, discord.Thread):
+        if not permissions.send_messages_in_threads:
+            return False, "Discord bot lacks Send Messages in Threads permission."
+    elif not permissions.send_messages:
+        return False, "Discord bot lacks Send Messages permission."
+    if require_history and not permissions.read_message_history:
+        return False, "Discord bot lacks Read Message History permission."
+    return True, "Discord notification channel permissions verified."
+
+
 class ArtifexDiscordClient(discord.Client):
     def __init__(
         self,
