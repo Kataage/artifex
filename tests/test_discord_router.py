@@ -59,3 +59,31 @@ def test_router_allows_user_or_role_and_validates_command() -> None:
         "status",
         "character",
     ]
+
+
+def test_notice_dismiss_router_does_not_forward_unauthorized_actor() -> None:
+    operations = FakeOperations()
+    router = DiscordCommandRouter(
+        AuthorizationPolicy(
+            DiscordConfig(allowed_user_ids=(100,), allowed_role_ids=(200,))
+        ),
+        operations,
+    )
+    args = ("pack-uncertain", "Operator reviewed uncertain message", "DISMISS")
+    denied = router.route(
+        OperatorContext(user_id=999, role_ids=(998,)),
+        "notice-dismiss",
+        args,
+    )
+    assert denied.ok is False
+    assert operations.requests == []
+
+    approved = router.route(
+        OperatorContext(user_id=100),
+        "notice-dismiss",
+        args,
+    )
+    assert approved.ok is True
+    assert len(operations.requests) == 1
+    assert operations.requests[0].operator_user_id == 100
+    assert operations.requests[0].args == args
