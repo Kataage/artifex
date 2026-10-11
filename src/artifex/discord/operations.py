@@ -399,8 +399,9 @@ class ArtifexRemoteOperations:
                     dismissed_at=now,
                     updated_at=now,
                 )
+                .returning(CompletionNotificationRow.pack_id)
             )
-            if result.rowcount != 1:
+            if result.scalar_one_or_none() != pack_id:
                 raise ValueError(
                     "notice-dismiss requires an existing uncertain notice; "
                     "already sent or pending notifications cannot be dismissed"
