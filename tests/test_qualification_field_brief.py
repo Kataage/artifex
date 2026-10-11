@@ -299,7 +299,11 @@ def test_cli_is_one_command_and_saves_only_opt_in_local_diagnostic(
     assert "saved_file" not in disk
     assert disk["production_qualified"] is False
     assert disk["commands_executed"] is False
-    assert "E:/PC B/Artifex/custom renderer.yaml" in json.dumps(disk)
+    assert any(
+        str(PC_B_CONFIG) in step["argv"]
+        for step in disk["issue_93_field_plan"]["steps"]
+        if step["role"] == "pc_b"
+    )
     assert len(calls) == 2
 
 
