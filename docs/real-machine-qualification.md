@@ -1,5 +1,43 @@
 # Target Windows Production Qualification
 
+## One-command read-only PC-A field brief
+
+From PC-A, run the existing checks together without copying PC-B files,
+starting a qualification session, or interrupting ComfyUI:
+
+```powershell
+uv run artifex qualify field-brief --config config/local.yaml --renderer-config config/render-node.yaml --json
+```
+
+This runs the existing Issue #93 owner/dual-snapshot/survival review and
+14-stage qualification overview, including the available authenticated
+read-only PC-B owner/survival GETs. It produces a **diagnostic summary**
+with the missing/conflicting evidence counts, current owner and survival
+observation statuses, historical monitor status, saved stage counts,
+highest-priority blocker, safe Issue #93 command vectors, and one unresolved
+task each for PC-A, PC-B and Discord. The PC-B YAML path is **advisory**;
+it is not opened or executed remotely. All addresses, tokens, directories,
+and model locations remain configurable.
+
+Use `--save` to preserve a new **non-authoritative** JSON diagnostic under
+the configured `qualification.evidence_dir/field-brief/`, or use `--output`
+for a specific exclusive-create PC-A JSON path. Without these flags the
+command performs no local evidence write. Files are never overwritten and
+symlinked destinations are rejected. The summary intentionally excludes
+raw PC-B command lines, raw PID/creation time, Bearer tokens, Discord user
+identities and downloaded trace bodies; only safe statuses and commands
+are shown.
+
+Two independent point-in-time reads are not atomic PC-B supervision proof.
+A successful command exit means only that a diagnostic was produced:
+`production_qualified=false` always. Even fully correlated owner evidence
+does **not** establish native physical supervisor-loss authentication,
+uninterrupted real ComfyUI survival, independently verified stage PASS,
+real GPU operation, or a successful eight-hour soak. Keep Issues #93 and
+#40 open pending authentic operator-host evidence. Never use a diagnostic
+brief to authorize renderer restart/kill/adoption or a GPU task.
+
+
 ## Periodic PC-B passive evidence monitor (native PC-A daemon)
 
 The daemon also obtains one fresh, uncached, Bearer-authenticated
