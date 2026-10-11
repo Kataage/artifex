@@ -32,11 +32,12 @@ from artifex.qualification.models import (
     QualificationStage,
     QualificationStatus,
 )
-from artifex.qualification.pc_b_evidence_gaps import compile_pc_b_evidence_checks
-from artifex.qualification.owner_handoff import (    PCBOwnerCorrelation,
+from artifex.qualification.owner_handoff import (
+    PCBOwnerCorrelation,
     correlate_live_pc_b_owner_report,
     correlate_pc_b_owner_report,
 )
+from artifex.qualification.pc_b_evidence_gaps import compile_pc_b_evidence_checks
 from artifex.qualification.readiness_action_plan import (
     QualificationActionPlan,
     RemediationStep,
