@@ -3548,6 +3548,78 @@ def qualify_owner_pair_check(
         raise typer.Exit(code=1)
 
 
+@qualify_app.command("field-brief")
+def qualify_field_brief(
+    config: ConfigOption = None,
+    renderer_config: Annotated[
+        Path, typer.Option(
+            "--renderer-config",
+            help="PC-B YAML path for advisory commands only; never opened on PC-A.",
+        ),
+    ] = Path("config/render-node.yaml"),
+    session_id: Annotated[
+        str | None, typer.Option(
+            "--session-id",
+            help="Optional existing local qualification session; never create one.",
+        ),
+    ] = None,
+    save: Annotated[
+        bool, typer.Option(
+            "--save", help="Save diagnostic JSON on PC-A under evidence_dir/field-brief.",
+        ),
+    ] = False,
+    output: Annotated[
+        Path | None, typer.Option(
+            "--output", help="Explicit new local diagnostic JSON path; never overwrite.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = True,
+) -> None:
+    """Collect read-only PC-A/PC-B readiness, Issue #93 and stage work in one pass.
+
+    Two independent authenticated observations are not an atomic snapshot of
+    PC-B and never qualify real supervisor survival, GPU work or stage PASS.
+    Saving is opt-in and writes only a bounded PC-A diagnostic, not a stage.
+    """
+    from datetime import UTC, datetime
+
+    from artifex.qualification.field_brief import collect_field_brief
+    from artifex.render_node.owner_audit import save_owner_observation
+
+    chosen = config or Path("config/local.yaml")
+    try:
+        if (
+            not chosen.is_file()
+            or any(part.is_symlink() for part in (chosen, *chosen.parents))
+        ):
+            raise ValueError("Existing non-symlinked PC-A YAML required")
+        if save and output is not None:
+            raise ValueError("Choose --save or --output, not both")
+        settings = _settings(chosen)
+        brief = collect_field_brief(
+            settings, controller_config=chosen,
+            renderer_config=renderer_config, session_id=session_id,
+        )
+        payload = brief.model_dump(mode="json")
+        if save or output is not None:
+            destination = output or (
+                settings.qualification.evidence_dir / "field-brief"
+                / (
+                    datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+                    + "-" + uuid4().hex[:12] + ".json"
+                )
+            )
+            target = save_owner_observation(payload, destination)
+            # Display the path separately. Do not make this report authoritative.
+            payload["saved_file"] = str(target)
+        _print_payload(payload, as_json=json_output)
+    except (OSError, RuntimeError, ValueError, TypeError, httpx.HTTPError) as exc:
+        typer.echo(
+            f"field-brief error: {type(exc).__name__}", err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+
 @qualify_app.command("issue93-status")
 def qualify_issue93_status(
     config: ConfigOption = None,

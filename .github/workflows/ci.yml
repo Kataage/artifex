@@ -76,6 +76,8 @@ jobs:
       - run: uv run pytest -q tests/test_qualification_overview.py
       # Read-only native Windows snapshot/identity/symlink regression tests.
       - run: uv run pytest -q tests/test_qualification_pc_b_passive_monitor.py
+      - run: uv run pytest -q tests/test_qualification_field_brief.py
+      - run: uv run artifex qualify field-brief --help
       - run: uv run pytest -q tests/test_pc_b_owner_handoff.py
       - run: uv run pytest -q tests/test_remote_owner_readiness.py
       - run: uv run pytest -q tests/test_qualification_handoff.py
