@@ -1,5 +1,48 @@
 # Two-PC Artifex topology
 
+## One-command PC-B observer-first activation (explicit opt-in)
+
+On native Windows **PC-B**, after reviewing its existing
+`config/render-node.yaml` and the read-only renderer safety check, the
+following is a non-mutating preview of **both** startup tasks:
+
+```powershell
+uv run artifex deployment activate --role renderer --config config/render-node.yaml --with-observer --json
+```
+
+To explicitly enroll and start missing Artifex-owned tasks (only when the
+real ComfyUI process, GPU work and port ownership are known safe):
+
+```powershell
+uv run artifex deployment activate --role renderer --config config/render-node.yaml --with-observer --apply --install-missing --json
+```
+
+This is **local PC-B execution**, not PC-A remote PowerShell.
+`--with-observer` is optional; it does not change the existing activation
+default. With explicit `--apply`, Artifex first checks both Task Scheduler
+registrations, rejects unowned/drifted watcher tasks, then starts the
+**independent, read-only survival observer** before activating the renderer.
+If the observer cannot be started and verified, the renderer is not started.
+No existing running ComfyUI process may be forcibly stopped, replaced, adopted
+or restarted outside the protected ownership protocol.
+
+The final `ready=true` requires an owned, configuration-matching
+`Running` renderer task, live renderer readiness, a separately running and
+correctly registered observer task, and the observer's **fresh and validated
+writer-process heartbeat**. A still-starting observer may be sampled again
+within the bounded `--wait-seconds` window, without sending it stop/restart
+signals. If the watcher was started but the later renderer activation fails,
+the independently read-only watcher is deliberately **not killed as rollback**;
+inspect the reported failure and both task states before trying again.
+
+The combined command never uses `--replace`. Repair a stale task through
+the existing separate preflight and explicit safe replacement process, then
+rerun the combined preview. A fresh heartbeat proves a watcher is currently
+sampling, **not** that a natural supervisor-loss event occurred. It does not
+authenticate Issue #93 native child survival, execute a GPU generation,
+record a qualification stage, or pass the 14-stage/eight-hour acceptance in
+Issue #40.
+
 ## Native deployment activation requires a running task AND service health
 
 On PC-A and separately on PC-B, `uv run artifex deployment activate`
