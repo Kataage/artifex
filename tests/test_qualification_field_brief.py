@@ -59,6 +59,11 @@ def _issue93(
         saved_owner_pair_status="not_observed",
         natural_exit_trace_status="not_observed",
         next_safe_actions=("No physical Windows evidence yet",),
+        current_comfyui_listener_pid=101 if all_observed else None,
+        current_comfyui_started_utc=(
+            "2026-10-10T01:00:00+00:00" if all_observed else None
+        ),
+        current_pc_b_hostname="GPU-B" if all_observed else None,
     )
 
 
@@ -88,8 +93,18 @@ def _overview(
     return QualificationOverview.model_construct(
         captured_utc=NOW, session_id=session,
         session_selection="latest_saved" if session else "none",
-        pc_b_owner_evidence=SimpleNamespace(status=owner),
-        pc_b_survival_review=SimpleNamespace(status=survival),
+        pc_b_owner_evidence=SimpleNamespace(
+            status=owner, remote_bearer_checked=True,
+            live_listener_pid=101,
+            live_listener_started_utc="2026-10-10T10:00:00+09:00",
+            live_host="gpu-b",
+        ),
+        pc_b_survival_review=SimpleNamespace(
+            status=survival, remote_bearer_checked=True,
+            current_listener_pid=101,
+            current_listener_started_utc="2026-10-10T01:00:00+00:00",
+            live_host="GPU-B",
+        ),
         pc_b_saved_monitor=PCBEvidenceMonitorView(
             status="missing", next_action="No passive sample",
         ),
@@ -114,6 +129,7 @@ def _compiled(*, controller: Path = Path("C:/PC A/my config.yaml")) -> Qualifica
 def test_missing_proof_stays_unqualified_and_next_steps_are_role_scoped() -> None:
     result = _compiled()
     assert result.issue_93_status == "needs_evidence"
+    assert result.cross_observation_identity == "not_comparable"
     assert result.missing_issue_93_checks == 4
     assert result.owner_live_status == "blocked"
     assert result.survival_live_status == "blocked"
@@ -155,6 +171,7 @@ def test_positive_correlated_sources_still_do_not_qualify_real_machine() -> None
         renderer_config=PC_B_CONFIG,
     )
     assert result.issue_93_status == "observations_correlated"
+    assert result.cross_observation_identity == "match"
     assert result.next_priority == "Review actual production Packs"
     assert result.session_id == "20261012T010000Z-aabbccdd"
     assert result.production_qualified is False
@@ -163,6 +180,34 @@ def test_positive_correlated_sources_still_do_not_qualify_real_machine() -> None
     assert result.live_comfyui_survival_qualified is False
     assert result.fourteen_stages_independently_verified is False
     assert result.issue_93_field_plan.steps[0].id == "pc-a-production-overview"
+
+
+def test_separate_authenticated_observations_detect_pid_reuse_and_host_drift() -> None:
+    base = _overview(
+        ready=True, owner="correlated_read_only",
+        survival="replayed_and_live_identity_matched",
+    )
+    assert base.pc_b_survival_review is not None
+    base.pc_b_survival_review.current_listener_started_utc = (
+        "2026-10-10T01:00:01+00:00"
+    )
+    result = compile_field_brief(
+        _issue93("observations_correlated", all_observed=True), base,
+        controller_config=Path("C:/controller.yaml"),
+        renderer_config=PC_B_CONFIG,
+    )
+    assert result.cross_observation_identity == "conflict"
+    assert "never restart ComfyUI" in result.next_priority
+    assert result.production_qualified is False
+
+    # Missing creation times are never proof of agreement.
+    base.pc_b_survival_review.current_listener_started_utc = None
+    second = compile_field_brief(
+        _issue93("observations_correlated", all_observed=True), base,
+        controller_config=Path("C:/controller.yaml"),
+        renderer_config=PC_B_CONFIG,
+    )
+    assert second.cross_observation_identity == "not_comparable"
 
 
 def test_conflicting_owner_uses_explicit_safe_investigation() -> None:
