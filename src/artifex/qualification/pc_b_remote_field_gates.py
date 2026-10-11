@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings
 from artifex.qualification.native_creation_time import native_creation_instant
+from artifex.qualification.owner_handoff import PCBOwnerCorrelation
 from artifex.render_node.client import (
     fetch_remote_installation_audit,
     fetch_remote_owner_readiness,
@@ -27,6 +28,7 @@ GateStatus = Literal[
     "unconfigured", "unavailable", "needs_evidence", "observed_prerequisites",
 ]
 ProbeStatus = Literal["not_requested", "unavailable", "observed"]
+OwnerIdentityAgreement = Literal["not_comparable", "match", "conflict"]
 _MAX_CACHE_AGE = timedelta(minutes=10)
 _MAX_INSTALL_AGE = timedelta(minutes=2)
 _CLOCK_SKEW = timedelta(seconds=30)
@@ -43,6 +45,8 @@ class RemotePCBPassiveFieldGates(BaseModel):
     status: GateStatus
     installation_probe_status: ProbeStatus
     cached_owner_probe_status: ProbeStatus
+    # Never infer uninterrupted process survival from two point-in-time GETs.
+    cached_vs_live_owner_identity: OwnerIdentityAgreement = "not_comparable"
     renderer_task_status: str = "not_observed"
     observer_task_status: str = "not_observed"
     observer_heartbeat_status: str = "not_observed"
@@ -93,6 +97,7 @@ def compile_remote_pc_b_passive_gates(
     installation: RemoteRendererInstallationAudit | None,
     cached_owner: RemoteOwnerReadinessEvidence | None,
     attempted: int,
+    current_owner: PCBOwnerCorrelation | None = None,
     checked_utc: datetime | None = None,
 ) -> RemotePCBPassiveFieldGates:
     """Treat missing/stale/foreign/protected-failure evidence as unresolved."""
@@ -101,6 +106,7 @@ def compile_remote_pc_b_passive_gates(
     renderer = observer = heartbeat = "not_observed"
     fixture: Literal["pass", "fail", "not_observed"] = "not_observed"
     live_owner: Literal["pass", "fail", "not_observed"] = "not_observed"
+    agreement: OwnerIdentityAgreement = "not_comparable"
     if not configured:
         blockers.append("pc_b_attestation_or_bearer_not_configured")
     elif installation is None:
@@ -170,6 +176,39 @@ def compile_remote_pc_b_passive_gates(
             or not _fresh(collected_at, now, _MAX_CACHE_AGE)
         ):
             blockers.append("pc_b_cached_owner_stale_or_unverified")
+        # A cached launcher fixture may be valid yet describe a DIFFERENT
+        # process from the independent, freshly authenticated PC-A owner GET.
+        # Only compare current remote Bearer observations to already verified
+        # and fresh cache/installation prerequisites; no raw PID is emitted.
+        if (
+            current_owner is not None
+            and current_owner.status == "correlated_read_only"
+            and current_owner.source_mode == "authenticated_remote"
+            and current_owner.remote_bearer_checked
+            and current_owner.node_id == node_id
+            and _fresh(current_owner.checked_utc, now, _MAX_INSTALL_AGE)
+            and not blockers
+        ):
+            live_start = native_creation_instant(
+                current_owner.live_listener_started_utc,
+            )
+            live_pid = current_owner.live_listener_pid
+            live_host = current_owner.live_host
+            if (
+                live_pid is not None and live_pid > 0
+                and live_start is not None
+                and isinstance(live_host, str) and live_host.strip()
+            ):
+                agreement = (
+                    "match" if (
+                        pid == live_pid
+                        and started_utc == live_start
+                        and isinstance(data.get("host"), str)
+                        and data["host"].strip().casefold() == live_host.strip().casefold()
+                    ) else "conflict"
+                )
+                if agreement == "conflict":
+                    blockers.append("pc_b_cached_owner_differs_from_current_live_owner")
     if not configured:
         state: GateStatus = "unconfigured"
     elif installation is None and cached_owner is None:
@@ -188,6 +227,7 @@ def compile_remote_pc_b_passive_gates(
             "not_requested" if not configured else
             "observed" if cached_owner is not None else "unavailable"
         ),
+        cached_vs_live_owner_identity=agreement,
         renderer_task_status=renderer,
         observer_task_status=observer,
         observer_heartbeat_status=heartbeat,
@@ -201,6 +241,7 @@ def compile_remote_pc_b_passive_gates(
 def inspect_remote_pc_b_passive_gates(
     settings: ArtifexSettings, *,
     now: datetime | None = None,
+    current_owner: PCBOwnerCorrelation | None = None,
     installation_probe: Callable[..., RemoteRendererInstallationAudit] = (
         fetch_remote_installation_audit
     ),
@@ -240,6 +281,7 @@ def inspect_remote_pc_b_passive_gates(
         pass
     return compile_remote_pc_b_passive_gates(
         node_id=node_id, configured=True, installation=installation,
-        cached_owner=cached, attempted=2, checked_utc=datetime.now(UTC)
+        cached_owner=cached, attempted=2, current_owner=current_owner,
+        checked_utc=datetime.now(UTC)
         if now is None else now,
     )
