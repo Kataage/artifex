@@ -1,3 +1,4 @@
+from artifex.operations.completion_notifications import CompletionNotificationMaintenance
 from artifex.operations.health import (
     ComponentHealth,
     ComponentState,
