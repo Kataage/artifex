@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig
+from artifex.qualification.owner_handoff import PCBOwnerCorrelation
 from artifex.qualification.pc_b_remote_field_gates import (
     compile_remote_pc_b_passive_gates,
     inspect_remote_pc_b_passive_gates,
@@ -84,12 +85,86 @@ def _owner(
 def _compile(
     installation: RemoteRendererInstallationAudit | None = None,
     owner: RemoteOwnerReadinessEvidence | None = None,
+    *,
+    current_owner: PCBOwnerCorrelation | None = None,
 ):
     return compile_remote_pc_b_passive_gates(
         node_id="gpu-b", configured=True,
         installation=installation, cached_owner=owner,
-        attempted=2, checked_utc=NOW,
+        attempted=2, current_owner=current_owner, checked_utc=NOW,
     )
+
+
+def _live_owner(
+    *, pid: int = 4700,
+    started: str = "2026-10-12T08:00:00+09:00",
+    host: str = "GPU-B",
+    bearer: bool = True,
+    checked: datetime = NOW,
+) -> PCBOwnerCorrelation:
+    return PCBOwnerCorrelation(
+        checked_utc=checked, status="correlated_read_only",
+        reason="mock authenticated correlation", node_id="gpu-b",
+        remaining_real_machine_evidence=("supervisor_loss", "gpu_run"),
+        source_mode="authenticated_remote", remote_bearer_checked=bearer,
+        live_host=host, live_listener_pid=pid,
+        live_listener_started_utc=started,
+    )
+
+
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    [
+        ("same", "match"),
+        ("pid", "conflict"),
+        ("process_start", "conflict"),
+        ("hostname", "conflict"),
+        ("unauthenticated", "not_comparable"),
+        ("stale", "not_comparable"),
+        ("invalid_time", "not_comparable"),
+    ],
+)
+def test_cached_vs_fresh_authenticated_owner_identity_is_fail_closed(
+    changed: str, expected: str,
+) -> None:
+    import json
+
+    live = _live_owner(
+        pid=4800 if changed == "pid" else 4700,
+        started=(
+            "2026-10-12T08:00:01+09:00" if changed == "process_start"
+            else "not-a-timestamp" if changed == "invalid_time"
+            else "2026-10-12T08:00:00+09:00"
+        ),
+        host="another-host" if changed == "hostname" else "GPU-B",
+        bearer=changed != "unauthenticated",
+        checked=NOW - timedelta(minutes=5) if changed == "stale" else NOW,
+    )
+    report = _compile(_installation(), _owner(), current_owner=live)
+    assert report.cached_vs_live_owner_identity == expected
+    assert report.status == (
+        "needs_evidence" if expected == "conflict" else "observed_prerequisites"
+    )
+    assert (
+        "pc_b_cached_owner_differs_from_current_live_owner" in report.blockers
+    ) is (expected == "conflict")
+    assert report.production_qualified is False
+    assert report.disposable_fixture_started_by_get is False
+    serialized = json.dumps(report.model_dump(mode="json"))
+    assert "4700" not in serialized
+    assert "4800" not in serialized
+    assert "very-secret-example" not in serialized
+
+
+def test_missing_or_stale_cache_never_compares_to_fresh_owner() -> None:
+    sample = _compile(
+        _installation(), _owner(collected=NOW - timedelta(minutes=11)),
+        current_owner=_live_owner(pid=4800),
+    )
+    assert sample.cached_vs_live_owner_identity == "not_comparable"
+    assert sample.status == "needs_evidence"
+    assert "pc_b_cached_owner_stale_or_unverified" in sample.blockers
+    assert "pc_b_cached_owner_differs_from_current_live_owner" not in sample.blockers
 
 
 def test_verified_existing_pc_b_prerequisites_are_only_observational() -> None:
@@ -226,12 +301,16 @@ def test_two_authenticated_gets_are_sequential_independent_and_redacted(
 
     report = inspect_remote_pc_b_passive_gates(
         _settings(), now=NOW,
+        current_owner=_live_owner(),
         installation_probe=installation, owner_cache_probe=owner,
     )
     assert called == [
         ("installation", "gpu-b", 8.0), ("owner", "gpu-b", 8.0),
     ]
     assert report.authenticated_read_only_gets_attempted == 2
+    assert report.cached_vs_live_owner_identity == (
+        "not_comparable" if broken != "none" else "match"
+    )
     assert report.status == (
         "unavailable" if broken == "both" else "needs_evidence"
     )

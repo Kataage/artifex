@@ -70,6 +70,16 @@ class QualificationFieldBrief(BaseModel):
     issue_93_field_plan: Issue93FieldPlan
     next_role_tasks: tuple[FieldRoleTask, ...]
     pc_b_remote_passive_gates: RemotePCBPassiveFieldGates | None = None
+    pc_b_visit_triage: Literal[
+        "not_assessed", "pc_a_recheck_first", "pc_a_access_review_first",
+        "pc_b_read_only_review",
+    ] = "not_assessed"
+    # Existing Issue #93 steps remain in the full plan. This is a *deferral*
+    # suggestion only, never a claim that physical PC-B work is complete.
+    pc_b_deferred_repeat_checks: tuple[str, ...] = ()
+    pc_b_next_safe_action: str = (
+        "Review the full Issue #93 plan; do not restart a running ComfyUI."
+    )
     # Correlation, saved stages, and "ready" diagnostics are not independent
     # physical-host proof or authorization to start a real GPU job.
     authenticated_historical_supervisor_loss_proven: Literal[False] = False
@@ -169,7 +179,73 @@ def compile_field_brief(
                 next_action=item.next_action,
             ))
 
-    if cross_identity == "conflict":
+    if pc_b_remote_gates is None:
+        visit: Literal[
+            "not_assessed", "pc_a_recheck_first", "pc_a_access_review_first",
+            "pc_b_read_only_review",
+        ] = "not_assessed"
+    elif (
+        cross_identity == "conflict"
+        or issue93.status == "conflict"
+        or pc_b_remote_gates.cached_vs_live_owner_identity == "conflict"
+    ):
+        visit = "pc_b_read_only_review"
+    elif (
+        pc_b_remote_gates.status == "observed_prerequisites"
+        and pc_b_remote_gates.cached_vs_live_owner_identity == "match"
+    ):
+        # Independent fresh owner and verified no-GPU cached fixture align.
+        # Skip redoing *only* this redundant local review for the next action.
+        visit = "pc_a_recheck_first"
+    elif (
+        pc_b_remote_gates.status in {"unconfigured", "unavailable"}
+        or "pc_b_installation_get_unavailable" in pc_b_remote_gates.blockers
+        or "pc_b_cached_launcher_get_unavailable" in pc_b_remote_gates.blockers
+    ):
+        visit = "pc_a_access_review_first"
+    else:
+        visit = "pc_b_read_only_review"
+    deferred = (
+        tuple(
+            step.id for step in field_plan.steps
+            if step.id in {"pc-b-launcher-owner", "pc-b-observer-dry-run"}
+        )
+        if visit == "pc_a_recheck_first" else ()
+    )
+    if visit == "pc_a_recheck_first":
+        visit_advice = (
+            "Two independent authenticated observations identify the same "
+            "PC-B listener and the cached native launcher fixture is recent. "
+            "First review the remaining PC-A owner-pair and survival evidence; "
+            "defer repeating the indicated PC-B local fixture/dry-run. "
+            "A real supervisor-loss event and GPU qualification remain unproven."
+        )
+    elif visit == "pc_a_access_review_first":
+        visit_advice = (
+            "PC-A cannot confirm both protected PC-B readiness sources. "
+            "Inspect PC-A attestation URL, token environment and connectivity "
+            "before requesting new PC-B operator work; never guess secrets."
+        )
+    elif visit == "pc_b_read_only_review":
+        visit_advice = (
+            "PC-B evidence is incomplete, stale or inconsistent. "
+            "Arrange a safe read-only local inspection without restarting, "
+            "adopting or stopping an active ComfyUI process."
+        )
+    else:
+        visit_advice = (
+            "PC-B revisit needs have not been independently checked. "
+            "Review the full Issue #93 plan; do not restart running ComfyUI."
+        )
+    if pc_b_remote_gates is not None and (
+        pc_b_remote_gates.cached_vs_live_owner_identity == "conflict"
+    ):
+        priority = (
+            "Cached PC-B launcher ownership and current authenticated listener "
+            "disagree. Inspect the current owner read-only on PC-B; do not "
+            "adopt, restart or kill an active ComfyUI process."
+        )
+    elif cross_identity == "conflict":
         priority = (
             "Independent authenticated PC-B observations identify different "
             "listener processes or hosts. Read-only inspect PID and creation "
@@ -231,6 +307,9 @@ def compile_field_brief(
         issue_93_field_plan=field_plan,
         next_role_tasks=tuple(next_tasks),
         pc_b_remote_passive_gates=pc_b_remote_gates,
+        pc_b_visit_triage=visit,
+        pc_b_deferred_repeat_checks=deferred,
+        pc_b_next_safe_action=visit_advice,
     )
 
 
@@ -259,7 +338,9 @@ def collect_field_brief(
     # This final check uses only the PC-B API's existing protected
     # installation report and background-cached no-GPU launcher evidence.
     # It does not run the PC-B local fixture as part of a request.
-    remote_gates = inspect_remote_pc_b_passive_gates(settings)
+    remote_gates = inspect_remote_pc_b_passive_gates(
+        settings, current_owner=overview.pc_b_owner_evidence,
+    )
     return compile_field_brief(
         issue93, overview,
         controller_config=controller_config,
