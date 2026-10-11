@@ -1,5 +1,47 @@
 # Target Windows Production Qualification
 
+## One-command, read-only Discord operational probe (PC-A)
+
+On PC-A, after configuring `discord.enabled: true`, the authorized user/role,
+`discord.guild_id`, `discord.channel_id`, and the bot token in the
+configured environment variable (default `ARTIFEX_DISCORD_TOKEN`), run:
+
+```powershell
+uv run artifex discord probe --json
+uv run artifex discord probe --live --json
+```
+
+The first command only checks local configuration and token **presence**;
+it does not connect to Discord and returns `live_verified: false`. The
+second performs **only bounded Discord REST GET requests**, checking the
+actual bot/application identity, guild membership, configured channel
+ownership, effective permission overwrites, registered `/artifex` guild
+subcommands, and one read-only channel-history retrieval when permitted.
+It checks View Channel, Send Messages or Send Messages in Threads, and
+Read Message History for completion reconciliation. Local roles and
+channel overwrites are taken from the live API; neither the bot token
+nor message bodies are printed.
+
+This probe **never posts a test message, never syncs or deletes commands,
+never changes Discord permissions, never starts the production daemon,
+and never touches PC-B/ComfyUI**. On failure, the JSON `checks` and
+`problems` identify missing registered commands or privileges without
+claiming delivery. A 200 response for an empty history by itself is not
+proof of Read Message History privilege, and even successful read-only
+preflight does **not** prove actual outbound message delivery, response
+loss recovery, or slash-command interaction success. The daemon's own
+`setup_hook` still performs command synchronization during normal bot
+startup. Only a real authorized Discord interaction and actual delivery
+can qualify those respective real-machine gates in Issue #40/#93.
+
+The probe is intentionally strict about `guild_id` and `channel_id`.
+For a private Discord thread, membership cannot reliably be proven by
+read-only API checks; choose a normal text channel for the first live
+qualification. It stops after the first failed HTTP request without
+retries, does not hide rate limits or invalid credentials as success,
+and returns nonzero exit status if a required check fails.
+
+
 ## Discord operational channel scope and readiness
 
 When `discord.guild_id` and/or `discord.channel_id` are configured,
