@@ -11,6 +11,7 @@ from artifex.config.models import ArtifexSettings
 from artifex.deployment import DeploymentCheck, DeploymentReport
 from artifex.deployment_activation import ActivationReport, activate_deployment
 from artifex.windows_tasks import (
+    StartupRole,
     StartupTaskStatus,
     _start_script,
     activate_task,
@@ -23,9 +24,10 @@ def _task(
     installed: bool = True,
     state: str = "Ready",
     arguments: str = "matching",
+    role: StartupRole = "controller",
 ) -> StartupTaskStatus:
     return StartupTaskStatus(
-        role="controller", task_name="Artifex-Controller",
+        role=role, task_name="Artifex-" + role,
         installed=installed, managed=managed, state=state if installed else None,
         execute="python.exe" if installed else None,
         arguments=arguments if installed else None,
@@ -307,6 +309,214 @@ async def test_activation_stops_waiting_and_fails_closed_on_task_registration_dr
     assert report.ready is False
     assert report.checks_performed == 1
     assert sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_combined_renderer_observer_preview_is_read_only_and_cannot_qualify(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+    started: list[str] = []
+    inspected: list[str] = []
+
+    def status(role: StartupRole) -> StartupTaskStatus:
+        inspected.append(role)
+        return _task(
+            role=role,
+            installed=role != "survival-observer",
+            state="Ready",
+        )
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        return _deployment(True)
+
+    report = await activate_deployment(
+        settings, role="renderer", config=config, with_observer=True,
+        status_fn=status,
+        match_fn=lambda *a, **kw: (
+            kw["status"].installed, "matches" if kw["status"].installed else "missing",
+        ),
+        start_fn=lambda role, **kw: (
+            started.append(role) or _task(role=role, state="Running"), "started"
+        ),
+        verify_fn=healthy,
+        heartbeat_fn=lambda *a, **kw: "missing",
+    )
+    assert inspected == [
+        "renderer", "survival-observer", "renderer", "survival-observer",
+    ]
+    assert started == []
+    assert report.mode == "preview"
+    assert report.observer_requested is True
+    assert report.observer_action == "preview"
+    assert report.observer_task is not None
+    assert not report.observer_task.installed
+    assert report.observer_heartbeat == "missing"
+    assert not report.observer_ready
+    assert not report.ready
+    assert not report.production_qualified
+
+
+@pytest.mark.asyncio
+async def test_combined_activation_starts_watcher_before_renderer_and_waits_for_heartbeat(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+    activity: list[str] = []
+    heartbeats = iter(["blocked", "fresh"])
+    sleeps: list[float] = []
+    active: set[str] = set()
+
+    def status(role: StartupRole) -> StartupTaskStatus:
+        activity.append("status:" + role)
+        return _task(
+            role=role, state="Running" if role in active else "Ready",
+        )
+
+    def start(role: StartupRole, **kwargs: Any) -> tuple[StartupTaskStatus, str]:
+        activity.append("start:" + role)
+        active.add(role)
+        return _task(role=role, state="Running"), "started"
+
+    def heartbeat(*args: Any, **kwargs: Any) -> str:
+        activity.append("heartbeat")
+        return next(heartbeats)
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        activity.append("health")
+        return _deployment(True)
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    result = await activate_deployment(
+        settings, role="renderer", config=config,
+        apply=True, with_observer=True, wait_seconds=30,
+        status_fn=status,
+        match_fn=lambda *a, **kw: (True, "verified"),
+        start_fn=start, verify_fn=healthy,
+        heartbeat_fn=heartbeat, sleep_fn=sleep,
+    )
+    assert activity.index("start:survival-observer") < activity.index(
+        "start:renderer"
+    )
+    assert activity.index("start:renderer") < activity.index("health")
+    assert result.ready
+    assert result.observer_requested and result.observer_ready
+    assert result.observer_heartbeat == "fresh"
+    assert result.observer_action == "started"
+    assert result.observer_task is not None
+    assert result.observer_task.state == "Running"
+    assert result.checks_performed == 2
+    assert len(sleeps) == 1
+    assert not result.native_child_survival_proven
+    assert not result.production_qualified
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", [
+    "foreign_watcher", "stale_watcher", "missing_watcher",
+    "bad_renderer", "missing_renderer",
+])
+async def test_combined_activation_refuses_unsafe_preflight_before_any_start(
+    tmp_path: Path, case: str,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+    touched: list[str] = []
+
+    def status(role: StartupRole) -> StartupTaskStatus:
+        return _task(
+            role=role,
+            installed=not (
+                role == "survival-observer" and case == "missing_watcher"
+                or role == "renderer" and case == "missing_renderer"
+            ),
+            managed=not (
+                role == "survival-observer" and case == "foreign_watcher"
+            ),
+            arguments="drifted" if (
+                role == "survival-observer" and case == "stale_watcher"
+                or role == "renderer" and case == "bad_renderer"
+            ) else "matching",
+        )
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        touched.append("health")
+        return _deployment(True)
+
+    with pytest.raises(ValueError):
+        await activate_deployment(
+            settings, role="renderer", config=config,
+            with_observer=True, apply=True,
+            status_fn=status,
+            match_fn=lambda *a, **kw: (
+                kw["status"].installed and kw["status"].managed
+                and kw["status"].arguments == "matching", "checked",
+            ),
+            start_fn=lambda role, **kw: (
+                touched.append("started") or _task(role=role), "started"
+            ),
+            verify_fn=healthy,
+        )
+    assert touched == []
+
+
+@pytest.mark.asyncio
+async def test_combined_activation_does_not_fabricate_ready_without_fresh_heartbeat(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+
+    async def healthy(_: ArtifexSettings, **kwargs: Any) -> DeploymentReport:
+        return _deployment(True)
+
+    report = await activate_deployment(
+        settings, role="renderer", config=config,
+        apply=True, with_observer=True, wait_seconds=0,
+        status_fn=lambda role: _task(role=role, state="Running"),
+        match_fn=lambda *a, **kw: (True, "verified"),
+        start_fn=lambda role, **kw: (_task(role=role, state="Running"), "started"),
+        verify_fn=healthy,
+        heartbeat_fn=lambda *a, **kw: "stale",
+    )
+    assert report.task_running_observed
+    assert report.deployment.ready
+    assert report.observer_task is not None
+    assert report.observer_task.state == "Running"
+    assert report.observer_heartbeat == "stale"
+    assert report.observer_ready is False
+    assert report.ready is False
+    assert not report.native_child_survival_proven
+
+
+@pytest.mark.asyncio
+async def test_combined_activation_requires_renderer_managed_and_correct_host(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "render-node.yaml"
+    config.touch()
+    with pytest.raises(ValueError, match="PC-B renderer"):
+        await activate_deployment(
+            ArtifexSettings(), role="controller", config=config,
+            with_observer=True,
+        )
+    with pytest.raises(ValueError, match="managed ComfyUI"):
+        await activate_deployment(
+            ArtifexSettings(), role="renderer", config=config,
+            with_observer=True,
+        )
 
 
 def test_activation_task_refuses_unowned_missing_and_stale_configs(
