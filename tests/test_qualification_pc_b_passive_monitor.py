@@ -27,6 +27,16 @@ NOW = datetime(2026, 10, 12, 1, 0, tzinfo=UTC)
 SESSION = "20261012T010000Z-12345678"
 
 
+@pytest.fixture(autouse=True)
+def no_real_pc_b_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """All tests stay offline unless they override the read-only owner probe."""
+
+    def unavailable(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("No PC-B network requests in unit tests")
+
+    monkeypatch.setattr(monitor, "fetch_renderer_owner_audit", unavailable)
+
+
 def _settings(root: Path) -> ArtifexSettings:
     settings = ArtifexSettings()
     settings.qualification.evidence_dir = root
