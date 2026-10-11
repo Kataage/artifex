@@ -1,5 +1,25 @@
 # Target Windows Production Qualification
 
+
+## Idempotent Pack archival across PC-A restarts
+
+A crash while copying output images, writing metadata or after persisting the
+archive checkpoint must never silently create `_2` copies or change the
+already-recorded manifest hash. Pack output filenames now use stable
+scene/attempt/index identities; repeat archival verifies the full original
+SHA-256 and reuses matching existing images, publishing new files only after
+a complete temporary copy. Missing/empty originals, changed existing images,
+symlinks or conflicting metadata **fail closed** without overwriting evidence.
+
+After the SQLite archive checkpoint has committed, restart recovery validates
+its original manifest hash and recorded image hashes and reuses that immutable
+archive, rather than constructing a new manifest from changed SQLite metadata.
+A recorded Pack is not considered finalized merely because archive files
+exist; the normal coordinator still completes the Pack state transition.
+These cases are covered by mocked crash/restart CI, not by real two-PC/GPU
+qualification; Issues #40/#93 remain open.
+
+
 ## Recover an evaluation committed before a PC-A crash
 
 If PC-A stops **after** recording a quality evaluation but **before** the
