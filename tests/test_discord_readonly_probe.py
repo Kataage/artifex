@@ -202,9 +202,7 @@ def test_discord_probe_cli_is_registered_without_attempting_live_access() -> Non
 
 
 def test_missing_pc_a_discord_fields_produce_precise_secret_free_guidance() -> None:
-    config = DiscordConfig(
-        enabled=True, token_env="ARTIFEX_TEST_SECRET_NAME",
-    ).model_construct(
+    config = DiscordConfig.model_construct(
         enabled=True, token_env="ARTIFEX_TEST_SECRET_NAME",
         guild_id=None, channel_id=None,
         allowed_user_ids=(), allowed_role_ids=(),
