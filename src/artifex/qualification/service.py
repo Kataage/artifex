@@ -1071,7 +1071,7 @@ class QualificationService:
             event_ids: list[int] = []
             for item in stored:
                 if not isinstance(item, dict):
-                    raise ValueError("discord_controls stored interaction evidence is malformed")
+                    raise TypeError("discord_controls stored interaction evidence is malformed")
                 event_id = item.get("event_id")
                 if type(event_id) is not int or event_id <= 0:
                     raise ValueError("discord_controls stored event IDs are invalid")
