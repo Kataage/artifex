@@ -210,6 +210,51 @@ def test_separate_authenticated_observations_detect_pid_reuse_and_host_drift() -
     assert second.cross_observation_identity == "not_comparable"
 
 
+
+@pytest.mark.parametrize(
+    ("owner_status", "survival_status", "missing"),
+    [
+        ("unavailable", "replayed_and_live_identity_matched", ("owner",)),
+        ("correlated_read_only", "remote_unavailable", ("survival",)),
+        ("unavailable", "remote_unavailable", ("owner", "survival")),
+    ],
+)
+def test_partial_field_brief_retains_safe_status_without_fabricating_proof(
+    owner_status: str, survival_status: str, missing: tuple[str, ...],
+) -> None:
+    report = compile_field_brief(
+        _issue93("needs_evidence"),
+        _overview(
+            ready=True, owner=owner_status,
+            survival=survival_status,
+        ),
+        controller_config=Path("C:/controller.yaml"),
+        renderer_config=PC_B_CONFIG,
+        checked_utc=NOW,
+    )
+    assert report.failed_live_probes == missing
+    assert report.partial_live_diagnostics is True
+    assert report.owner_live_status == owner_status
+    assert report.survival_live_status == survival_status
+    assert report.cross_observation_identity == "not_comparable"
+    assert report.recorded_pass_stages == 2
+    assert report.recorded_skipped_stages == 1
+    assert report.unresolved_stages == 11
+    assert "never restart" in report.next_priority
+    assert report.commands_executed is False
+    assert report.production_qualified is False
+    assert report.issue_93_closed is False
+    assert report.issue_40_closed is False
+
+
+def test_field_brief_nonmissing_but_blocked_is_not_a_transport_exception() -> None:
+    report = _compiled()
+    assert report.failed_live_probes == ()
+    assert report.partial_live_diagnostics is False
+    assert report.owner_live_status == "blocked"
+    assert report.survival_live_status == "blocked"
+    assert report.production_qualified is False
+
 def test_conflicting_owner_uses_explicit_safe_investigation() -> None:
     report = _issue93("conflict").model_copy(update={"conflicting_checks": 1})
     result = compile_field_brief(
