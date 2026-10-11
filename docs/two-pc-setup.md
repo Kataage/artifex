@@ -1,5 +1,48 @@
 # Two-PC Artifex topology
 
+## Discord readiness integrated into onboarding and qualification
+
+On PC-A, Discord readiness now appears in **existing** read-only reports,
+so a separate `discord probe` command is not required for ordinary setup:
+
+```powershell
+uv run artifex onboard inspect --role controller --config config/local.yaml --json
+uv run artifex qualify overview --config config/local.yaml --json
+```
+
+When Discord is enabled, both commands perform the existing local
+credential-presence/configuration checks **without contacting Discord**.
+For an explicit live, GET-only Discord API check, use the same command
+with `--discord-live`:
+
+```powershell
+uv run artifex onboard inspect --role controller --config config/local.yaml --discord-live --json
+uv run artifex qualify overview --config config/local.yaml --discord-live --json
+```
+
+The qualification overview records `discord_preflight_status` as
+`disabled`, `not_checked`, `local_only`, `live_ready`, or `blocked`,
+and includes the detailed `discord_preflight` result. When the rest
+of PC-A/PC-B readiness is clear, the next recommended safe command is
+the *same overview* with `--discord-live`, rather than asking operators
+to remember another workflow. A live Discord failure is clearly called
+out with an actionable explanation, without bypassing any PC-B owner
+or safety blocker. Renderer-side onboarding rejects `--discord-live`,
+so only PC-A makes the optional Discord API requests.
+
+**Important qualification boundary:** `live_ready` verifies API
+connectivity, guild/channel permissions and command registration,
+not actual message delivery, button interaction, or Discord command
+response. The fields `discord_delivery_verified=false`,
+`production_qualified=false`, and
+`session_stages_are_revalidated=false` stay false. The
+`discord_controls` qualification stage still needs authentic delivered
+interaction evidence, or its expressly permitted disabled-configuration
+path. The actual two-PC ILXL/8-hour soak gates in Issues #40/#93 remain
+open. Both commands are read-only: no messages sent, commands synced,
+ComfyUI processes started, or GPU jobs submitted.
+
+
 ## One-command, read-only Discord operational probe (PC-A)
 
 On PC-A, after configuring `discord.enabled: true`, the authorized user/role,
