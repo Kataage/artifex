@@ -517,6 +517,13 @@ async def test_combined_activation_requires_renderer_managed_and_correct_host(
             ArtifexSettings(), role="renderer", config=config,
             with_observer=True,
         )
+    settings = ArtifexSettings()
+    settings.render_agent.comfyui_process.enabled = True
+    with pytest.raises(ValueError, match="cannot replace"):
+        await activate_deployment(
+            settings, role="renderer", config=config,
+            with_observer=True, apply=True, replace=True,
+        )
 
 
 def test_activation_task_refuses_unowned_missing_and_stale_configs(
