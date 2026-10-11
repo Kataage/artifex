@@ -434,3 +434,27 @@ def test_series_with_open_pack_is_not_planned_twice(
     assert decision.series_id is None
     assert decision.concept_id == "fallback-idea"
     db.dispose()
+
+
+def test_finalized_inventory_reconstruction_keeps_editorial_metadata(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    now = datetime.now(UTC)
+    with database.session() as session:
+        session.add(
+            _pack(
+                "crash-pack",
+                when=now,
+                series_id="series-from-pack",
+                format_type="single_feature",
+            )
+        )
+    inventory = PackInventoryRepository(database, expiry_hours=24)
+    assert inventory.sync_finalized(now=now) == 1
+    item = inventory.require("crash-pack")
+    assert item.metadata["format"] == "single_feature"
+    assert item.metadata["series_id"] == "series-from-pack"
+    assert item.metadata["concept_id"] is None
+    assert inventory.sync_finalized(now=now) == 0
+    database.dispose()
