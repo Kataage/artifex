@@ -1004,6 +1004,8 @@ def onboard_inspect(
             if root is not None:
                 raise ValueError("--comfy-root applies only to renderer inspection")
             settings = _settings(config)
+            if discord_live and not settings.discord.enabled:
+                raise ValueError("--discord-live requires enabled Discord on PC-A")
             payload = discover_controller(settings).model_dump(mode="json")
             if settings.discord.enabled:
                 payload["discord_preflight"] = asyncio.run(
@@ -3458,6 +3460,8 @@ def qualify_overview(
         if chosen.is_symlink() or not chosen.is_file():
             raise ValueError("Existing non-symlinked PC-A configuration is required")
         settings = _settings(chosen)
+        if discord_live and not settings.discord.enabled:
+            raise ValueError("--discord-live requires enabled Discord on PC-A")
         discord_result = (
             DiscordPreflightObservation.model_validate(
                 asyncio.run(probe_discord(settings.discord, live=discord_live))
