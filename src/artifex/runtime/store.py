@@ -137,6 +137,17 @@ class RuntimeStore:
             row.updated_at = now
             if checkpoint_patch:
                 row.checkpoint_json = {**row.checkpoint_json, **checkpoint_patch}
+            if target is PackState.FINALIZED:
+                # Finalize and enqueue in one DB transaction.
+                if session.get(CompletionNotificationRow, pack_id) is None:
+                    session.add(
+                        CompletionNotificationRow(
+                            pack_id=pack_id,
+                            state="pending",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
         return target
 
     def transition_scene(
