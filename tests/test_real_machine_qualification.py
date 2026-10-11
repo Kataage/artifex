@@ -681,6 +681,100 @@ def test_collect_discord_only_after_real_telemetry(
     database.dispose()
 
 
+
+def test_discord_receipts_remain_bound_after_pruning_and_later_interactions(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    settings.discord = DiscordConfig(
+        enabled=True, guild_id=111, channel_id=222, allowed_user_ids=(333,),
+    )
+    session = service.start(_doctor())
+    telemetry = TelemetryRepository(database)
+    audit = DiscordQualificationAudit(settings.discord, telemetry)
+    commands = ("status", "pause", "resume", "approve", "reject", "retry")
+    for index, command in enumerate(commands):
+        message = (
+            "Artifex paused." if command == "pause"
+            else "Artifex resumed." if command == "resume"
+            else "Success."
+        )
+        assert audit.record_completed(
+            command=command, response=CommandResponse(ok=True, message=message),
+            operator=OperatorContext(user_id=333), interaction_id=10000 + index,
+            guild_id=111, channel_id=222,
+        )
+    recorded = service.record(
+        session.session_id, QualificationStage.DISCORD_CONTROLS,
+        status=QualificationStatus.PASS,
+    )
+    original = recorded.stage(QualificationStage.DISCORD_CONTROLS)
+    receipts = original.details["observed_interactions"]
+    for index in range(15):
+        telemetry.record("routine.health", EventSeverity.INFO, {"index": index})
+    assert telemetry.prune(max_rows=1) == 14
+    assert audit.record_completed(
+        command="status", response=CommandResponse(ok=True, message="Success."),
+        operator=OperatorContext(user_id=333), interaction_id=11000,
+        guild_id=111, channel_id=222,
+    )
+    # A new interaction does not replace the six recorded proof events.
+    verified = service.verify(session.session_id)
+    assert not any("discord_controls" in item for item in verified["issues"])
+    assert service.load(session.session_id).stage(
+        QualificationStage.DISCORD_CONTROLS
+    ).details["observed_interactions"] == receipts
+
+    # Deletion of any one protected row is still detected, never silently
+    # substituted by a different successful interaction.
+    with database.session() as db_session:
+        row = db_session.get(AgentEventRow, receipts[0]["event_id"])
+        assert row is not None
+        db_session.delete(row)
+    invalid = service.verify(session.session_id)
+    assert any("discord_controls" in item for item in invalid["issues"])
+    database.dispose()
+
+
+def test_discord_evidence_collection_uses_recent_events_after_long_history(
+    tmp_path: Path,
+) -> None:
+    service, database, _, _, settings, _ = _service(tmp_path)
+    settings.discord = DiscordConfig(
+        enabled=True, guild_id=111, channel_id=222, allowed_user_ids=(333,),
+    )
+    session = service.start(_doctor())
+    # Oldest-first LIMIT 5000 would hide all six valid events below.
+    with database.session() as db_session:
+        db_session.add_all([
+            AgentEventRow(
+                event_type="discord.interaction_completed", severity="info",
+                payload_json={"response_ok": False}, created_at=session.created_at,
+            ) for _ in range(5001)
+        ])
+    audit = DiscordQualificationAudit(settings.discord, TelemetryRepository(database))
+    for index, command in enumerate(
+        ("status", "pause", "resume", "approve", "reject", "retry")
+    ):
+        message = ("Artifex paused." if command == "pause"
+                   else "Artifex resumed." if command == "resume" else "Success.")
+        assert audit.record_completed(
+            command=command, response=CommandResponse(ok=True, message=message),
+            operator=OperatorContext(user_id=333), interaction_id=20000 + index,
+            guild_id=111, channel_id=222,
+        )
+    result = service.record(
+        session.session_id, QualificationStage.DISCORD_CONTROLS,
+        status=QualificationStatus.PASS,
+    )
+    assert len(result.stage(
+        QualificationStage.DISCORD_CONTROLS
+    ).details["observed_interactions"]) == 6
+    assert not any(
+        "discord_controls" in issue for issue in service.verify(session.session_id)["issues"]
+    )
+    database.dispose()
+
 def test_full_real_machine_ladder_can_only_verify_with_persisted_evidence(
     tmp_path: Path,
 ) -> None:
