@@ -15,6 +15,7 @@ from artifex.discord import (
     DailySummaryBuilder,
     DiscordCommandRouter,
 )
+from artifex.discord.models import Notification
 from artifex.editorial import (
     EditorialRepository,
     EditorialService,
@@ -122,6 +123,8 @@ class DiscordRuntime(Protocol):
     async def close(self) -> None: ...
 
     async def notify(self, notification: Any) -> bool: ...
+
+    async def notify_completion(self, notification: Notification) -> str | None: ...
 
     async def find_completion_message(self, pack_id: str) -> str | None: ...
 
