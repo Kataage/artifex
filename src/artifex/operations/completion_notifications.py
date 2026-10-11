@@ -175,7 +175,10 @@ class CompletionNotificationMaintenance:
                 continue
 
             if message_id is not None and (
-                not message_id.isdecimal() or int(message_id) < 1
+                len(message_id) > 40
+                or not message_id.isascii()
+                or not message_id.isdecimal()
+                or int(message_id) < 1
             ):
                 self._telemetry.record(
                     "discord.completion_reconcile_failed",
