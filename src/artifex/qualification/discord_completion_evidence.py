@@ -7,6 +7,7 @@ Never create/migrate the DB or turn a missing schema into zero notices.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Literal
 
@@ -78,7 +79,7 @@ def inspect_discord_completion_evidence(
     try:
         # mode=ro prevents SQLite from creating a database or writing rows.
         # Never initialize/migrate schema from a read-only overview.
-        with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=2) as db:
+        with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=2)) as db:
             db.execute("PRAGMA query_only=ON")
             columns = {
                 str(row[1]) for row in db.execute(
