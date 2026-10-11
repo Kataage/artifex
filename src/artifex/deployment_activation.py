@@ -12,8 +12,8 @@ from artifex.config.models import ArtifexSettings
 from artifex.deployment import DeploymentReport, DeploymentRole, verify_deployment
 from artifex.render_node.observer_heartbeat import (
     Status as ObserverHeartbeatStatus,
-    inspect_observer_heartbeat,
 )
+from artifex.render_node.observer_heartbeat import inspect_observer_heartbeat
 from artifex.windows_tasks import (
     StartupRole,
     StartupTaskStatus,
@@ -108,7 +108,7 @@ async def activate_deployment(
         # start the watcher as a partial side effect when renderer activation
         # would already fail its known ownership/config checks.
         observer = await asyncio.to_thread(status_fn, "survival-observer")
-        observer_compatible, observer_detail = await asyncio.to_thread(
+        observer_compatible, _observer_detail = await asyncio.to_thread(
             match_fn, "survival-observer", config=config, status=observer
         )
         if apply:
