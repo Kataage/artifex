@@ -18,7 +18,13 @@ from artifex.config.models import (
     ProductionConfig,
 )
 from artifex.db import Database
-from artifex.db.models import GenerationAttemptRow, PackRow, ReviewQueueRow, SceneRow
+from artifex.db.models import (
+    EvaluationRow,
+    GenerationAttemptRow,
+    PackRow,
+    ReviewQueueRow,
+    SceneRow,
+)
 from artifex.domain import (
     AgentState,
     CharacterProfile,
@@ -760,4 +766,67 @@ async def test_similarity_failure_varies_scene_semantics_before_retry(
         assert before_scene["visual"]["clothing"] == after_scene["visual"]["clothing"]
         assert before_scene["visual"]["setting"] == after_scene["visual"]["setting"]
         assert before_scene["visual"]["camera"] != after_scene["visual"]["camera"]
+    database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_restart_after_committed_evaluation_reuses_exact_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CountedProvider(AcceptedProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def evaluate(self, context):
+            self.calls += 1
+            if self.calls != 1:
+                raise AssertionError("restart must not invoke quality evaluation twice")
+            return await super().evaluate(context)
+
+    provider = CountedProvider()
+    database, _, _, packs, reviews, coordinator, backend = _qualification(
+        tmp_path, provider=provider
+    )
+    planned = packs.create_planned_pack(
+        _plan("single_feature", ("char-1",)), concept_id=None,
+    )
+
+    # Kill PC-A after the database evaluation commit, but before the
+    # post-generation policy and selected-attempt scene transition.
+    original_accept = coordinator._handle_accepted_result
+
+    def crash_after_evaluation(scene_id, attempt_id, result):
+        del scene_id, attempt_id, result
+        raise SystemExit("crashed after durable evaluation")
+
+    monkeypatch.setattr(coordinator, "_handle_accepted_result", crash_after_evaluation)
+    with pytest.raises(SystemExit, match="crashed after durable evaluation"):
+        await coordinator.run_pack(planned.pack_id)
+
+    with database.session() as session:
+        assert session.scalar(select(func.count()).select_from(EvaluationRow)) == 1
+        assert session.scalar(select(func.count()).select_from(GenerationAttemptRow)) == 1
+        scene = session.scalar(select(SceneRow))
+        assert scene is not None
+        assert scene.state == "evaluating"
+    assert provider.calls == 1
+    assert backend.calls == 1
+
+    monkeypatch.setattr(coordinator, "_handle_accepted_result", original_accept)
+    await coordinator.recover_pack(planned.pack_id)
+
+    assert packs.require(planned.pack_id).state is PackState.FINALIZED
+    assert provider.calls == 1
+    assert backend.calls == 1
+    with database.session() as session:
+        assert session.scalar(select(func.count()).select_from(EvaluationRow)) == 1
+        assert session.scalar(select(func.count()).select_from(GenerationAttemptRow)) == 1
+        scene = session.scalar(select(SceneRow))
+        assert scene is not None
+        assert scene.state == "accepted"
+        assert scene.selected_attempt_id is not None
+        pack = session.get(PackRow, planned.pack_id)
+        assert pack is not None
+        assert pack.checkpoint_json["archive_complete"] is True
+    assert reviews.list_open() == ()
     database.dispose()
