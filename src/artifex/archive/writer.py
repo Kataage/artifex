@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,7 @@ class PackArchive:
         self._root = root
         self._patreon = patreon or PatreonConfig(enabled=False)
 
+
     def finalize(self, pack_id: str) -> ArchiveResult:
         manifest, output_records, created_at = self._build_manifest(pack_id)
         pack_root = (
@@ -56,37 +59,52 @@ class PackArchive:
             name: pack_root / name
             for name in ("public", "member", "review", "rejected", "metadata", "source")
         }
+        manifest_path = directories["metadata"] / "pack.json"
+
+        # The archive checkpoint is durable BEFORE the coordinator's Pack
+        # FINALIZED transition. A restart in between must reuse the exact
+        # original manifest instead of hashing a mutated SQLite snapshot.
+        with self._database.session() as session:
+            pack = session.get(PackRow, pack_id)
+            if pack is None:
+                raise KeyError(f"unknown pack: {pack_id}")
+            if pack.checkpoint_json.get("archive_complete") is True:
+                return self._restore_completed(pack, pack_root, manifest_path)
+
         for directory in directories.values():
+            if directory.is_symlink():
+                raise ValueError(f"archive directory is a symlink: {directory}")
             directory.mkdir(parents=True, exist_ok=True)
 
         copied: list[Path] = []
-        for record in output_records:
+        for index, record in enumerate(output_records):
             source = Path(record["source_path"]).expanduser()
-            if not source.exists() or not source.is_file():
-                continue
             tier = str(record["archive_tier"])
             destination_dir = directories.get(tier, directories["review"])
-            destination = self._unique_destination(
-                destination_dir,
-                f"{record['scene_id']}_{source.name}",
+            # Stable across retries; separate different attempts and batch
+            # outputs even if they share the same basename.
+            destination = destination_dir / (
+                f"{record['scene_id']}_{record['attempt_id']}_{index:04d}_"
+                f"{source.name}"
             )
-            shutil.copy2(source, destination)
+            file_digest = self._copy_or_verify(source, destination)
             copied.append(destination)
             record["archived_path"] = str(destination)
+            record["sha256"] = file_digest
 
         manifest["archived_outputs"] = output_records
         post_package_path: Path | None = None
         if self._patreon.enabled and self._patreon.generate_post_package:
             post_package = self._build_post_package(manifest, output_records)
             post_package_path = directories["metadata"] / "patreon-post-package.json"
-            post_package_path.write_text(
+            self._write_or_verify(
+                post_package_path,
                 json.dumps(
                     post_package,
                     ensure_ascii=False,
                     indent=2,
                     sort_keys=True,
-                ),
-                encoding="utf-8",
+                ).encode("utf-8"),
             )
             manifest["post_package"] = {
                 "platform": "patreon",
@@ -94,14 +112,13 @@ class PackArchive:
                 "schema_version": post_package["schema_version"],
             }
 
-        manifest_path = directories["metadata"] / "pack.json"
         encoded = json.dumps(
             manifest,
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
         ).encode("utf-8")
-        manifest_path.write_bytes(encoded)
+        self._write_or_verify(manifest_path, encoded)
         digest = hashlib.sha256(encoded).hexdigest()
 
         with self._database.session() as session:
@@ -130,6 +147,134 @@ class PackArchive:
 
         return ArchiveResult(
             pack_id=pack_id,
+            root=pack_root,
+            manifest_path=manifest_path,
+            manifest_sha256=digest,
+            copied_outputs=tuple(copied),
+            post_package_path=post_package_path,
+        )
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @classmethod
+    def _copy_or_verify(cls, source: Path, destination: Path) -> str:
+        if source.is_symlink() or not source.is_file() or source.stat().st_size == 0:
+            raise FileNotFoundError(f"archive source missing, unsafe or empty: {source}")
+        source_digest = cls._sha256(source)
+        if destination.is_symlink():
+            raise ValueError(f"archive destination is a symlink: {destination}")
+        if destination.exists():
+            if (
+                not destination.is_file()
+                or destination.stat().st_size == 0
+                or cls._sha256(destination) != source_digest
+            ):
+                raise ValueError(
+                    f"existing archived output differs from original: {destination}"
+                )
+            return source_digest
+
+        # Publish only a complete file. A crash leaves at most an orphaned
+        # temporary copy, never a partial file at the canonical path.
+        fd, temp_name = tempfile.mkstemp(prefix=".artifex-", dir=destination.parent)
+        os.close(fd)
+        temporary = Path(temp_name)
+        try:
+            shutil.copy2(source, temporary)
+            if cls._sha256(temporary) != source_digest:
+                raise OSError(f"source changed while archiving: {source}")
+            if destination.is_symlink() or destination.exists():
+                raise FileExistsError(
+                    f"archive destination appeared during copy: {destination}"
+                )
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return source_digest
+
+    @staticmethod
+    def _write_or_verify(path: Path, contents: bytes) -> None:
+        if path.is_symlink():
+            raise ValueError(f"archive metadata is a symlink: {path}")
+        if path.exists():
+            if not path.is_file() or path.read_bytes() != contents:
+                raise ValueError(f"archive metadata already differs: {path}")
+            return
+        fd, temp_name = tempfile.mkstemp(prefix=".artifex-", dir=path.parent)
+        temporary = Path(temp_name)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(contents)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if path.is_symlink() or path.exists():
+                raise FileExistsError(f"archive metadata appeared during write: {path}")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @classmethod
+    def _restore_completed(
+        cls, pack: PackRow, pack_root: Path, manifest_path: Path
+    ) -> ArchiveResult:
+        archive = pack.payload_json.get("archive")
+        if not isinstance(archive, dict):
+            raise ValueError("completed archive checkpoint lacks provenance")
+        digest = archive.get("manifest_sha256")
+        if (
+            not isinstance(digest, str)
+            or digest != pack.checkpoint_json.get("archive_manifest_sha256")
+            or archive.get("root") != str(pack_root)
+            or archive.get("manifest_path") != str(manifest_path)
+            or manifest_path.is_symlink()
+            or not manifest_path.is_file()
+            or cls._sha256(manifest_path) != digest
+        ):
+            raise ValueError("saved archive manifest is absent or conflicts with SQLite")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("pack", {}).get("id") != pack.id:
+            raise ValueError("completed archive has wrong Pack identity")
+        outputs = manifest.get("archived_outputs")
+        if not isinstance(outputs, list):
+            raise ValueError("completed archive has no output index")
+        copied: list[Path] = []
+        for record in outputs:
+            if not isinstance(record, dict):
+                raise ValueError("completed archive output record is malformed")
+            raw_path = record.get("archived_path")
+            if not isinstance(raw_path, str):
+                raise ValueError("completed archive output path is missing")
+            archived_path = Path(raw_path)
+            if (
+                archived_path.is_symlink()
+                or not archived_path.is_file()
+                or not archived_path.resolve().is_relative_to(pack_root.resolve())
+                or archived_path.stat().st_size == 0
+            ):
+                raise ValueError(f"completed archive output unavailable: {archived_path}")
+            recorded_hash = record.get("sha256")
+            if recorded_hash is not None and cls._sha256(archived_path) != recorded_hash:
+                raise ValueError(f"completed archive output altered: {archived_path}")
+            copied.append(archived_path)
+        if archive.get("copied_output_count") != len(copied):
+            raise ValueError("completed archive output count conflicts with SQLite")
+        post_raw = archive.get("post_package_path")
+        post_package_path = Path(post_raw) if isinstance(post_raw, str) else None
+        if post_package_path is not None and (
+            post_package_path.is_symlink()
+            or not post_package_path.is_file()
+            or post_package_path.resolve()
+            != (pack_root / "metadata" / "patreon-post-package.json").resolve()
+        ):
+            raise ValueError("completed Patreon post package is missing or unsafe")
+        return ArchiveResult(
+            pack_id=pack.id,
             root=pack_root,
             manifest_path=manifest_path,
             manifest_sha256=digest,
@@ -413,17 +558,3 @@ class PackArchive:
             "private_review": "review",
             "blocked": "review",
         }.get(publication_tier, "review")
-
-    @staticmethod
-    def _unique_destination(directory: Path, filename: str) -> Path:
-        candidate = directory / filename
-        if not candidate.exists():
-            return candidate
-        stem = candidate.stem
-        suffix = candidate.suffix
-        index = 2
-        while True:
-            alternative = directory / f"{stem}_{index}{suffix}"
-            if not alternative.exists():
-                return alternative
-            index += 1
