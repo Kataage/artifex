@@ -225,7 +225,7 @@ class PackArchive:
     ) -> ArchiveResult:
         archive = pack.payload_json.get("archive")
         if not isinstance(archive, dict):
-            raise ValueError("completed archive checkpoint lacks provenance")
+            raise TypeError("completed archive checkpoint lacks provenance")
         digest = archive.get("manifest_sha256")
         if (
             not isinstance(digest, str)
@@ -242,14 +242,14 @@ class PackArchive:
             raise ValueError("completed archive has wrong Pack identity")
         outputs = manifest.get("archived_outputs")
         if not isinstance(outputs, list):
-            raise ValueError("completed archive has no output index")
+            raise TypeError("completed archive has no output index")
         copied: list[Path] = []
         for record in outputs:
             if not isinstance(record, dict):
-                raise ValueError("completed archive output record is malformed")
+                raise TypeError("completed archive output record is malformed")
             raw_path = record.get("archived_path")
             if not isinstance(raw_path, str):
-                raise ValueError("completed archive output path is missing")
+                raise TypeError("completed archive output path is missing")
             archived_path = Path(raw_path)
             if (
                 archived_path.is_symlink()
