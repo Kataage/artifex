@@ -1,5 +1,43 @@
 # Target Windows Production Qualification
 
+## Role-scoped real-machine evidence handoff (PC-A, PC-B, Discord)
+
+The existing controller command summarizes every **unresolved** qualification
+stage as `evidence_handoff.items` without starting services or GPU work:
+
+```powershell
+uv run artifex qualify overview --config config/local.yaml --json
+```
+
+The worklist assigns a responsible role and supporting roles for each of the
+14 canonical stages, its saved (not independently verified) status, the type of
+work involved, and specific safe next actions:
+
+- **PC-A:** environment/doctor baseline, ordinary post-session Pack evidence,
+  unattended monitoring, archived-output reproduction and final verification.
+- **PC-B:** scheduled native ComfyUI/renderer recovery observations; only in
+  an expressly approved safe maintenance window, with current process ownership
+  confirmed and no conflicting active GPU work. Other production stages list
+  PC-B as the supporting renderer rather than pretending PC-A did the rendering.
+- **Discord:** real authorized status, pause, resume, approve, reject and retry
+  control interactions. Only *missing* session-scoped receipt candidates are
+  requested; having all candidates still requires authoritative stage validation.
+
+If the environment is unready, the first task is to resolve the existing
+`action_plan` findings safely. Without a real qualification session, the
+handoff only advises deliberately starting one; it does not demand 14
+artificial test Packs. Once every stage has a terminal recorded status, a
+separate PC-A final-verification task remains. Uncertain or inconsistent
+completion notifications appear as **separate** read-only operational triage,
+never as successful control interactions or permission to resend.
+
+All items have `automated_execution=false`; the handoff exposes no
+auto-executable process commands or new privilege grants. The worklist is
+not evidence, does not register PASS/SKIPPED, does not perform any read-back
+Discord request and does not alter `production_qualified=false` or the
+Issue #40/#93 physical-Windows 14-stage and eight-hour soak requirements.
+
+
 ## Six real Discord control receipts in read-only qualification overview
 
 The existing PC-A `uv run artifex qualify overview --config config/local.yaml --json`

@@ -134,6 +134,13 @@ def test_newest_local_session_is_selected_without_calling_production_verificatio
     assert report.production_qualified is False
     assert report.actual_eight_hour_soak_verified is False
     assert report.action_plan.production_qualified is False
+    handoff = report.evidence_handoff
+    assert handoff.session_id == newer
+    assert handoff.outstanding_stage_items == 11
+    assert "stage-discord_controls" not in [task.id for task in handoff.items]
+    assert "stage-overnight_soak" in [task.id for task in handoff.items]
+    assert handoff.commands_executed is False
+    assert handoff.qualifies_production is False
 
 
 def test_unready_pc_a_is_prioritized_before_saved_stage_evidence(
@@ -646,6 +653,14 @@ def test_overview_cli_reports_missing_discord_database_without_creating_it(
     assert payload["discord_control_evidence"]["qualifies_discord_controls"] is False
     assert payload["production_qualified"] is False
     assert payload["commands_executed"] is False
+    assert payload["evidence_handoff"]["session_id"] is None
+    assert payload["evidence_handoff"]["outstanding_stage_items"] == 0
+    assert payload["evidence_handoff"]["qualifies_production"] is False
+    assert [item["id"] for item in payload["evidence_handoff"]["items"]] == [
+        "environment-prerequisites", "start-session",
+    ]
+    assert payload["evidence_handoff"]["environment_blocked"] is True
+    assert payload["evidence_handoff"]["items"][1]["safety"] == "explicit_session_start"
     assert not database_path.parent.exists()
 
 
@@ -694,6 +709,15 @@ def test_overview_control_receipts_are_bound_to_selected_session_only(
     assert overview.discord_delivery_verified is False
     assert overview.unresolved_stage_count == 14
     assert overview.production_qualified is False
+    handoff = overview.evidence_handoff
+    assert handoff.outstanding_stage_items == 14
+    discord_task = next(item for item in handoff.items if item.stage == "discord_controls")
+    assert discord_task.responsible_role == "discord"
+    assert "approve, pause, reject, resume, retry" in discord_task.next_action
+    assert handoff.qualifies_production is False
+    assert QualificationOverview.model_validate(
+        overview.model_dump(mode="json")
+    ).evidence_handoff == handoff
     assert QualificationOverview.model_validate(
         overview.model_dump(mode="json")
     ).discord_control_evidence == overview.discord_control_evidence
