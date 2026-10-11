@@ -261,3 +261,45 @@ async def test_completion_send_refuses_disabled_or_inaccessible_channel() -> Non
         await bot.notify_completion(Notification(
             kind=NotificationKind.ERROR, title="error", body="error",
         ))
+
+
+@pytest.mark.asyncio
+async def test_exact_discord_message_receipt_checks_author_and_marker() -> None:
+    channel = _receipt_channel(1133557798)
+    bot = _receipt_bot(channel)
+    bot._connection.user = SimpleNamespace(id=777)
+    channel.fetch_message = AsyncMock(return_value=SimpleNamespace(
+        id=1133557798,
+        author=SimpleNamespace(id=777),
+        content="**Artifex Pack completed**\nPack: pack-1\nArtifex-Completion-ID: pack-1",
+    ))
+    assert await bot.verify_completion_message("pack-1", "1133557798") is True
+    channel.fetch_message.assert_awaited_once_with(1133557798)
+    for message in (
+        SimpleNamespace(
+            id=1133557798, author=SimpleNamespace(id=999),
+            content="**Artifex Pack completed**\nArtifex-Completion-ID: pack-1",
+        ),
+        SimpleNamespace(
+            id=1133557798, author=SimpleNamespace(id=777),
+            content="**Artifex Pack completed**\nArtifex-Completion-ID: pack-10",
+        ),
+        SimpleNamespace(
+            id=1133557799, author=SimpleNamespace(id=777),
+            content="**Artifex Pack completed**\nArtifex-Completion-ID: pack-1",
+        ),
+    ):
+        channel.fetch_message = AsyncMock(return_value=message)
+        assert await bot.verify_completion_message("pack-1", "1133557798") is False
+    channel.send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_exact_receipt_refuses_unavailable_history_without_posting() -> None:
+    channel = _receipt_channel(1133557798)
+    channel.permissions_for.return_value.read_message_history = False
+    bot = _receipt_bot(channel)
+    bot._connection.user = SimpleNamespace(id=777)
+    with pytest.raises(PermissionError, match="Read Message History"):
+        await bot.verify_completion_message("pack-1", "1133557798")
+    channel.send.assert_not_awaited()

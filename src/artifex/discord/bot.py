@@ -335,6 +335,43 @@ class ArtifexDiscordClient(discord.Client):
             channel, pack_id=pack_id, bot_user_id=bot_user.id
         )
 
+    async def verify_completion_message(
+        self, pack_id: str, message_id: str,
+    ) -> bool:
+        """GET an exact saved message; require same bot and Pack marker.
+
+        A missing, edited, or foreign message is not independently verified.
+        An HTTP/permission failure propagates to maintenance for safe retry.
+        This operation never posts, unarchives, or changes a notice state.
+        """
+        channel = self._notification_channel()
+        bot_user = self.user
+        if channel is None or bot_user is None:
+            raise PermissionError("Configured Discord channel/bot is unavailable")
+        accessible, reason = assess_notification_channel_access(
+            channel, require_history=True, require_send=False,
+        )
+        if not accessible:
+            raise PermissionError(reason)
+        if (
+            not isinstance(message_id, str)
+            or not message_id.isascii()
+            or not message_id.isdecimal()
+            or not 0 < int(message_id) < 2**64
+        ):
+            raise ValueError("Invalid Discord message ID for read-only verification")
+        try:
+            message = await channel.fetch_message(int(message_id))
+        except discord.NotFound:
+            # 404 cannot authorize a resend: the post may have been deleted.
+            return False
+        return (
+            message.id == int(message_id)
+            and message.author.id == bot_user.id
+            and message.content.startswith("**Artifex Pack completed**\n")
+            and completion_marker(pack_id) in message.content.splitlines()
+        )
+
     def _notification_channel(
         self,
     ) -> discord.TextChannel | discord.Thread | None:

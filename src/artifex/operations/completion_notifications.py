@@ -37,6 +37,7 @@ class CompletionSink(Protocol):
     def is_ready(self) -> bool: ...
     async def notify_completion(self, notification: Notification) -> str | None: ...
     async def find_completion_message(self, pack_id: str) -> str | None: ...
+    async def verify_completion_message(self, pack_id: str, message_id: str) -> bool: ...
 
 
 class CompletionNotificationMaintenance:
@@ -216,10 +217,82 @@ class CompletionNotificationMaintenance:
                     continue
                 item.state = "sent"
                 item.discord_message_id = message_id
+                # A positive, author- and marker-checked channel-history
+                # match already proves the saved message's identity.
+                item.discord_verified_at = datetime.now(UTC)
                 item.updated_at = datetime.now(UTC)
 
             self._telemetry.record(
                 "discord.completion_reconciled",
+                EventSeverity.INFO,
+                {"pack_id": pack_id, "discord_message_id": message_id},
+            )
+
+        await self._verify_sent_receipts()
+
+    async def _verify_sent_receipts(self) -> None:
+        """Bounded GET-only verification of actual messages by their saved IDs.
+
+        The API accepted a send, but that is not the same as independently
+        verifying the bot-authored Pack post. No negative check resends or
+        changes 'sent'; only positive matches set discord_verified_at.
+        """
+        with self._database.session() as session:
+            items = session.scalars(
+                select(CompletionNotificationRow)
+                .where(
+                    CompletionNotificationRow.state == "sent",
+                    CompletionNotificationRow.discord_message_id.is_not(None),
+                    CompletionNotificationRow.discord_verified_at.is_(None),
+                )
+                .order_by(
+                    CompletionNotificationRow.updated_at.asc(),
+                    CompletionNotificationRow.pack_id.asc(),
+                )
+                .limit(self._reconcile_batch_size)
+            ).all()
+            candidates = [
+                (item.pack_id, item.discord_message_id)
+                for item in items if item.discord_message_id is not None
+            ]
+
+        for pack_id, message_id in candidates:
+            try:
+                verified = await self._sink.verify_completion_message(
+                    pack_id, message_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._telemetry.record(
+                    "discord.completion_receipt_check_failed",
+                    EventSeverity.WARNING,
+                    {"pack_id": pack_id, "reason": type(exc).__name__},
+                )
+                verified = False
+            if not verified:
+                # Rotate failed/unknown proofs. An absent message can have
+                # been deleted, and a failed GET never permits resending.
+                with self._database.session() as session:
+                    item = session.get(CompletionNotificationRow, pack_id)
+                    if (
+                        item is not None
+                        and item.state == "sent"
+                        and item.discord_message_id == message_id
+                        and item.discord_verified_at is None
+                    ):
+                        item.updated_at = datetime.now(UTC)
+                continue
+            with self._database.session() as session:
+                item = session.get(CompletionNotificationRow, pack_id)
+                if (
+                    item is None
+                    or item.state != "sent"
+                    or item.discord_message_id != message_id
+                    or item.discord_verified_at is not None
+                ):
+                    continue
+                item.discord_verified_at = datetime.now(UTC)
+            self._telemetry.record(
+                "discord.completion_receipt_verified",
                 EventSeverity.INFO,
                 {"pack_id": pack_id, "discord_message_id": message_id},
             )

@@ -1,5 +1,28 @@
 # Target Windows Production Qualification
 
+## Automatic read-only Discord completion receipt verification
+
+Discord's successful send API returns a message ID, but that alone is
+**API acceptance**, not independent confirmation of the actual message.
+The completion maintenance worker now checks a small, rate-limited batch
+of saved `sent` receipts through the exact Discord message GET endpoint.
+It requires the configured channel, the current bot as author, the exact
+saved message ID, the expected completion heading, and the exact Pack
+marker. Only a matching result stores `discord_verified_at` in SQLite.
+
+A missing, deleted, edited, foreign-authored, or temporarily inaccessible
+message stays **unverified**. No negative GET changes a Pack's `sent`
+status, grants authorization or triggers a resend. Failed checks rotate
+through the queue without stalling other notices. History-reconciled
+`uncertain` notices already have matching bot/Pack evidence and are marked
+verified at reconciliation time. `/artifex notice` now distinguishes
+`Discord API message ID` from `Remote message identity: verified`
+and includes `discord_verified_at`. These checks run only with a
+configured live PC-A bot, require Read Message History, perform no
+Discord writes, and do not qualify actual operator readership, two-PC
+GPU execution, or the eight-hour soak (#40/#93).
+
+
 ## Discord completion API receipt persistence
 
 When the PC-A bot posts a Pack completion notification, it now records the

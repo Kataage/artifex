@@ -19,6 +19,9 @@ class FakeCompletionSink:
         self.ready = True
         self.deliver = True
         self.receipt_id: str = "1133557798"
+        self.verify_receipt = True
+        self.verify_fail: Exception | None = None
+        self.receipt_lookups: list[tuple[str, str]] = []
         self.fail_after_send: BaseException | None = None
         self.messages: list[object] = []
         self.history_results: dict[str, str | None] = {}
@@ -39,6 +42,14 @@ class FakeCompletionSink:
     async def notify_completion(self, notification: object) -> str | None:
         sent = await self.notify(notification)
         return self.receipt_id if sent else None
+
+    async def verify_completion_message(
+        self, pack_id: str, message_id: str,
+    ) -> bool:
+        self.receipt_lookups.append((pack_id, message_id))
+        if self.verify_fail is not None:
+            raise self.verify_fail
+        return self.verify_receipt
 
     async def find_completion_message(self, pack_id: str) -> str | None:
         self.lookups.append(pack_id)
@@ -96,6 +107,8 @@ async def test_finalization_atomically_enqueues_and_dispatches_once(
         receipt = session.get(CompletionNotificationRow, "pack-1")
         assert receipt is not None
         assert receipt.discord_message_id == sink.receipt_id
+        assert receipt.discord_verified_at is not None
+    assert sink.receipt_lookups == [("pack-1", sink.receipt_id)]
 
     restarted = CompletionNotificationMaintenance(db, telemetry, sink)
     assert await restarted.maintain() == 0
@@ -207,6 +220,7 @@ async def test_ambiguous_discord_reply_reconciles_existing_post_without_resend(
         row = session.get(CompletionNotificationRow, "pack-1")
         assert row is not None
         assert row.discord_message_id == "1133557799"
+        assert row.discord_verified_at is not None
     assert any(
         event.event_type == "discord.completion_reconciled"
         and event.payload["discord_message_id"] == "1133557799"
@@ -341,4 +355,62 @@ async def test_invalid_success_receipt_is_quarantined_without_resend(
         and event.payload["reason"] == "invalid_send_message_id"
         for event in telemetry.recent()
     )
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_unverified_api_receipt_is_never_resend_or_misreported(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.verify_receipt = False
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    assert await worker.maintain() == 1
+    assert _state(db) == "sent"
+    assert len(sink.messages) == 1
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None
+        assert row.discord_message_id == sink.receipt_id
+        assert row.discord_verified_at is None
+    # Negative exact-message GET cannot justify a new send.
+    assert await worker.maintain() == 0
+    assert len(sink.messages) == 1
+    sink.verify_receipt = True
+    assert await worker.maintain() == 0
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None and row.discord_verified_at is not None
+    assert len(sink.messages) == 1
+    db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_receipt_api_error_preserves_sent_state_and_can_recover(
+    tmp_path: Path,
+) -> None:
+    db, telemetry = _setup(tmp_path)
+    sink = FakeCompletionSink()
+    sink.verify_fail = PermissionError("read history denied")
+    worker = CompletionNotificationMaintenance(
+        db, telemetry, sink, reconcile_interval_seconds=0,
+    )
+    assert await worker.maintain() == 1
+    assert _state(db) == "sent"
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None and row.discord_verified_at is None
+    assert any(
+        event.event_type == "discord.completion_receipt_check_failed"
+        for event in telemetry.recent()
+    )
+    sink.verify_fail = None
+    assert await worker.maintain() == 0
+    with db.session() as session:
+        row = session.get(CompletionNotificationRow, "pack-1")
+        assert row is not None and row.discord_verified_at is not None
+    assert len(sink.messages) == 1
     db.dispose()
