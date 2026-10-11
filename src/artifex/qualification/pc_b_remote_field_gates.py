@@ -79,7 +79,11 @@ def _safe_cached_status(report: dict[str, Any], key: str) -> Literal[
     if not isinstance(entry, dict):
         return "not_observed"
     status = entry.get("status")
-    return status if status in {"pass", "fail"} else "not_observed"
+    if status == "pass":
+        return "pass"
+    if status == "fail":
+        return "fail"
+    return "not_observed"
 
 
 def compile_remote_pc_b_passive_gates(
@@ -158,6 +162,7 @@ def compile_remote_pc_b_passive_gates(
             or fixture != "pass" or live_owner != "pass"
             or owner_obj.get("status") != "observed_stable"
             or not valid_pid or started_utc is None
+            or origin.captured_utc.tzinfo is None
             or started_utc > origin.captured_utc.astimezone(UTC)
             or not isinstance(data.get("host"), str)
             or data["host"].strip().casefold() != origin.hostname.strip().casefold()
