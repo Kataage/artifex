@@ -190,3 +190,74 @@ async def test_archived_public_thread_can_still_reconcile_by_read_only_history(
         thread, pack_id="pack-1", bot_user_id=777,
     )
     thread.send.assert_not_called()
+
+
+def _receipt_bot(channel: MagicMock) -> ArtifexDiscordClient:
+    config = DiscordConfig(
+        enabled=True, guild_id=77, channel_id=88, allowed_user_ids=(100,),
+    )
+    router = DiscordCommandRouter(AuthorizationPolicy(config), FakeOperations())
+    bot = ArtifexDiscordClient(config, router, MagicMock())
+    bot.get_channel = MagicMock(return_value=channel)
+    return bot
+
+
+def _receipt_channel(message_id: object) -> MagicMock:
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.guild = SimpleNamespace(me=object(), id=77)
+    channel.permissions_for.return_value = SimpleNamespace(
+        view_channel=True, send_messages=True, read_message_history=True,
+    )
+    channel.send = AsyncMock(return_value=SimpleNamespace(id=message_id))
+    return channel
+
+
+@pytest.mark.asyncio
+async def test_completion_send_returns_real_discord_api_message_id() -> None:
+    channel = _receipt_channel(1133557798)
+    bot = _receipt_bot(channel)
+    notice = Notification(
+        kind=NotificationKind.COMPLETION,
+        title="Artifex Pack completed",
+        body="Pack: pack-1",
+    )
+    assert await bot.notify_completion(notice) == "1133557798"
+    channel.send.assert_awaited_once_with(
+        "**Artifex Pack completed**\nPack: pack-1",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message_id",
+    [None, 0, -1, True, "1133557798", 2**64],
+)
+async def test_completion_send_invalid_discord_receipt_is_ambiguous(
+    message_id: object,
+) -> None:
+    channel = _receipt_channel(message_id)
+    bot = _receipt_bot(channel)
+    with pytest.raises(ValueError, match="invalid message ID after send"):
+        await bot.notify_completion(Notification(
+            kind=NotificationKind.COMPLETION,
+            title="Artifex Pack completed",
+            body="Pack: pack-1",
+        ))
+    channel.send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_completion_send_refuses_disabled_or_inaccessible_channel() -> None:
+    channel = _receipt_channel(1133557798)
+    channel.permissions_for.return_value.send_messages = False
+    bot = _receipt_bot(channel)
+    assert await bot.notify_completion(Notification(
+        kind=NotificationKind.COMPLETION,
+        title="Artifex Pack completed",
+        body="Pack: pack-1",
+    )) is None
+    channel.send.assert_not_awaited()
+    with pytest.raises(ValueError, match="completion notification"):
+        await bot.notify_completion(Notification(
+            kind=NotificationKind.ERROR, title="error", body="error",
+        ))
