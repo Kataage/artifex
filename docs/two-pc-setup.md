@@ -1,5 +1,38 @@
 # Two-PC Artifex topology
 
+## Discord operational channel scope and readiness
+
+When `discord.guild_id` and/or `discord.channel_id` are configured,
+**all** Discord slash commands and review-button callbacks now verify the
+*actual* interaction's guild/channel in addition to the existing allowed
+user/role list. A permitted account invoking a control command in a DM,
+different channel or foreign guild is denied before operations execute;
+an absent guild/channel does not bypass configured restrictions. Use the
+same configured control channel for interactive review buttons. Setting
+both IDs is recommended for a dedicated private operations channel.
+
+Discord `is_ready()` alone is not sufficient evidence of notification
+delivery. The PC-A bot now checks that the configured notification channel
+is accessible, belongs to the configured guild, and allows View Channel
+and Send Messages (or Send Messages in Threads). When completion
+notifications are enabled, its health additionally requires **Read Message
+History**, needed to recover ambiguous sends without duplication. A
+missing channel or insufficient permissions yields a **degraded Discord
+health component** with the specific permission problem; this is
+non-blocking for local GPU production but must be resolved before a real
+Discord delivery qualification. The bot refuses direct notification sends
+when channel send permissions cannot be established. Read-only Discord
+history reconciliation fails closed when access cannot be verified.
+No live Discord channel was accessed by CI.
+
+The configured channel can be private. Grant the bot and intended
+operators appropriate scoped permissions; ensure the bot sees the channel
+after connection and that slash commands are registered in the intended
+guild. Validated local command registration in a test client does not prove
+remote Discord guild command synchronization or actual delivery. The
+remaining real-machine checks in #40/#93 must still be performed.
+
+
 ## Discord completion notification triage (operator commands)
 
 Artifex's authorized Discord users/roles can use the following private
