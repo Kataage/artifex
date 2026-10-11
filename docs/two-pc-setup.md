@@ -1,5 +1,31 @@
 # Two-PC Artifex topology
 
+## Native deployment activation requires a running task AND service health
+
+On PC-A and separately on PC-B, `uv run artifex deployment activate`
+remains read-only by default; `--apply` is required to start an existing
+owned Windows task. After each controller/renderer health verification, the
+command re-reads the **actual** local Task Scheduler registration and
+checks the full expected executable/config/working-directory policy.
+`ActivationReport.ready=true` now requires **all three** observations:
+the task remains correctly registered, its current state is `Running`,
+and the live deployment/service checks are ready. A healthy old/foreign
+HTTP endpoint cannot by itself declare the new Artifex task activated.
+Conversely, the scheduler's `Running` label cannot by itself prove live
+services or GPU availability.
+
+The report exposes `task_running_observed` and the most recently
+observed `task` so a stopped task is distinguishable from a failed
+health check. With explicit `--apply`, a task that is still starting
+can be observed again within the existing bounded wait window; an
+unowned/drifted registration fails closed instead of looping or
+automatically replacing the task. This is a *local* Windows Task Scheduler
+observation, not historical process ancestry, actual native GPU work,
+14-stage acceptance or eight-hour unattended qualification. It does not
+start/stop/adopt ComfyUI, submit a GPU image or authorize any qualification
+stage. CI covers these transitions with mocked native task states, not
+the operator's actual PC-A or PC-B.
+
 ## Windows Task Scheduler start-time safety recheck
 
 The PC-A/PC-B bring-up command `uv run artifex deployment activate` is
