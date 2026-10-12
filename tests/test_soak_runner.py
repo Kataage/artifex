@@ -76,6 +76,7 @@ def _run_setup(
         path = kwargs["output"]
         calls.append(("observe", (path, kwargs["qualification_session_id"])))
         calls.append(("duration_hours", kwargs["duration_hours"]))
+        assert kwargs["require_daemon_observation"] is True
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"synthetic test data")
         if kwargs["on_sample"] is not None:
