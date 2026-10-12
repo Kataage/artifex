@@ -1425,9 +1425,15 @@ newest saved `qualification.evidence_dir/owner-pair` JSON. It correlates
 the disposable Python launch fixture and current ComfyUI owner, two saved
 independent owner snapshots, and any naturally observed supervisor exit. It
 also checks that each authenticated current listener PID agrees across the
-three evidence paths. A missing Bearer token triggers **no** remote requests;
-unavailable, stale, failed, mismatched, or missing proofs are reported as
-`needs_evidence` or `conflict`, not silently upgraded. No remote commands,
+three evidence paths. At the **end** of this multi-read operation it separately
+verifies the acquisition time on **each** report (owner correlation, saved
+pair review and survival review): observations older than three minutes or
+more than 30 seconds in the future are not counted, even if their own status
+says success. Transport timeouts return a redacted unavailable state, never
+a success or leaked bearer/exception string. A missing Bearer token triggers
+**no** remote requests; unavailable, stale, failed, mismatched, or missing
+proofs are reported as `needs_evidence` or `conflict`, not silently
+upgraded. No remote commands,
 process restarts, ComfyUI operations, task changes or GPU requests occur.
 
 Even an `observations_correlated` result is **not** Issue #93 acceptance:
