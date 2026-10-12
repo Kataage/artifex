@@ -130,6 +130,7 @@ jobs:
       - run: uv run artifex qualify collect --help
       - run: uv run artifex qualify archive-reproduce --help
       - run: uv run artifex qualify soak-run --help
+      - run: uv run pytest -q tests/test_soak_start_preflight.py tests/test_soak_runner.py
       - run: uv run artifex qualify soak-observe --help
       - run: uv run artifex qualify soak-check --help
       - run: uv run artifex onboard inspect --help
