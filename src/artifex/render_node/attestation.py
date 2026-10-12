@@ -123,7 +123,7 @@ def _lora_inventory(
     for root in config.lora_roots:
         base = root.expanduser().resolve(strict=False)
         if not base.exists():
-            errors.append({"path": str(base), "error": "LoRA root does not exist"})
+            errors.append({"path": "lora_root", "error": "lora_root_missing"})
             continue
         paths = sorted(
             (
@@ -140,8 +140,8 @@ def _lora_inventory(
                 if relative.casefold() in seen_names:
                     errors.append(
                         {
-                            "path": str(path),
-                            "error": "duplicate renderer-relative LoRA asset name",
+                            "path": "lora_asset",
+                            "error": "duplicate_relative_lora_asset",
                         }
                     )
                     continue
@@ -150,8 +150,11 @@ def _lora_inventory(
                     max_header_bytes=config.metadata_header_max_mib * 1024 * 1024,
                 )
                 checksum = sha256_file(path)
-            except (OSError, SafeTensorMetadataError, ValueError) as exc:
-                errors.append({"path": str(path), "error": str(exc)})
+            except (OSError, SafeTensorMetadataError, ValueError):
+                # Untrusted file errors can contain private paths and URLs.
+                # PC-A only needs a nonempty inventory_errors to avoid
+                # invalidating LoRAs when a remote scan is incomplete.
+                errors.append({"path": "lora_asset", "error": "lora_asset_unreadable"})
                 continue
             seen_names.add(relative.casefold())
             items.append(
@@ -174,8 +177,10 @@ def build_attestation(settings: ArtifexSettings) -> RenderNodeAttestation:
     for label, path in sorted(settings.render_agent.asset_paths.items()):
         try:
             assets.append(digest_path(label, path))
-        except (OSError, ValueError) as exc:
-            errors.append({"path": str(path), "error": f"{label}: {exc}"})
+        except (OSError, ValueError):
+            # This report may be served by legacy public attestation.
+            # Never include configured file paths or raw exception messages.
+            errors.append({"path": "asset", "error": "asset_unavailable"})
     loras, lora_errors = _lora_inventory(settings)
     errors.extend(lora_errors)
     return RenderNodeAttestation(
