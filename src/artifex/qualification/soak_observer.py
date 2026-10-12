@@ -557,24 +557,24 @@ def verify_soak_evidence(
             problems.append(f"Sample {index}: " + ", ".join(item.errors[:3]))
         if daemon_required:
             fingerprint = item.daemon_loop_fingerprint
-            issue: str | None = None
+            daemon_issue: str | None = None
             if item.daemon_state != "observed_active_loop":
-                issue = "PC-A autonomous daemon was not observed active"
+                daemon_issue = "PC-A autonomous daemon was not observed active"
             elif (
                 not isinstance(fingerprint, str)
                 or len(fingerprint) != 64
                 or any(c not in "0123456789abcdef" for c in fingerprint)
             ):
-                issue = "PC-A autonomous daemon loop fingerprint missing or invalid"
+                daemon_issue = "PC-A autonomous daemon loop fingerprint missing or invalid"
             else:
                 daemon_observed_samples += 1
                 if original_daemon_fingerprint is None:
                     original_daemon_fingerprint = fingerprint
                 elif fingerprint != original_daemon_fingerprint:
-                    issue = "PC-A autonomous daemon loop changed during unattended run"
-            if issue is not None:
+                    daemon_issue = "PC-A autonomous daemon loop changed during unattended run"
+            if daemon_issue is not None:
                 daemon_incidents += 1
-                problems.append(f"Sample {index}: {issue}")
+                problems.append(f"Sample {index}: {daemon_issue}")
         if owner_required:
             owner = item.owner_observation
             issue: str | None = None
