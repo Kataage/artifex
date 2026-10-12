@@ -28,8 +28,15 @@ monitoring. If the loop stops, the observer fsyncs a failed sample and ends
 early rather than wasting the remaining hours. All legacy monitoring traces
 remain inspectable, but cannot satisfy a new production OVERNIGHT_SOAK PASS.
 The monitor never restarts or kills a service, writes database rows, or submits
-GPU work. As with the existing PC-B checks, periodic samples cannot establish
-every instant between intervals; real-machine qualification remains required.
+GPU work. During long **asynchronous** ComfyUI/Pack awaits, the daemon owns a
+lightweight heartbeat task (using the configured operations heartbeat interval)
+so these legitimate production steps do not falsely appear stopped merely
+because the main scheduling iteration is busy. The task is cancelled as the
+daemon exits. It is only an event-loop liveness signal: a blocked process, a
+stalled loop, a stopped task or a failed SQLite write must not be treated as a
+production PASS. As with the existing PC-B checks, periodic samples cannot
+establish every instant between intervals; real-machine qualification remains
+required.
 
 
 `uv run artifex qualify soak-run --config config/local.yaml` now performs
