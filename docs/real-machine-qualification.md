@@ -2267,6 +2267,9 @@ venv redirector may preserve the original configured venv `argv[0]` after
 launching the base Python interpreter; only the **exact configured venv
 executable** or **actual CIM interpreter executable** with the entire
 configured argument vector is accepted, never an arbitrary command prefix.
+Windows CIM may surround the executable path with double quotes even when
+not strictly necessary; quoting just this verified `argv[0]` is accepted.
+Extra options, injected code or unrecognized command prefixes remain blocked.
 The child creation
 timestamp must follow the launcher by **no more than 120 seconds**, since a
 Windows venv shim spawns its interpreter before lengthy model loading.
