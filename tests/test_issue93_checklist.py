@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+import httpx
 from pathlib import Path
 
 import pytest
@@ -383,3 +385,86 @@ def test_issue93_cli_refresh_refuses_symlinked_evidence_directory(
     ])
     assert outcome.exit_code == 1
     assert not list(actual.iterdir())
+
+
+@pytest.mark.parametrize("source", ["owner", "pair", "survival"])
+@pytest.mark.parametrize("offset_seconds", [-181, 31])
+def test_independent_success_status_requires_current_observation_timestamp(
+    monkeypatch: pytest.MonkeyPatch, source: str, offset_seconds: int,
+) -> None:
+    """A replayed/future 'success' cannot become cross-source evidence."""
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "fixture")
+    results = {
+        "owner": _owner(),
+        "pair": _pair(),
+        "survival": _survival(),
+    }
+    old_time = NOW + timedelta(seconds=offset_seconds)
+    field = "reviewed_utc" if source == "survival" else "checked_utc"
+    results[source] = results[source].model_copy(update={field: old_time})
+    report = compile_issue93_checklist(
+        _settings(), now=lambda: NOW,
+        owner_fetch=lambda _: results["owner"],
+        pair_fetch=lambda _: results["pair"],
+        survival_fetch=lambda _: results["survival"],
+    )
+    assert report.status == "needs_evidence"
+    assert report.observed_checks == 2
+    assert report.missing_checks == 2
+    assert report.conflicting_checks == 0
+    assert getattr(report, {
+        "owner": "owner_readiness_status",
+        "pair": "saved_owner_pair_status",
+        "survival": "natural_exit_trace_status",
+    }[source]) == "observation_timestamp_untrusted"
+    assert report.checks[-1].state == "missing"
+    assert not report.issue_93_closure_authorized
+    assert not report.production_qualified
+
+
+@pytest.mark.parametrize("source", ["owner", "pair", "survival"])
+def test_issue93_read_timeout_is_reported_not_raised(
+    monkeypatch: pytest.MonkeyPatch, source: str,
+) -> None:
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "fixture")
+
+    def timeout(_: ArtifexSettings):
+        raise httpx.ReadTimeout("PRIVATE bearer token not for diagnostics")
+
+    probe = {
+        "owner": lambda _: _owner(),
+        "pair": lambda _: _pair(),
+        "survival": lambda _: _survival(),
+    }
+    probe[source] = timeout
+    report = compile_issue93_checklist(
+        _settings(), now=lambda: NOW,
+        owner_fetch=probe["owner"],
+        pair_fetch=probe["pair"],
+        survival_fetch=probe["survival"],
+    )
+    assert report.status == "needs_evidence"
+    assert report.missing_checks == 2
+    assert "PRIVATE" not in report.model_dump_json()
+    assert "bearer token" not in report.model_dump_json()
+    assert not report.production_qualified
+
+
+@pytest.mark.parametrize("offset_seconds", [-180, 30])
+def test_issue93_timestamp_skew_boundary_is_accepted_only_as_observation(
+    monkeypatch: pytest.MonkeyPatch, offset_seconds: int,
+) -> None:
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "fixture")
+    observed_time = NOW + timedelta(seconds=offset_seconds)
+    owner = _owner().model_copy(update={"checked_utc": observed_time})
+    pair = _pair().model_copy(update={"checked_utc": observed_time})
+    survival = _survival().model_copy(update={"reviewed_utc": observed_time})
+    report = compile_issue93_checklist(
+        _settings(), now=lambda: NOW,
+        owner_fetch=lambda _: owner,
+        pair_fetch=lambda _: pair,
+        survival_fetch=lambda _: survival,
+    )
+    assert report.status == "observations_correlated"
+    assert not report.issue_93_closure_authorized
+    assert not report.issue_40_closure_authorized
