@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import Protocol
 from uuid import uuid4
 
@@ -47,6 +48,7 @@ class RuntimeDaemon:
         maintenance: RuntimeMaintenance | None = None,
         idle_maintenance: RuntimeMaintenance | None = None,
         telemetry: TelemetryRepository | None = None,
+        heartbeat_interval_seconds: float | None = None,
     ) -> None:
         self._runtime = runtime
         self._scheduler = scheduler
@@ -56,6 +58,9 @@ class RuntimeDaemon:
         self._idle_maintenance = idle_maintenance
         self._stop_requested = False
         self._telemetry = telemetry
+        if heartbeat_interval_seconds is not None and heartbeat_interval_seconds <= 0:
+            raise ValueError("continuous daemon heartbeat interval must be positive")
+        self._heartbeat_interval_seconds = heartbeat_interval_seconds
         # Present only for work scheduled inside a continuous daemon loop.
         # Manual run_once calls never produce unattended production evidence.
         self._continuous_run_id: str | None = None
@@ -142,6 +147,14 @@ class RuntimeDaemon:
         )
 
 
+    async def _pulse_continuous_heartbeat(self) -> None:
+        """Keep heartbeat fresh while the main loop awaits a long GPU Pack."""
+        assert self._telemetry is not None
+        assert self._heartbeat_interval_seconds is not None
+        while True:
+            self._telemetry.heartbeat()
+            await asyncio.sleep(self._heartbeat_interval_seconds)
+
     async def run_forever(self) -> None:
         self.start()
         run_id = uuid4().hex
@@ -150,7 +163,10 @@ class RuntimeDaemon:
             self._telemetry.record(
                 "daemon.loop_started", EventSeverity.INFO, {"run_id": run_id},
             )
+        pulse: asyncio.Task[None] | None = None
         try:
+            if self._telemetry is not None and self._heartbeat_interval_seconds is not None:
+                pulse = asyncio.create_task(self._pulse_continuous_heartbeat())
             while not self._stop_requested:
                 if self._maintenance is not None:
                     await self._maintenance.maintain()
@@ -162,6 +178,13 @@ class RuntimeDaemon:
                     await self._idle_maintenance.maintain()
                 await asyncio.sleep(self._config.poll_interval_seconds)
         finally:
+            if pulse is not None:
+                pulse.cancel()
+                # A failed periodic pulse must never suppress the loop-stopped
+                # provenance marker. The independent soak monitor will reject
+                # a stale heartbeat without restarting any process.
+                with suppress(asyncio.CancelledError, Exception):
+                    await pulse
             self._continuous_run_id = None
             if self._telemetry is not None:
                 self._telemetry.record(
