@@ -214,6 +214,29 @@ class ManagedComfyUI:
                 "or automatic replacement"
             )
 
+    def _require_launcher_exited_for_replacement(
+        self, receipt: ComfyOwnershipReceipt,
+    ) -> None:
+        """A live Windows venv shim may still create or supervise a listener.
+
+        A missing *child* TCP PID and an empty port do not prove that its
+        original launcher is gone. Never abandon the old receipt and spawn
+        a second ComfyUI while that launcher can still act.
+        """
+        launcher = receipt.launcher_identity
+        if launcher is None:
+            return
+        observed = windows_process_identity(launcher.pid)
+        if observed is not None:
+            if observed != launcher:
+                raise RuntimeError(
+                    "Recorded ComfyUI launcher PID was reused; refusing replacement"
+                )
+            raise RuntimeError(
+                "Recorded ComfyUI launcher is still alive after its listener exited; "
+                "refusing a competing automatic restart"
+            )
+
     def _verify_owned_listener(self) -> None:
         if not self.settings.render_agent.gateway.enabled:
             return
@@ -321,6 +344,9 @@ class ManagedComfyUI:
         self._verify_receipt_launcher(receipt)
         observed = windows_process_identity(receipt.identity.pid)
         if observed is None:
+            # A venv shim can remain active after its child disappears.
+            # Never retire its receipt while it might create another listener.
+            self._require_launcher_exited_for_replacement(receipt)
             # Natural child death, with the TCP port demonstrably free, lets
             # the new supervisor safely launch a replacement.
             if self._healthy():
@@ -356,6 +382,9 @@ class ManagedComfyUI:
             raise RuntimeError(
                 "Prior ComfyUI PID is still in use; refusing automatic replacement"
             )
+        # Recheck launcher liveness immediately before retiring ownership.
+        # Only an exited launcher + exited child + free port permit restart.
+        self._require_launcher_exited_for_replacement(receipt)
         self._require_free_upstream()
         self._receipts.retire(receipt)
         self._current_receipt = None
