@@ -749,6 +749,7 @@ def build_application(settings: ArtifexSettings) -> ArtifexApplication:
         maintenance=MaintenanceGroup(maintenance_tasks),
         idle_maintenance=lora_validation_maintenance,
         telemetry=core.telemetry,
+        heartbeat_interval_seconds=settings.operations.heartbeat_interval_seconds,
     )
     return ArtifexApplication(
         core,
