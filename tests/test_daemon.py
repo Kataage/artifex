@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from artifex.config.models import AgentConfig, ProductionConfig
 from artifex.db import Database
+from artifex.db.models import SettingRow
 from artifex.domain import AgentState
 from artifex.runtime import RuntimeDaemon, RuntimeStore
 from artifex.scheduler import Scheduler, SchedulerAction, SchedulerDecision
@@ -199,3 +201,67 @@ async def test_unattended_proof_is_emitted_only_by_continuous_daemon_loop(
         "pack-2", "pack-3",
     ]
     db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_continuous_daemon_heartbeat_while_long_pack_awaits(
+    tmp_path: Path,
+) -> None:
+    """A cooperative long Pack must not age out PC-A daemon liveness."""
+    db = Database(f"sqlite:///{(tmp_path / 'slow-pack.sqlite3').as_posix()}")
+    db.migrate()
+    runtime = RuntimeStore(db)
+    telemetry = TelemetryRepository(db)
+
+    class SlowMaintenance:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.finish = asyncio.Event()
+
+        async def maintain(self) -> None:
+            self.started.set()
+            await self.finish.wait()
+
+    slow = SlowMaintenance()
+    daemon = RuntimeDaemon(
+        runtime,
+        Scheduler(
+            db, runtime,
+            ProductionConfig(
+                idea_inventory_target=0,
+                planned_inventory_target=0,
+                completed_inventory_target=0,
+            ),
+        ),
+        FakeHandler(), AgentConfig(poll_interval_seconds=0.01),
+        maintenance=slow, telemetry=telemetry,
+        heartbeat_interval_seconds=0.01,
+    )
+    running = asyncio.create_task(daemon.run_forever())
+    try:
+        await asyncio.wait_for(slow.started.wait(), timeout=2)
+
+        def heartbeat_timestamp() -> str:
+            with db.session() as session:
+                row = session.get(SettingRow, "runtime.heartbeat")
+                assert row is not None
+                return str(row.value_json["at"])
+
+        first = heartbeat_timestamp()
+        await asyncio.sleep(0.08)
+        second = heartbeat_timestamp()
+        assert first != second
+        daemon.request_stop()
+        slow.finish.set()
+        await asyncio.wait_for(running, timeout=2)
+        third = heartbeat_timestamp()
+        await asyncio.sleep(0.05)
+        assert heartbeat_timestamp() == third
+        assert runtime.get_agent_state() is AgentState.STOPPED
+    finally:
+        daemon.request_stop()
+        slow.finish.set()
+        if not running.done():
+            running.cancel()
+            await asyncio.gather(running, return_exceptions=True)
+        db.dispose()

@@ -19,6 +19,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import make_url
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.daemon_start_observation import (
+    DaemonStartObservation,
+    DaemonStartState,
+    observe_active_production_daemon,
+)
 from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.render_node import fetch_render_attestation
@@ -35,9 +40,10 @@ class SoakHeader(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["start"] = "start"
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     # Schema 2 flags a real PC-B owner audit on every interval.
     owner_observation_required: bool = False
+    daemon_observation_required: bool = False
     run_id: str
     qualification_session_id: str | None = Field(default=None, min_length=1)
     controller_host: str
@@ -87,6 +93,9 @@ class SoakSample(BaseModel):
     asset_sha256: dict[str, str] = Field(default_factory=dict)
     # Absent on legacy traces, but mandatory for active two-PC qualification.
     owner_observation: SoakOwnerObservation | None = None
+    # A redacted, SHA-256-only continuity signal from read-only PC-A SQLite.
+    daemon_state: DaemonStartState | None = None
+    daemon_loop_fingerprint: str | None = None
     errors: tuple[str, ...] = ()
 
 
@@ -116,6 +125,8 @@ class SoakAssessment(BaseModel):
     evidence_sha256: str
     owner_observed_samples: int = 0
     owner_incidents: int = 0
+    daemon_observed_samples: int = 0
+    daemon_incidents: int = 0
     issues: tuple[str, ...]
 
 
@@ -341,6 +352,10 @@ def observe_soak(
     interval_seconds: float = 300,
     qualification_session_id: str | None = None,
     on_sample: Callable[[SoakSample], None] | None = None,
+    require_daemon_observation: bool = False,
+    daemon_observer: Callable[
+        [ArtifexSettings], DaemonStartObservation
+    ] = observe_active_production_daemon,
     sample: Callable[[ArtifexSettings, float], SoakSample] = sample_soak,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -370,8 +385,9 @@ def observe_soak(
     run_id = uuid4().hex
     header = SoakHeader(
         run_id=run_id, qualification_session_id=qualification_session_id,
-        schema_version=2 if owner_required else 1,
+        schema_version=3 if require_daemon_observation else (2 if owner_required else 1),
         owner_observation_required=owner_required,
+        daemon_observation_required=require_daemon_observation,
         controller_host=socket.gethostname(),
         renderer_id=primary[0] if primary else "(unconfigured)",
         started_at=now(), target_seconds=target * 3600,
@@ -380,21 +396,59 @@ def observe_soak(
     )
     start = monotonic()
     stopped = False
+    original_daemon_fingerprint: str | None = None
     with output.open("x", encoding="utf-8") as handle:
         _write_record(handle, header)
         for index in range(_MAX_SAMPLES):
             elapsed = max(0.0, monotonic() - start)
-            try:
-                observed = sample(settings, elapsed)
-            except Exception as exc:  # noqa: BLE001 - preserve monitoring failure
+            daemon: DaemonStartObservation | None = None
+            if require_daemon_observation:
+                try:
+                    daemon = daemon_observer(settings)
+                except Exception:  # noqa: BLE001 - private paths must not escape
+                    daemon = None
+            if require_daemon_observation and (
+                daemon is None or not daemon.ready
+                or daemon.state != "observed_active_loop"
+                or daemon.loop_fingerprint is None
+            ):
+                # Fail immediately, before additional remote/GPU service probes.
                 observed = SoakSample(
                     observed_at=now(), elapsed_seconds=elapsed,
                     llm_ok=False, comfyui_ok=False, renderer_ok=False,
-                    errors=(f"Probe exception: {type(exc).__name__}",),
+                    daemon_state=daemon.state if daemon is not None else None,
+                    errors=("PC-A autonomous daemon observation unavailable",),
                 )
+            else:
+                try:
+                    observed = sample(settings, elapsed)
+                except Exception as exc:  # noqa: BLE001 - preserve monitoring failure
+                    observed = SoakSample(
+                        observed_at=now(), elapsed_seconds=elapsed,
+                        llm_ok=False, comfyui_ok=False, renderer_ok=False,
+                        errors=(f"Probe exception: {type(exc).__name__}",),
+                    )
+                if daemon is not None:
+                    observed = observed.model_copy(update={
+                        "daemon_state": daemon.state,
+                        "daemon_loop_fingerprint": daemon.loop_fingerprint,
+                    })
             _write_record(handle, observed)
             if on_sample is not None:
                 on_sample(observed)
+            if require_daemon_observation:
+                fingerprint = observed.daemon_loop_fingerprint
+                if original_daemon_fingerprint is None and fingerprint is not None:
+                    original_daemon_fingerprint = fingerprint
+                if (
+                    observed.daemon_state != "observed_active_loop"
+                    or fingerprint is None
+                    or fingerprint != original_daemon_fingerprint
+                ):
+                    # An unexpected stop or daemon restart invalidates the soak;
+                    # do not waste the remaining hours or touch live services.
+                    stopped = True
+                    break
             if index == 0 and (
                 not observed.llm_ok or not observed.comfyui_ok
                 or not observed.renderer_ok or observed.errors
@@ -416,12 +470,14 @@ def observe_soak(
     return verify_soak_evidence(
         output, minimum_hours=settings.qualification.minimum_soak_hours,
         require_owner_observation=owner_required,
+        require_daemon_observation=require_daemon_observation,
     )
 
 
 def verify_soak_evidence(
     path: Path, *, minimum_hours: float = 8,
     require_owner_observation: bool = False,
+    require_daemon_observation: bool = False,
 ) -> SoakAssessment:
     """Verify monitored span, coverage, live health, actual DB progress.
 
@@ -441,12 +497,20 @@ def verify_soak_evidence(
     tail = SoakEnd.model_validate_json(lines[-1])
     problems: list[str] = []
     owner_required = require_owner_observation or header.owner_observation_required
+    daemon_required = require_daemon_observation or header.daemon_observation_required
     if owner_required and (
-        header.schema_version != 2 or not header.owner_observation_required
+        header.schema_version not in (2, 3) or not header.owner_observation_required
     ):
         problems.append("Trace does not declare mandatory authenticated owner monitoring")
+    if daemon_required and (
+        header.schema_version != 3 or not header.daemon_observation_required
+    ):
+        problems.append("Trace does not declare mandatory PC-A daemon monitoring")
     owner_observed_samples = 0
     owner_incidents = 0
+    daemon_observed_samples = 0
+    daemon_incidents = 0
+    original_daemon_fingerprint: str | None = None
     # Compare native Windows process *instants*, never their ISO spellings.
     # Windows CIM may return Z/UTC or +09:00 for the same physical process.
     original_process: tuple[int, datetime] | None = None
@@ -491,6 +555,26 @@ def verify_soak_evidence(
             problems.append(f"Sample {index}: LLM, ComfyUI or authenticated PC-B unavailable")
         if item.errors:
             problems.append(f"Sample {index}: " + ", ".join(item.errors[:3]))
+        if daemon_required:
+            fingerprint = item.daemon_loop_fingerprint
+            daemon_issue: str | None = None
+            if item.daemon_state != "observed_active_loop":
+                daemon_issue = "PC-A autonomous daemon was not observed active"
+            elif (
+                not isinstance(fingerprint, str)
+                or len(fingerprint) != 64
+                or any(c not in "0123456789abcdef" for c in fingerprint)
+            ):
+                daemon_issue = "PC-A autonomous daemon loop fingerprint missing or invalid"
+            else:
+                daemon_observed_samples += 1
+                if original_daemon_fingerprint is None:
+                    original_daemon_fingerprint = fingerprint
+                elif fingerprint != original_daemon_fingerprint:
+                    daemon_issue = "PC-A autonomous daemon loop changed during unattended run"
+            if daemon_issue is not None:
+                daemon_incidents += 1
+                problems.append(f"Sample {index}: {daemon_issue}")
         if owner_required:
             owner = item.owner_observation
             issue: str | None = None
@@ -602,5 +686,7 @@ def verify_soak_evidence(
         evidence_sha256=hashlib.sha256(raw).hexdigest(),
         owner_observed_samples=owner_observed_samples,
         owner_incidents=owner_incidents,
+        daemon_observed_samples=daemon_observed_samples,
+        daemon_incidents=daemon_incidents,
         issues=tuple(dict.fromkeys(problems)),
     )

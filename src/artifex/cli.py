@@ -3114,6 +3114,7 @@ def qualify_soak_run(
             duration_hours=hours if hours is not None else minimum,
             interval_seconds=sample_seconds,
             qualification_session_id=active_id,
+            require_daemon_observation=True,
             on_sample=show_sample,
         )
         if not report.ready_for_soak_review:
@@ -3214,6 +3215,7 @@ def qualify_soak_observe(
             settings, output=output,
             duration_hours=hours, interval_seconds=sample_seconds,
             qualification_session_id=session_id,
+            require_daemon_observation=session_id is not None,
         )
         _print_payload(
             {"evidence_path": str(output), **result.model_dump(mode="json")},
@@ -3248,6 +3250,7 @@ def qualify_soak_check(
                 settings.qualification.require_renderer_owner_observation
                 and settings.render_nodes.primary_node() is not None
             ),
+            require_daemon_observation=True,
         )
         _print_payload(result.model_dump(mode="json"), as_json=json_output)
     except (OSError, ValueError, RuntimeError) as exc:
