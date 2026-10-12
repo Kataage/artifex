@@ -187,7 +187,7 @@ def test_reverification_rejects_removed_or_modified_preflight_binding(
     header = json.loads(lines[0])
     header["preflight_daemon_loop_fingerprint"] = None
     lines[0] = json.dumps(header)
-    path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     result = verify_soak_evidence(
         path, require_daemon_observation=True,
         require_preflight_daemon_binding=True,
@@ -196,7 +196,7 @@ def test_reverification_rejects_removed_or_modified_preflight_binding(
     assert any("does not bind" in issue for issue in result.issues)
     header["preflight_daemon_loop_fingerprint"] = "b" * 64
     lines[0] = json.dumps(header)
-    path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     result = verify_soak_evidence(
         path, require_daemon_observation=True,
         require_preflight_daemon_binding=True,
