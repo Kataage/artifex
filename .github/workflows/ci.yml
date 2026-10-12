@@ -81,6 +81,7 @@ jobs:
       - run: uv run artifex qualify field-brief --help
       - run: uv run pytest -q tests/test_pc_b_owner_handoff.py
       - run: uv run pytest -q tests/test_remote_owner_readiness.py
+      - run: uv run pytest -q tests/test_remote_render_node.py
       - run: uv run pytest -q tests/test_qualification_handoff.py
       - run: uv run pytest -q tests/test_daemon.py tests/test_real_machine_qualification.py -k "unattended or collect_qualifications_uses_only"
       - run: uv run pytest -q tests/test_qualification_paged_collection.py tests/test_telemetry.py
