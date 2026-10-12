@@ -219,7 +219,10 @@ def test_attestation_failed_inventory_never_discloses_private_error(
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         settings.render_agent.port = sock.getsockname()[1]
-    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "secret-bearer-credential")
+    if require_token:
+        monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "secret-bearer-credential")
+    else:
+        monkeypatch.delenv("ARTIFEX_RENDER_NODE_TOKEN", raising=False)
     private_message = (
         "D:/private/models/authentication.key "
         "https://private.local/?token=secret-bearer-credential"
