@@ -66,8 +66,11 @@ def observe_active_production_daemon(
         url = make_url(settings.storage.database_url)
         if url.get_backend_name() != "sqlite" or not url.database:
             return _observed("database_unavailable")
-        db_path = Path(url.database).expanduser().resolve(strict=True)
-        if not db_path.is_file() or db_path.is_symlink():
+        source_path = Path(url.database).expanduser()
+        if source_path.is_symlink():
+            return _observed("database_unavailable")
+        db_path = source_path.resolve(strict=True)
+        if not db_path.is_file():
             return _observed("database_unavailable")
         # Read-only URI prevents accidental implicit DB creation. Avoid
         # executing any PRAGMA, migration or writes on the production DB.
