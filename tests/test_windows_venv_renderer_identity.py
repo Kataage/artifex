@@ -496,6 +496,28 @@ def test_native_venv_python_launcher_matches_actual_mock_tcp_listener(
         report = audit_renderer_sockets(settings, owned_pid=actual_pid)
         assert report.status == "owned_loopback_observed", report
         manager.process = child
+        # Windows-specific redacted diagnostic while verifying venv argv0.
+        launcher_identity = windows_process_identity(child.pid)
+        listener_identity = windows_process_identity(actual_pid)
+        if (
+            launcher_identity is not None
+            and listener_identity is not None
+            and not verified_launcher_child(
+                settings, launcher_identity, listener_identity,
+            )
+        ):
+            expected_tail = " " + subprocess.list2cmdline(args)
+            observed = listener_identity.command_line
+            prefix = observed[:-len(expected_tail)] if observed.endswith(expected_tail) else ""
+            pytest.fail(
+                "Native Windows argv mismatch: "
+                f"suffix_matched={observed.endswith(expected_tail)} "
+                f"prefix={prefix!r} "
+                f"base_exe={listener_identity.executable!r} "
+                f"venv_exe={str(settings.render_agent.comfyui_process.executable)!r} "
+                f"start={listener_identity.started_utc!r} "
+                f"parent_start={launcher_identity.started_utc!r}"
+            )
         manager._record_owned_process()
         manager._verify_owned_listener()
         receipt = manager._current_receipt
