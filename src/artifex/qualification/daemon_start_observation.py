@@ -89,7 +89,7 @@ def observe_active_production_daemon(
             stamp = raw_value.get("at")
             if not isinstance(stamp, str):
                 return _observed("heartbeat_invalid")
-            heartbeat = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            heartbeat = datetime.fromisoformat(stamp)
             if heartbeat.tzinfo is None or heartbeat.utcoffset() is None:
                 return _observed("heartbeat_invalid")
             age = (current - heartbeat).total_seconds()
