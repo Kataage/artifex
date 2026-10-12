@@ -1047,6 +1047,18 @@ The PC-A client ignores environment proxy settings, does not follow HTTP
 redirects, and limits the response to 64 MiB before decoding it. Any
 transport or inventory failure must remain incomplete evidence, not PASS.
 
+The **remote LoRA discovery** flow now explicitly requests a fresh attestation
+rather than reusing a cache by default. Before any registry update, it
+requires a timezone-aware inventory creation time at most three minutes
+old and no more than 30 seconds in the future, and validates all remote
+relative asset paths and case-insensitive uniqueness. A replayed, stale,
+future-dated, path-traversing or internally duplicate inventory is rejected
+**before** upserts or disappearance-based invalidation. The previously
+registered LoRAs are retained and a safe failure reason is reported.
+Only a new, complete and timely successful inventory may support
+disabling a genuinely removed LoRA. This is a discovery safety rule, not
+a production GPU qualification or permission to restart ComfyUI.
+
 After installing this version on both Windows PCs, the **protected** PC-B
 attestation service starts a bounded local background evidence sampler.
 Only on native Windows with a configured managed ComfyUI, enabled protected
