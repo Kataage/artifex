@@ -14,6 +14,8 @@ from artifex.render_node.models import (
 )
 from artifex.render_node.startup_inspection import RemoteRendererSafetyInspection
 
+_MAX_ATTESTATION_RESPONSE_BYTES = 64 * 1024 * 1024
+
 
 def fetch_render_attestation(
     node_id: str,
@@ -43,7 +45,7 @@ def fetch_render_attestation(
         # Never forward the Bearer token through proxy settings or redirects.
         chunks: list[bytes] = []
         total = 0
-        limit = 64 * 1024 * 1024
+        limit = _MAX_ATTESTATION_RESPONSE_BYTES
         with http.stream(
             "GET", url,
             headers=headers,
