@@ -502,3 +502,98 @@ def test_native_venv_python_launcher_matches_actual_mock_tcp_listener(
         else:
             child.wait(timeout=5)
         manager.close()
+
+
+
+@pytest.mark.parametrize("route", ["reattach", "natural_restart"])
+def test_live_venv_launcher_blocks_replacement_after_listener_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str,
+) -> None:
+    """Missing child and free port cannot retire a still-active venv shim."""
+    import artifex.render_node.comfy_process as process_module
+
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    receipt = expected_receipt(settings, child, launcher_identity=launcher)
+    manager = ManagedComfyUI(settings)
+    manager._receipts.save(receipt, overwrite=False)
+    manager._current_receipt = receipt
+    inspected: list[int] = []
+
+    def identity(pid: int) -> WindowsProcessIdentity | None:
+        inspected.append(pid)
+        return launcher if pid == launcher.pid else None
+
+    def forbidden_upstream() -> None:
+        pytest.fail("Must not probe/retire an owned receipt while the launcher lives")
+
+    monkeypatch.setattr(process_module, "windows_process_identity", identity)
+    monkeypatch.setattr(manager, "_healthy", lambda: False)
+    monkeypatch.setattr(manager, "_require_free_upstream", forbidden_upstream)
+    with pytest.raises(RuntimeError, match="launcher is still alive"):
+        if route == "reattach":
+            manager._try_reattach()
+        else:
+            manager._retire_exited_receipt()
+    assert launcher.pid in inspected and child.pid in inspected
+    assert manager._receipts.load() == receipt
+    assert manager._current_receipt == receipt
+    assert not manager._supervisor_lease.held
+    manager.close()
+
+
+@pytest.mark.parametrize("route", ["reattach", "natural_restart"])
+def test_exited_venv_launcher_allows_retirement_only_with_free_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str,
+) -> None:
+    """A truly exited parent+child may be replaced after the port check."""
+    import artifex.render_node.comfy_process as process_module
+
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    receipt = expected_receipt(settings, child, launcher_identity=launcher)
+    manager = ManagedComfyUI(settings)
+    manager._receipts.save(receipt, overwrite=False)
+    manager._current_receipt = receipt
+    port_checks: list[bool] = []
+
+    monkeypatch.setattr(process_module, "windows_process_identity", lambda _: None)
+    monkeypatch.setattr(manager, "_healthy", lambda: False)
+    monkeypatch.setattr(
+        manager, "_require_free_upstream", lambda: port_checks.append(True),
+    )
+    if route == "reattach":
+        assert manager._try_reattach() is False
+    else:
+        manager._retire_exited_receipt()
+        assert manager._current_receipt is None
+    assert port_checks == [True]
+    assert manager._receipts.load() is None
+    manager.close()
+
+
+@pytest.mark.parametrize("route", ["reattach", "natural_restart"])
+def test_reused_parent_pid_blocks_retirement_even_if_child_and_port_are_gone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str,
+) -> None:
+    import artifex.render_node.comfy_process as process_module
+
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    receipt = expected_receipt(settings, child, launcher_identity=launcher)
+    manager = ManagedComfyUI(settings)
+    manager._receipts.save(receipt, overwrite=False)
+    manager._current_receipt = receipt
+    reused = launcher.model_copy(update={"started_utc": "2026-10-09T08:00:00Z"})
+    monkeypatch.setattr(
+        process_module, "windows_process_identity",
+        lambda pid: reused if pid == launcher.pid else None,
+    )
+    monkeypatch.setattr(manager, "_healthy", lambda: False)
+    with pytest.raises(RuntimeError, match="launcher PID was reused"):
+        if route == "reattach":
+            manager._try_reattach()
+        else:
+            manager._retire_exited_receipt()
+    assert manager._receipts.load() == receipt
+    manager.close()
