@@ -13,6 +13,7 @@ from artifex.cli import app
 from artifex.config.models import ArtifexSettings
 from artifex.qualification import REQUIRED_STAGES, QualificationStage, QualificationStatus
 from artifex.qualification.soak_observer import SoakAssessment, SoakSample
+from artifex.qualification.soak_start_preflight import SoakStartPreflight
 
 
 def _run_setup(
@@ -103,6 +104,15 @@ def _run_setup(
     monkeypatch.setattr("artifex.cli.build_doctor", lambda _: Doctor())
     monkeypatch.setattr("artifex.cli._qualification_service", lambda _: Service())
     monkeypatch.setattr("artifex.cli.observe_soak", observer)
+    monkeypatch.setattr(
+        "artifex.cli.preflight_soak_start",
+        lambda settings: (
+            calls.append(("live_preflight", None))
+            or SoakStartPreflight(
+                ready=True, issues=(), sample_checked_utc=datetime.now(UTC),
+            )
+        ),
+    )
     return config, calls, settings
 
 
@@ -136,6 +146,72 @@ def test_soak_run_uses_one_command_and_persists_stage_on_success(
     _, (_, stage, params) = next(x for x in calls if x[0] == "record")
     assert stage is QualificationStage.OVERNIGHT_SOAK
     assert params["details"]["evidence_sha256"] == "a" * 64
+
+
+def test_soak_run_live_probe_is_before_doctor_and_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, calls, _ = _run_setup(tmp_path, monkeypatch)
+    result = _invoke(config)
+    assert result.exit_code == 0, result.output
+    assert [name for name, _ in calls].index("live_preflight") < (
+        [name for name, _ in calls].index("doctor")
+    )
+    assert [name for name, _ in calls].index("live_preflight") < (
+        [name for name, _ in calls].index("start")
+    )
+
+
+def test_soak_run_failed_live_preflight_creates_no_session_or_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, calls, settings = _run_setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "artifex.cli.preflight_soak_start",
+        lambda _: SoakStartPreflight(
+            ready=False, issues=(
+                "llm_unavailable", "renderer_owner_missing",
+            ),
+            sample_checked_utc=datetime.now(UTC),
+        ),
+    )
+    result = _invoke(config, "--no-progress")
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert payload["session_id"] is None
+    assert payload["evidence_path"] is None
+    assert payload["overnight_soak"] == "blocked_preflight"
+    assert payload["preflight"]["issues"] == [
+        "llm_unavailable", "renderer_owner_missing",
+    ]
+    assert payload["preflight"]["qualification_session_created"] is False
+    assert payload["preflight"]["soak_evidence_file_written"] is False
+    assert payload["production_qualified"] is False
+    assert not any(
+        name in ("doctor", "start", "load", "observe", "record", "close")
+        for name, _ in calls
+    )
+    assert not settings.qualification.evidence_dir.exists()
+
+
+def test_soak_run_failed_live_preflight_does_not_mutate_reused_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, calls, _ = _run_setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "artifex.cli.preflight_soak_start",
+        lambda _: SoakStartPreflight(
+            ready=False, issues=("comfyui_unavailable",),
+            sample_checked_utc=datetime.now(UTC),
+        ),
+    )
+    result = _invoke(config, "--session-id", "existing-qualification")
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["session_id"] == "existing-qualification"
+    assert not any(
+        name in ("start", "load", "observe", "record")
+        for name, _ in calls
+    )
 
 
 def test_soak_run_reuses_existing_session_without_new_start(

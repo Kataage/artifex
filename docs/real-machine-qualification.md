@@ -1,5 +1,30 @@
 # Target Windows Production Qualification
 
+## Eight-hour soak start requires live PC-A/PC-B evidence
+
+`uv run artifex qualify soak-run --config config/local.yaml` now performs
+one **actual, read-only** controller/PC-B observation *before* running
+doctor, creating a new qualification session, or opening the eight-hour
+JSONL trace. It checks the configured primary renderer, live LLM,
+ComfyUI and authenticated PC-B attestation, resource and SQLite telemetry,
+required production model hashes and, if the policy requires it, the
+native ComfyUI owner PID, start instant and mandatory ownership checks.
+
+If any prerequisite is unavailable, the command immediately prints
+`overnight_soak=blocked_preflight` with fixed issue codes. It does
+not create a session or a trace and never echoes raw HTTP exceptions,
+LAN URLs, bearer secrets or remote filesystem paths. The operator can
+fix the prerequisite and rerun the exact same command. This gate
+never sends a GPU job, stops, restarts, adopts or alters a ComfyUI
+process.
+
+A successful *single preflight sample* is **not** a soak PASS. The
+existing eight-hour interval monitoring, real DB/Pack progress, model
+hash continuity, owner observations and strict stage verification
+still govern the actual physical-host qualification. Windows CI
+uses synthetic mock probes, not the operator's two real PCs.
+
+
 ## One-command read-only PC-A field brief
 
 From PC-A, run the existing checks together without copying PC-B files,
