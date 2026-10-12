@@ -13,10 +13,15 @@ from pydantic import BaseModel, ConfigDict
 from artifex.config.models import ArtifexSettings
 from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
-from artifex.qualification.soak_observer import SoakSample, sample_soak
+from artifex.qualification.soak_observer import (
+    _REQUIRED,
+    SoakSample,
+    sample_soak,
+)
 
 StartIssue = Literal[
     "sample_unavailable",
+    "primary_renderer_unconfigured",
     "sample_clock_invalid",
     "llm_unavailable",
     "comfyui_unavailable",
@@ -55,6 +60,8 @@ def check_soak_start_sample(
 ) -> SoakStartPreflight:
     now = checked_utc or datetime.now(UTC)
     issues: list[StartIssue] = []
+    if settings.render_nodes.primary_node() is None:
+        issues.append("primary_renderer_unconfigured")
     if sample is None:
         issues.append("sample_unavailable")
     else:
@@ -80,8 +87,6 @@ def check_soak_start_sample(
             sample.telemetry_rows, sample.severe_events, sample.finalized_packs,
         ):
             issues.append("database_metrics_missing")
-        from artifex.qualification.soak_observer import _REQUIRED
-
         if not _REQUIRED <= sample.asset_sha256.keys() or any(
             not isinstance(sample.asset_sha256[label], str)
             or len(sample.asset_sha256[label]) != 64
@@ -125,7 +130,9 @@ def check_soak_start_sample(
                 ):
                     issues.append("renderer_owner_identity_invalid")
                 if (
-                    owner.captured_utc.tzinfo is None
+                    sample.observed_at.tzinfo is None
+                    or sample.observed_at.utcoffset() is None
+                    or owner.captured_utc.tzinfo is None
                     or owner.captured_utc.utcoffset() is None
                     or abs((sample.observed_at - owner.captured_utc).total_seconds())
                     > 90
