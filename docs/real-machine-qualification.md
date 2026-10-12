@@ -2260,8 +2260,24 @@ must **not** infer ownership from the listener port alone. It now first
 verifies the launcher's full executable/arguments and Windows CIM identity;
 a distinct listening Python PID is accepted only when it is its **direct**
 child, starts no earlier than the launcher, has the expected arguments and
-matches a repeat socket inventory. A schema-2 ownership receipt preserves
-both identities. Subsequent supervisor recovery checks the *actual* child
+matches a repeat socket inventory. The child command line must match the **whole
+interpreter invocation**, not merely end with the ComfyUI arguments (which
+could allow unrelated `-c`, `-m` or `-X` prefixes). A native Windows
+venv redirector may preserve the original configured venv `argv[0]` after
+launching the base Python interpreter; only the **exact configured venv
+executable** or **actual CIM interpreter executable** with the entire
+configured argument vector is accepted, never an arbitrary command prefix.
+Windows CIM may surround the executable path with double quotes even when
+not strictly necessary; quoting just this verified `argv[0]` is accepted.
+Extra options, injected code or unrecognized command prefixes remain blocked.
+The child creation
+timestamp must follow the launcher by **no more than 120 seconds**, since a
+Windows venv shim spawns its interpreter before lengthy model loading.
+A child appearing after that limit cannot be safely attributed to the
+original launcher PID even when its current parent PID string matches.
+Unusual slow launchers are deliberately refused until investigated; do
+not bypass provenance checks or force-kill a live instance.
+A schema-2 ownership receipt preserves both identities. Subsequent supervisor recovery checks the *actual* child
 PID, immutable creation time, executable, command line and recorded parent
 rather than trusting a possibly exited/reused launcher PID. An unknown,
 foreign, reordered or ambiguous chain blocks automatic ownership/restart.
