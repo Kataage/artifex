@@ -1026,6 +1026,14 @@ not use this opt-out to interpret an unverified PC-B as production-ready.
 
 ## PC-A automatic authenticated PC-B evidence (no manual JSON copy)
 
+The PC-B attestation endpoint is also hardened against failure-message
+disclosure: if a fresh inventory/attestation snapshot raises an exception,
+the HTTP response is a fixed `503 {"error":"attestation_unavailable"}`,
+without exception class, local model paths, URLs or tokens. This applies
+even to legacy deployments permitting unauthenticated attestation. Such a
+response is **unavailable evidence**, never a valid qualification snapshot;
+inspect local logs and configuration through the permitted on-host tools.
+
 After installing this version on both Windows PCs, the **protected** PC-B
 attestation service starts a bounded local background evidence sampler.
 Only on native Windows with a configured managed ComfyUI, enabled protected

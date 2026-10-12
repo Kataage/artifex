@@ -406,10 +406,13 @@ def serve_attestation(
             try:
                 fresh = parse_qs(url.query).get("fresh") == ["1"]
                 payload: Any = snapshot(fresh=fresh).model_dump(mode="json")
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - no paths, model names or tokens in reply
+                # This legacy endpoint may be configured without Bearer auth.
+                # Internal inventory exceptions can contain local paths and
+                # provider URLs. Never return an exception string or class.
                 self._json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"error": type(exc).__name__, "detail": str(exc)[:2000]},
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "attestation_unavailable"},
                 )
                 return
             self._json(HTTPStatus.OK, payload)
