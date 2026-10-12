@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from artifex.characters import CharacterRegistry
 from artifex.db import Database
 from artifex.domain import CharacterProfile, LoRAState
@@ -215,6 +217,38 @@ def test_renderer_attestation_reports_duplicate_relative_lora_names(
     )
     assert len(attestation.loras) == 1
     assert any(
-        "duplicate renderer-relative LoRA asset name" in error["error"]
+        error["error"] == "duplicate_relative_lora_asset"
         for error in attestation.inventory_errors
     )
+
+
+def test_inventory_errors_do_not_expose_pc_b_private_paths_or_exceptions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful attestation can still contain partial scan failures."""
+    from artifex.config.models import ArtifexSettings
+    from artifex.render_node import attestation as module
+
+    monkeypatch.setattr(module, "_nvidia_gpus", lambda: ())
+    private = "PRIVATE_HOME_AUTH_TOKEN_DO_NOT_EXPOSE"
+    missing_asset = tmp_path / private / "checkpoint.safetensors"
+    missing_lora_root = tmp_path / private / "absent-loras"
+    bad_root = tmp_path / "damaged-loras"
+    bad_root.mkdir()
+    (bad_root / f"{private}.safetensors").write_bytes(b"broken safetensors")
+
+    settings = ArtifexSettings()
+    settings.render_agent.asset_paths = {"checkpoint": missing_asset}
+    settings.render_agent.lora_roots = (missing_lora_root, bad_root)
+    attestation = module.build_attestation(settings)
+    errors = {(e["path"], e["error"]) for e in attestation.inventory_errors}
+    assert errors == {
+        ("asset", "asset_unavailable"),
+        ("lora_root", "lora_root_missing"),
+        ("lora_asset", "lora_asset_unreadable"),
+    }
+    wire = attestation.model_dump_json()
+    assert private not in wire
+    assert str(tmp_path) not in wire
+    # Missing inventory items must never silently disable previously known LoRAs.
+    assert len(attestation.inventory_errors) == 3

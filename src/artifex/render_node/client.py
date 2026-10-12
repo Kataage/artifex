@@ -14,6 +14,8 @@ from artifex.render_node.models import (
 )
 from artifex.render_node.startup_inspection import RemoteRendererSafetyInspection
 
+_MAX_ATTESTATION_RESPONSE_BYTES = 64 * 1024 * 1024
+
 
 def fetch_render_attestation(
     node_id: str,
@@ -32,20 +34,38 @@ def fetch_render_attestation(
             headers["Authorization"] = f"Bearer {token}"
     url = config.attestation_url.rstrip("/") + "/v1/attestation"
     owns_client = client is None
-    http = client or httpx.Client(timeout=httpx.Timeout(timeout_seconds))
+    http = client or httpx.Client(
+        timeout=httpx.Timeout(timeout_seconds),
+        follow_redirects=False,
+        trust_env=False,
+    )
     try:
-        response = http.get(
-            url,
+        # Unlike protected diagnostics, this legacy path previously trusted
+        # environment proxies and buffered an unbounded HTTP response.
+        # Never forward the Bearer token through proxy settings or redirects.
+        chunks: list[bytes] = []
+        total = 0
+        limit = _MAX_ATTESTATION_RESPONSE_BYTES
+        with http.stream(
+            "GET", url,
             headers=headers,
             params={"fresh": "1"} if fresh else None,
             timeout=timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
+            follow_redirects=False,
+        ) as response:
+            response.raise_for_status()
+            length = response.headers.get("content-length")
+            if length is not None and length.isdecimal() and int(length) > limit:
+                raise ValueError("remote attestation exceeds response size bound")
+            for part in response.iter_bytes():
+                total += len(part)
+                if total > limit:
+                    raise ValueError("remote attestation exceeds response size bound")
+                chunks.append(part)
+        attestation = RenderNodeAttestation.model_validate_json(b"".join(chunks))
     finally:
         if owns_client:
             http.close()
-    attestation = RenderNodeAttestation.model_validate(payload)
     if attestation.node_id != node_id:
         raise ValueError(
             f"render node attestation id mismatch: {attestation.node_id} != {node_id}"
