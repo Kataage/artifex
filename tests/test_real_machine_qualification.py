@@ -47,6 +47,7 @@ from artifex.qualification.archive_reproduction import (
 )
 from artifex.qualification.collector import QualificationEvidenceCollector
 from artifex.qualification.maintenance import QualificationEvidenceMaintenance
+from artifex.qualification.daemon_start_observation import DaemonStartObservation
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
@@ -362,6 +363,12 @@ def _bound_soak_trace(
         duration_hours=8,
         interval_seconds=3600,
         qualification_session_id=session_id,
+        require_daemon_observation=True,
+        daemon_observer=lambda _: DaemonStartObservation(
+            state="observed_active_loop",
+            ready=True,
+            loop_fingerprint="a" * 64,
+        ),
         sample=sample,
         monotonic=lambda: clock[0],
         sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
