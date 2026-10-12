@@ -43,6 +43,10 @@ def test_fresh_heartbeat_and_open_real_loop_required(
         assert result.ready
         assert result.state == "observed_active_loop"
         assert result.heartbeat_age_seconds == 20
+        assert result.loop_fingerprint is not None
+        assert len(result.loop_fingerprint) == 64
+        assert result.loop_fingerprint not in result.model_dump_json()
+        assert RUN_ID not in result.model_dump_json()
         assert result.database_read_only
         assert not result.processes_launched
         assert not result.gpu_jobs_submitted
