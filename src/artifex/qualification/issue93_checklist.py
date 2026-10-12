@@ -12,7 +12,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import httpx
-
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
