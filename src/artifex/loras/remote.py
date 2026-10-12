@@ -178,13 +178,16 @@ class RemoteLoRADiscovery:
                 missing_since=None,
                 metadata=metadata,
             )
-            discovered.append(self._registry.upsert(profile))
+            discovered.append(profile)
 
         # A partially failed inventory is not proof that absent LoRAs were deleted.
         # Preserve last-known-good entries until a complete inventory succeeds.
         if attestation.inventory_errors:
+            # Partial scans may still add observed LoRAs, but those upserts
+            # must also commit together (or not at all on a conflict).
+            committed = self._registry.upsert_many(discovered)
             return DiscoveryResult(
-                discovered=tuple(discovered),
+                discovered=committed,
                 unchanged=tuple(unchanged),
                 failed=tuple(failed),
                 removed=(),
@@ -199,8 +202,8 @@ class RemoteLoRADiscovery:
             ):
                 continue
             removed.append(
-                self._registry.invalidate(
-                    profile.id,
+                self._registry.prepare_invalidation(
+                    profile,
                     target=LoRAState.DISABLED,
                     reason=(
                         f"LoRA disappeared from render node "
@@ -210,11 +213,15 @@ class RemoteLoRADiscovery:
                 )
             )
 
+        # No database write occurs until the entire inventory was checked and
+        # every profile/invalidation was prepared. Registry commits a single
+        # transaction; any later row conflict rolls back every earlier edit.
+        committed = self._registry.upsert_many((*discovered, *removed))
         return DiscoveryResult(
-            discovered=tuple(discovered),
+            discovered=committed[:len(discovered)],
             unchanged=tuple(unchanged),
             failed=tuple(failed),
-            removed=tuple(removed),
+            removed=committed[len(discovered):],
         )
 
 
