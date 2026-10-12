@@ -362,7 +362,7 @@ def test_casefold_duplicate_remote_asset_names_block_partial_updates(
     result = remote.sync(_attestation(loras=(first, second)))
     assert not result.discovered and not result.removed
     assert result.failed[0][1] == "stale_or_untrusted_inventory"
-    assert registry.list() == []
+    assert not registry.list()
     database.dispose()
 
 
