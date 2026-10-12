@@ -467,3 +467,115 @@ def test_pc_b_incomplete_root_scan_preserves_registered_remote_loras(
     assert registry.require(profile.id).state is LoRAState.DISCOVERED
     assert registry.require(profile.id).checksum == original_checksum
     database.dispose()
+
+
+
+def test_remote_lora_sync_late_conflict_rolls_back_earlier_updates(
+    tmp_path: Path,
+) -> None:
+    """Even a failure on the second row cannot partially update PC-A's DB."""
+    from artifex.domain import LoRAProfile
+
+    database = Database(f"sqlite:///{(tmp_path / 'atomic-remote.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    remote = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    previous = RenderLoRAInventoryItem(
+        name="a.safetensors", path="D:/loras/a.safetensors",
+        relative_path="a.safetensors", sha256="a" * 64, bytes=128,
+    )
+    old = remote.sync(_attestation(loras=(previous,))).discovered[0]
+    reserved_path = Path(".artifex-remote") / "gpu-box" / "z-conflict.safetensors"
+    reserved = registry.upsert(
+        LoRAProfile(id="reserved", path=reserved_path, source="local"),
+    )
+    changed = previous.model_copy(update={"sha256": "b" * 64})
+    conflicting = RenderLoRAInventoryItem(
+        name="z-conflict.safetensors", path="D:/loras/z-conflict.safetensors",
+        relative_path="z-conflict.safetensors", sha256="c" * 64, bytes=128,
+    )
+
+    with pytest.raises(ValueError, match="LoRA path already belongs"):
+        remote.sync(_attestation(loras=(changed, conflicting)))
+    assert registry.require(old.id).checksum == "a" * 64
+    assert registry.require(old.id).state is LoRAState.DISCOVERED
+    assert registry.require(reserved.id).path == reserved.path
+    assert len(registry.list()) == 2
+    database.dispose()
+
+
+def test_remote_lora_sync_duplicate_batch_rejected_without_any_commit(
+    tmp_path: Path,
+) -> None:
+    """The registry's batch transaction validates all staged rows first."""
+    from artifex.domain import LoRAProfile
+
+    database = Database(f"sqlite:///{(tmp_path / 'duplicate-batch.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    a = LoRAProfile(id="one", path=tmp_path / "same.safetensors")
+    b = LoRAProfile(id="two", path=tmp_path / "same.safetensors")
+    with pytest.raises(ValueError, match="duplicate LoRA ID or path"):
+        registry.upsert_many((a, b))
+    assert not registry.list()
+    database.dispose()
+
+
+def test_remote_lora_sync_metadata_failure_has_no_partial_upserts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bad later metadata/character match cannot commit earlier discoveries."""
+    database = Database(f"sqlite:///{(tmp_path / 'matching-failure.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    characters = CharacterRegistry(database)
+    remote = RemoteLoRADiscovery(registry, characters)
+    counter = 0
+    original_match = characters.match_text
+
+    def failing_match(text: str) -> tuple[str, ...]:
+        nonlocal counter
+        counter += 1
+        if counter == 2:
+            raise ValueError("synthetic later item metadata failure")
+        return original_match(text)
+
+    monkeypatch.setattr(characters, "match_text", failing_match)
+    one = RenderLoRAInventoryItem(
+        name="first.safetensors", path="D:/loras/first.safetensors",
+        relative_path="first.safetensors", sha256="a" * 64, bytes=1,
+    )
+    two = RenderLoRAInventoryItem(
+        name="second.safetensors", path="D:/loras/second.safetensors",
+        relative_path="second.safetensors", sha256="b" * 64, bytes=1,
+    )
+    with pytest.raises(ValueError, match="synthetic later item"):
+        remote.sync(_attestation(loras=(one, two)))
+    assert not registry.list()
+    database.dispose()
+
+
+def test_remote_lora_sync_removals_and_additions_commit_together(
+    tmp_path: Path,
+) -> None:
+    """The normal complete-inventory behavior is preserved after batching."""
+    database = Database(f"sqlite:///{(tmp_path / 'atomic-success.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    remote = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    old = RenderLoRAInventoryItem(
+        name="old.safetensors", path="D:/loras/old.safetensors",
+        relative_path="old.safetensors", sha256="a" * 64, bytes=1,
+    )
+    current = remote.sync(_attestation(loras=(old,))).discovered[0]
+    new = RenderLoRAInventoryItem(
+        name="new.safetensors", path="D:/loras/new.safetensors",
+        relative_path="new.safetensors", sha256="b" * 64, bytes=1,
+    )
+    result = remote.sync(_attestation(loras=(new,)))
+    assert len(result.discovered) == 1
+    assert len(result.removed) == 1
+    assert registry.require(current.id).state is LoRAState.DISABLED
+    assert registry.require(current.id).missing_since is not None
+    assert registry.require(result.discovered[0].id).state is LoRAState.DISCOVERED
+    database.dispose()

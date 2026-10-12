@@ -1060,8 +1060,14 @@ future-dated, path-traversing or internally duplicate inventory is rejected
 **before** upserts or disappearance-based invalidation. The previously
 registered LoRAs are retained and a safe failure reason is reported.
 Only a new, complete and timely successful inventory may support
-disabling a genuinely removed LoRA. This is a discovery safety rule, not
-a production GPU qualification or permission to restart ComfyUI.
+disabling a genuinely removed LoRA. Remote LoRA synchronization now stages
+all additions, checksum changes and disappearance-based invalidations
+**before opening one database transaction**. If a later LoRA has a
+conflicting registry path, malformed metadata or the database write fails,
+none of the earlier staged changes is committed. Partial inventories still
+allow safe discoveries but batch those changes atomically, and never
+invalidate unseen LoRAs. This is a discovery safety rule, not a
+production GPU qualification or permission to restart ComfyUI.
 
 After installing this version on both Windows PCs, the **protected** PC-B
 attestation service starts a bounded local background evidence sampler.

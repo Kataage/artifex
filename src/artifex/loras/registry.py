@@ -47,40 +47,62 @@ class LoRARegistry:
         self._database = database
 
     def upsert(self, profile: LoRAProfile) -> LoRAProfile:
-        normalized = profile.model_copy(update={"path": _normalize_path(profile.path)})
-        payload = normalized.model_dump(mode="json")
-        now = datetime.now(UTC)
+        return self.upsert_many((profile,))[0]
 
+    def upsert_many(self, profiles: Iterable[LoRAProfile]) -> tuple[LoRAProfile, ...]:
+        """Commit an inventory as one transaction, never a partial sync.
+
+        The caller must prepare and validate all changes before invoking this
+        method. A conflict or database error on any row rolls back every
+        previously staged insert, update and invalidation.
+        """
+        normalized = tuple(
+            profile.model_copy(update={"path": _normalize_path(profile.path)})
+            for profile in profiles
+        )
+        if not normalized:
+            return ()
+        ids: set[str] = set()
+        paths: set[str] = set()
+        for profile in normalized:
+            path = str(profile.path)
+            if profile.id in ids or path in paths:
+                raise ValueError("duplicate LoRA ID or path in batch")
+            ids.add(profile.id)
+            paths.add(path)
+        payloads = tuple(p.model_dump(mode="json") for p in normalized)
+        now = datetime.now(UTC)
         with self._database.session() as session:
-            row = session.get(LoRARow, normalized.id)
-            path_row = session.scalar(
-                select(LoRARow).where(LoRARow.path == str(normalized.path))
-            )
-            if row is None and path_row is not None and path_row.id != normalized.id:
-                raise ValueError(
-                    f"LoRA path already belongs to {path_row.id}: {normalized.path}"
+            for profile, payload in zip(normalized, payloads, strict=True):
+                row = session.get(LoRARow, profile.id)
+                path_row = session.scalar(
+                    select(LoRARow).where(LoRARow.path == str(profile.path))
                 )
-            if row is None:
-                session.add(
-                    LoRARow(
-                        id=normalized.id,
-                        path=str(normalized.path),
-                        checksum=normalized.checksum,
-                        state=normalized.state.value,
-                        lora_type=normalized.lora_type,
-                        readiness=normalized.readiness,
-                        metadata_json=payload,
-                        updated_at=now,
+                if path_row is not None and path_row.id != profile.id:
+                    raise ValueError(
+                        f"LoRA path already belongs to {path_row.id}: {profile.path}"
                     )
-                )
-            else:
-                row.path = str(normalized.path)
-                row.checksum = normalized.checksum
-                row.state = normalized.state.value
-                row.lora_type = normalized.lora_type
-                row.readiness = normalized.readiness
-                row.metadata_json = payload
-                row.updated_at = now
+                if row is None:
+                    session.add(
+                        LoRARow(
+                            id=profile.id,
+                            path=str(profile.path),
+                            checksum=profile.checksum,
+                            state=profile.state.value,
+                            lora_type=profile.lora_type,
+                            readiness=profile.readiness,
+                            metadata_json=payload,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    row.path = str(profile.path)
+                    row.checksum = profile.checksum
+                    row.state = profile.state.value
+                    row.lora_type = profile.lora_type
+                    row.readiness = profile.readiness
+                    row.metadata_json = payload
+                    row.updated_at = now
         return normalized
 
     def get(self, lora_id: str) -> LoRAProfile | None:
@@ -144,9 +166,22 @@ class LoRARegistry:
         reason: str,
         missing: bool = False,
     ) -> LoRAProfile:
+        current = self.require(lora_id)
+        return self.upsert(self.prepare_invalidation(
+            current, target=target, reason=reason, missing=missing,
+        ))
+
+    @staticmethod
+    def prepare_invalidation(
+        current: LoRAProfile,
+        *,
+        target: LoRAState,
+        reason: str,
+        missing: bool = False,
+    ) -> LoRAProfile:
+        """Build an invalidation without committing it individually."""
         if target not in {LoRAState.DISCOVERED, LoRAState.DISABLED, LoRAState.FAILED}:
             raise ValueError("invalid LoRA invalidation target")
-        current = self.require(lora_id)
         now = datetime.now(UTC)
         metadata = dict(current.metadata)
         metadata["asset_status"] = "missing" if missing else "invalidated"
@@ -170,7 +205,7 @@ class LoRARegistry:
                 "metadata": metadata,
             }
         )
-        return self.upsert(invalidated)
+        return invalidated
 
     def transition_state(self, lora_id: str, target: LoRAState) -> LoRAProfile:
         current = self.require(lora_id)
