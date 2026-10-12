@@ -18,6 +18,19 @@ guarantee that a particular process stayed alive. It cannot substitute for
 the full eight-hour duration, real finalized Packs, ownership continuity or
 the separate unattended production stage.
 
+During the qualification-bound `soak-run` (and session-bound `soak-observe`),
+each interval repeats the **read-only SQLite daemon observation** before
+contacting PC-B. New schema-3 JSONL evidence contains the fixed daemon state
+and a SHA-256 fingerprint of the loop start marker, **never the daemon run ID**.
+The verifier rejects missing/stale/invalid daemon evidence, a different loop
+fingerprint (including a daemon restart), and traces that omit mandatory daemon
+monitoring. If the loop stops, the observer fsyncs a failed sample and ends
+early rather than wasting the remaining hours. All legacy monitoring traces
+remain inspectable, but cannot satisfy a new production OVERNIGHT_SOAK PASS.
+The monitor never restarts or kills a service, writes database rows, or submits
+GPU work. As with the existing PC-B checks, periodic samples cannot establish
+every instant between intervals; real-machine qualification remains required.
+
 
 `uv run artifex qualify soak-run --config config/local.yaml` now performs
 one **actual, read-only** controller/PC-B observation *before* running
