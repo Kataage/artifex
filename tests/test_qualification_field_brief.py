@@ -188,7 +188,7 @@ def test_verified_cache_and_current_owner_defer_only_redundant_pc_b_rechecks() -
     )
     assert report.pc_b_visit_triage == "pc_a_recheck_first"
     assert set(report.pc_b_deferred_repeat_checks) == {
-        "pc-b-launcher-owner", "pc-b-observer-dry-run",
+        "pc-b-field-preflight",
     }
     # Full conservative plan remains visible; the action isn't completed.
     assert {
