@@ -44,6 +44,8 @@ class SoakHeader(BaseModel):
     # Schema 2 flags a real PC-B owner audit on every interval.
     owner_observation_required: bool = False
     daemon_observation_required: bool = False
+    # Snapshot of the exact read-only preflight loop; no raw daemon run ID.
+    preflight_daemon_loop_fingerprint: str | None = None
     run_id: str
     qualification_session_id: str | None = Field(default=None, min_length=1)
     controller_host: str
@@ -353,6 +355,7 @@ def observe_soak(
     qualification_session_id: str | None = None,
     on_sample: Callable[[SoakSample], None] | None = None,
     require_daemon_observation: bool = False,
+    expected_daemon_loop_fingerprint: str | None = None,
     daemon_observer: Callable[
         [ArtifexSettings], DaemonStartObservation
     ] = observe_active_production_daemon,
@@ -374,6 +377,12 @@ def observe_soak(
         raise ValueError("Soak duration must be between 0 and 72 hours")
     if not 10 <= interval_seconds <= 3600:
         raise ValueError("Soak sample interval must be between 10 and 3600 seconds")
+    if expected_daemon_loop_fingerprint is not None and (
+        not require_daemon_observation
+        or len(expected_daemon_loop_fingerprint) != 64
+        or any(c not in "0123456789abcdef" for c in expected_daemon_loop_fingerprint)
+    ):
+        raise ValueError("Invalid preflight daemon continuity binding")
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"Soak evidence cannot overwrite existing file: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -388,6 +397,7 @@ def observe_soak(
         schema_version=3 if require_daemon_observation else (2 if owner_required else 1),
         owner_observation_required=owner_required,
         daemon_observation_required=require_daemon_observation,
+        preflight_daemon_loop_fingerprint=expected_daemon_loop_fingerprint,
         controller_host=socket.gethostname(),
         renderer_id=primary[0] if primary else "(unconfigured)",
         started_at=now(), target_seconds=target * 3600,
@@ -396,7 +406,7 @@ def observe_soak(
     )
     start = monotonic()
     stopped = False
-    original_daemon_fingerprint: str | None = None
+    original_daemon_fingerprint = expected_daemon_loop_fingerprint
     with output.open("x", encoding="utf-8") as handle:
         _write_record(handle, header)
         for index in range(_MAX_SAMPLES):
@@ -411,13 +421,29 @@ def observe_soak(
                 daemon is None or not daemon.ready
                 or daemon.state != "observed_active_loop"
                 or daemon.loop_fingerprint is None
+                or (
+                    expected_daemon_loop_fingerprint is not None
+                    and daemon.loop_fingerprint != expected_daemon_loop_fingerprint
+                )
             ):
                 # Fail immediately, before additional remote/GPU service probes.
+                changed = bool(
+                    daemon is not None and daemon.ready
+                    and daemon.loop_fingerprint is not None
+                    and expected_daemon_loop_fingerprint is not None
+                    and daemon.loop_fingerprint != expected_daemon_loop_fingerprint
+                )
                 observed = SoakSample(
                     observed_at=now(), elapsed_seconds=elapsed,
                     llm_ok=False, comfyui_ok=False, renderer_ok=False,
                     daemon_state=daemon.state if daemon is not None else None,
-                    errors=("PC-A autonomous daemon observation unavailable",),
+                    daemon_loop_fingerprint=(
+                        daemon.loop_fingerprint if daemon is not None else None
+                    ),
+                    errors=(
+                        "PC-A autonomous daemon loop changed since preflight"
+                        if changed else "PC-A autonomous daemon observation unavailable",
+                    ),
                 )
             else:
                 try:
@@ -478,6 +504,7 @@ def verify_soak_evidence(
     path: Path, *, minimum_hours: float = 8,
     require_owner_observation: bool = False,
     require_daemon_observation: bool = False,
+    require_preflight_daemon_binding: bool = False,
 ) -> SoakAssessment:
     """Verify monitored span, coverage, live health, actual DB progress.
 
@@ -506,6 +533,16 @@ def verify_soak_evidence(
         header.schema_version != 3 or not header.daemon_observation_required
     ):
         problems.append("Trace does not declare mandatory PC-A daemon monitoring")
+    bound_fingerprint = header.preflight_daemon_loop_fingerprint
+    bound_valid = (
+        isinstance(bound_fingerprint, str)
+        and len(bound_fingerprint) == 64
+        and all(ch in "0123456789abcdef" for ch in bound_fingerprint)
+    )
+    if require_preflight_daemon_binding and not bound_valid:
+        problems.append("Trace does not bind to the read-only PC-A daemon preflight")
+    if bound_fingerprint is not None and not bound_valid:
+        problems.append("Trace preflight daemon fingerprint is invalid")
     owner_observed_samples = 0
     owner_incidents = 0
     daemon_observed_samples = 0
@@ -568,6 +605,8 @@ def verify_soak_evidence(
                 daemon_issue = "PC-A autonomous daemon loop fingerprint missing or invalid"
             else:
                 daemon_observed_samples += 1
+                if bound_valid and fingerprint != bound_fingerprint:
+                    daemon_issue = "PC-A daemon does not match preflight loop"
                 if original_daemon_fingerprint is None:
                     original_daemon_fingerprint = fingerprint
                 elif fingerprint != original_daemon_fingerprint:
