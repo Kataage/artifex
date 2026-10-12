@@ -49,7 +49,8 @@ class SoakStartPreflight(BaseModel):
     mode: Literal["read_only"] = "read_only"
     ready: bool
     issues: tuple[StartIssue, ...]
-    sample_checked_utc: datetime
+    sample_checked_utc: datetime | None = None
+    sample_attempted: bool = False
     daemon_state: DaemonStartState | Literal["not_checked"] = "not_checked"
     daemon_start_observed: bool = False
     # This gate is not the session and is not the full soak trace.
@@ -149,21 +150,27 @@ def check_soak_start_sample(
         ready=not issues,
         issues=tuple(dict.fromkeys(issues)),
         sample_checked_utc=now,
+        sample_attempted=sample is not None,
     )
 
 
 def preflight_soak_start(settings: ArtifexSettings) -> SoakStartPreflight:
-    """Perform one actual read-only sample, no session creation or evidence write."""
+    """Fail fast on absent daemon; only then sample local and PC-B hardware."""
+    daemon = observe_active_production_daemon(settings)
+    if not daemon.ready:
+        # Avoid slow protected GETs, SQLite telemetry counts, session writes
+        # and GPU service contact if continuous production is not even active.
+        return SoakStartPreflight(
+            ready=False,
+            issues=("daemon_not_live",),
+            daemon_state=daemon.state,
+        )
     try:
         sample = sample_soak(settings, 0.0)
     except Exception:  # noqa: BLE001 - status-only failure, no secret echo
         sample = None
     result = check_soak_start_sample(settings, sample)
-    daemon = observe_active_production_daemon(settings)
-    failures = result.issues + (() if daemon.ready else ("daemon_not_live",))
     return result.model_copy(update={
-        "ready": not failures,
-        "issues": failures,
         "daemon_state": daemon.state,
-        "daemon_start_observed": daemon.ready,
+        "daemon_start_observed": True,
     })
