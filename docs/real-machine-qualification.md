@@ -1034,6 +1034,19 @@ even to legacy deployments permitting unauthenticated attestation. Such a
 response is **unavailable evidence**, never a valid qualification snapshot;
 inspect local logs and configuration through the permitted on-host tools.
 
+**Partially successful inventory responses are not error-message channels:**
+`inventory_errors` uses fixed `asset_unavailable`, `lora_root_missing`,
+`lora_asset_unreadable` or `duplicate_relative_lora_asset` codes and
+generic source categories rather than raw PC-B absolute paths or
+exception text. The list remains nonempty on partial failure, preventing
+PC-A from treating an incomplete LoRA scan as a deliberate deletion.
+**Successful** attestation still contains model/LoRA inventory, checksums
+and paths needed for the authorized remote workflow, so keep PC-B
+`require_token: true` and restrict the attestation port to trusted PC-A.
+The PC-A client ignores environment proxy settings, does not follow HTTP
+redirects, and limits the response to 64 MiB before decoding it. Any
+transport or inventory failure must remain incomplete evidence, not PASS.
+
 After installing this version on both Windows PCs, the **protected** PC-B
 attestation service starts a bounded local background evidence sampler.
 Only on native Windows with a configured managed ComfyUI, enabled protected
