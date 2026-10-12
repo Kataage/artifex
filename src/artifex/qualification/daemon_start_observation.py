@@ -6,6 +6,7 @@ receipt, eight-hour monitor, or permission to submit any GPU work.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -13,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import make_url
 
 from artifex.config.models import ArtifexSettings
@@ -36,6 +37,8 @@ class DaemonStartObservation(BaseModel):
     state: DaemonStartState
     ready: bool
     heartbeat_age_seconds: float | None = None
+    # Private to trusted in-process continuity checking. Never serialize.
+    loop_fingerprint: str | None = Field(default=None, exclude=True)
     # No run IDs, raw SQL values, filesystem paths or exception messages.
     database_read_only: Literal[True] = True
     processes_launched: Literal[False] = False
@@ -46,10 +49,12 @@ class DaemonStartObservation(BaseModel):
 
 def _observed(
     state: DaemonStartState, age: float | None = None,
+    loop_fingerprint: str | None = None,
 ) -> DaemonStartObservation:
     return DaemonStartObservation(
         state=state, ready=state == "observed_active_loop",
         heartbeat_age_seconds=round(age, 3) if age is not None else None,
+        loop_fingerprint=loop_fingerprint,
     )
 
 
@@ -105,13 +110,13 @@ def observe_active_production_daemon(
             # event types. A manual run_once cannot manufacture a start.
             # Ordering by ID avoids Windows/SQLite date coercion ambiguity.
             last = conn.execute(
-                "SELECT event_type, payload_json FROM agent_events "
+                "SELECT id, event_type, payload_json FROM agent_events "
                 "WHERE event_type IN (?, ?) ORDER BY id DESC LIMIT 1",
                 ("daemon.loop_started", "daemon.loop_stopped"),
             ).fetchone()
             if last is None:
                 return _observed("loop_marker_missing", age)
-            event_type, payload_json = last
+            event_id, event_type, payload_json = last
             payload = json.loads(payload_json)
             if (
                 not isinstance(payload, dict)
@@ -121,7 +126,14 @@ def observe_active_production_daemon(
                 return _observed("loop_marker_invalid", age)
             if event_type != "daemon.loop_started":
                 return _observed("loop_not_active", age)
-            return _observed("observed_active_loop", age)
+            if type(event_id) is not int or event_id < 1:
+                return _observed("loop_marker_invalid", age)
+            # A per-loop fingerprint, not the original UUID or event ID.
+            # It is excluded from serialized preflight reports.
+            fingerprint = hashlib.sha256(
+                f"{event_id}:{payload['run_id']}".encode("ascii")
+            ).hexdigest()
+            return _observed("observed_active_loop", age, fingerprint)
     except (
         OSError, sqlite3.Error, ValueError, TypeError, KeyError,
         json.JSONDecodeError,
