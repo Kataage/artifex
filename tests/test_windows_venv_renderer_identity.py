@@ -113,6 +113,7 @@ def _socket(
 @pytest.mark.parametrize("drift", [
     "parent", "creation", "command", "launcher_command",
     "pid_reuse", "non_python", "bad_parent_clock",
+    "extra_child_arguments", "far_late_child",
 ])
 def test_venv_shim_receipt_fails_closed_on_identity_drift(
     tmp_path: Path, drift: str,
@@ -128,6 +129,23 @@ def test_venv_shim_receipt_fails_closed_on_identity_drift(
         candidate = child.model_copy(update={"started_utc": "2026-10-09T01:01:01Z"})
     elif drift == "command":
         candidate = child.model_copy(update={"command_line": "python.exe fake.py"})
+    elif drift == "extra_child_arguments":
+        config = settings.render_agent.comfyui_process
+        # This malicious prefix used to pass suffix-only argv validation.
+        candidate = child.model_copy(update={
+            "command_line": subprocess.list2cmdline([
+                child.executable, "-c", "print('foreign')", *config.arguments,
+            ]),
+        })
+        assert candidate.command_line.endswith(
+            " " + subprocess.list2cmdline(config.arguments)
+        )
+    elif drift == "far_late_child":
+        # Child PID may refer to another descendant after the original
+        # Windows shim PID has been recycled. Refuse late attribution.
+        candidate = child.model_copy(update={
+            "started_utc": "2026-10-09T01:02:01Z",
+        })
     elif drift == "launcher_command":
         receipt = receipt.model_copy(update={
             "launcher_identity": launcher.model_copy(update={
@@ -597,3 +615,56 @@ def test_reused_parent_pid_blocks_retirement_even_if_child_and_port_are_gone(
             manager._retire_exited_receipt()
     assert manager._receipts.load() == receipt
     manager.close()
+
+
+@pytest.mark.parametrize(
+    ("elapsed_seconds", "expected"),
+    [
+        (0, True),
+        (1, True),
+        (120, True),
+        (121, False),
+        (300, False),
+        (-1, False),
+    ],
+)
+def test_venv_child_spawn_delay_is_bounded(
+    tmp_path: Path, elapsed_seconds: int, expected: bool,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    started = datetime(2026, 10, 9, 1, tzinfo=UTC)
+    candidate = child.model_copy(update={
+        "started_utc": (
+            started + timedelta(seconds=elapsed_seconds)
+        ).isoformat(),
+    })
+    assert verified_launcher_child(settings, launcher, candidate) is expected
+
+
+def test_venv_child_exact_args_rejects_suffix_only_match(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    args = settings.render_agent.comfyui_process.arguments
+    expected_suffix = " " + subprocess.list2cmdline(args)
+    assert child.command_line.endswith(expected_suffix)
+
+    for untrusted_prefix in (
+        [child.executable, "-X", "dev", *args],
+        [child.executable, "-m", "unrelated", *args],
+        [child.executable, "-c", "print(1)", *args],
+    ):
+        forged = child.model_copy(update={
+            "command_line": subprocess.list2cmdline(untrusted_prefix),
+        })
+        assert forged.command_line.endswith(expected_suffix)
+        assert not verified_launcher_child(settings, launcher, forged)
+        assert not matches_owned_process(
+            settings,
+            expected_receipt(settings, child, launcher_identity=launcher),
+            forged,
+        )
