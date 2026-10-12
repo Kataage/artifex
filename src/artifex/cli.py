@@ -94,6 +94,7 @@ from artifex.qualification.soak_observer import (
     observe_soak,
     verify_soak_evidence,
 )
+from artifex.qualification.soak_start_preflight import preflight_soak_start
 from artifex.render_node import (
     build_attestation,
     check_render_node,
@@ -3053,6 +3054,23 @@ def qualify_soak_run(
             trace = trace.expanduser().resolve()
             if not trace.is_relative_to(root):
                 raise ValueError("soak evidence must be inside qualification.evidence_dir")
+
+        # A failed initial live telemetry/owner sample must not create a
+        # qualification session or open an eight-hour evidence trace.
+        # This gate is read-only (GET, local resource and DB counter reads).
+        gate = preflight_soak_start(settings)
+        if not gate.ready:
+            _print_payload(
+                {
+                    "session_id": active_id,
+                    "evidence_path": None,
+                    "overnight_soak": "blocked_preflight",
+                    "preflight": gate.model_dump(mode="json"),
+                    "production_qualified": False,
+                },
+                as_json=json_output,
+            )
+            raise typer.Exit(code=1)
 
         # Close the database/resources before the multi-hour read-only watcher.
         core = build_core(settings)
