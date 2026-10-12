@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -202,3 +203,73 @@ def test_http_client_requires_bearer_node_match_no_redirects(
     monkeypatch.delenv("ARTIFEX_RENDER_NODE_TOKEN")
     with pytest.raises(ValueError, match="token is missing"):
         fetch_remote_owner_readiness("gpu-b", cfg)
+
+
+@pytest.mark.parametrize("require_token", [True, False])
+def test_attestation_failed_inventory_never_discloses_private_error(
+    monkeypatch: pytest.MonkeyPatch, require_token: bool,
+) -> None:
+    """The legacy public endpoint must not leak exceptions or local paths."""
+    import artifex.render_node.attestation as module
+
+    settings = _settings()
+    settings.render_agent.require_token = require_token
+    settings.render_agent.bind_host = "127.0.0.1"
+    settings.render_agent.gateway.enabled = False
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        settings.render_agent.port = sock.getsockname()[1]
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "secret-bearer-credential")
+    private_message = (
+        "D:/private/models/authentication.key "
+        "https://private.local/?token=secret-bearer-credential"
+    )
+    calls: list[int] = []
+
+    def fail_inventory(_: ArtifexSettings):
+        calls.append(1)
+        raise RuntimeError(private_message)
+
+    monkeypatch.setattr(module, "build_attestation", fail_inventory)
+    stop = threading.Event()
+    server = threading.Thread(
+        target=serve_attestation,
+        args=(settings,),
+        kwargs={"stop_event": stop, "owner_config": None},
+        daemon=True,
+    )
+    server.start()
+    url = f"http://127.0.0.1:{settings.render_agent.port}/v1/attestation?fresh=1"
+    headers = (
+        {"Authorization": "Bearer secret-bearer-credential"}
+        if require_token else {}
+    )
+    try:
+        with httpx.Client(trust_env=False, timeout=3) as client:
+            for attempt in range(40):
+                try:
+                    response = client.get(url, headers=headers)
+                    break
+                except httpx.ConnectError:
+                    if not server.is_alive() and attempt > 1:
+                        pytest.fail("Fixture server did not start")
+                    time.sleep(0.05)
+            else:
+                pytest.fail("Fixture server never accepted connections")
+
+            assert response.status_code == 503
+            assert response.json() == {"error": "attestation_unavailable"}
+            assert "private" not in response.text
+            assert "secret-bearer-credential" not in response.text
+            assert "RuntimeError" not in response.text
+            assert "detail" not in response.text
+            assert len(calls) == 1
+
+            if require_token:
+                unauthorized = client.get(url)
+                assert unauthorized.status_code == 401
+                assert unauthorized.json() == {"error": "unauthorized"}
+                assert len(calls) == 1
+    finally:
+        stop.set()
+        server.join(timeout=5)
