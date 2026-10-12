@@ -2262,7 +2262,12 @@ a distinct listening Python PID is accepted only when it is its **direct**
 child, starts no earlier than the launcher, has the expected arguments and
 matches a repeat socket inventory. The child command line must match the **whole
 interpreter invocation**, not merely end with the ComfyUI arguments (which
-could allow unrelated `-c`, `-m` or `-X` prefixes). The child creation
+could allow unrelated `-c`, `-m` or `-X` prefixes). A native Windows
+venv redirector may preserve the original configured venv `argv[0]` after
+launching the base Python interpreter; only the **exact configured venv
+executable** or **actual CIM interpreter executable** with the entire
+configured argument vector is accepted, never an arbitrary command prefix.
+The child creation
 timestamp must follow the launcher by **no more than 120 seconds**, since a
 Windows venv shim spawns its interpreter before lengthy model loading.
 A child appearing after that limit cannot be safely attributed to the
