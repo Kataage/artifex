@@ -177,8 +177,8 @@ def test_full_live_read_only_prerequisites_are_not_gpu_qualification() -> None:
         ("native_stopped", "inspect_pc_a_config_and_tasks"),
         ("observer_stale", "inspect_pc_b_native_tasks_and_observer"),
         ("bad_controller", "inspect_controller_or_workflow_dependencies"),
-        ("cache_missing", "inspect_pc_b_live_owner_identity"),
-        ("foreign_node", "inspect_pc_b_live_owner_identity"),
+        ("cache_missing", "inspect_pc_b_cached_launcher_evidence"),
+        ("foreign_node", "inspect_pc_b_cached_launcher_evidence"),
     ],
 )
 def test_partial_pair_native_and_workflow_states_fail_closed(
