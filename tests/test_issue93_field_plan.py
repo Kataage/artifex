@@ -52,8 +52,8 @@ def test_missing_evidence_proposes_exact_per_pc_diagnostics_without_apply() -> N
         _report(), controller_config=PC_A, renderer_config=PC_B,
     )
     assert {step.id for step in plan.steps} == {
-        "pc-b-launcher-owner", "pc-a-fresh-owner-pair",
-        "pc-b-observer-dry-run", "pc-a-survival-review",
+        "pc-b-field-preflight", "pc-a-fresh-owner-pair",
+        "pc-a-survival-review",
     }
     assert all(step.role in {"pc_a", "pc_b"} for step in plan.steps)
     assert {step.effect for step in plan.steps} == {
@@ -68,8 +68,8 @@ def test_missing_evidence_proposes_exact_per_pc_diagnostics_without_apply() -> N
         assert not step.executed
         assert not step.service_mutated
         assert not step.gpu_jobs_submitted
-    assert "owner-readiness" in next(
-        step.argv for step in plan.steps if step.id == "pc-b-launcher-owner"
+    assert "field-preflight" in next(
+        step.argv for step in plan.steps if step.id == "pc-b-field-preflight"
     )
     assert "--refresh-owner-pair" in next(
         step.argv for step in plan.steps if step.id == "pc-a-fresh-owner-pair"
@@ -137,7 +137,7 @@ def test_only_failed_checks_generate_their_respective_commands(part: str) -> Non
         controller_config=PC_A, renderer_config=PC_B,
     )
     kinds = {s.id for s in result.steps}
-    assert ("pc-b-launcher-owner" in kinds) == (
+    assert ("pc-b-field-preflight" in kinds) == (
         part == "isolated_launcher_and_live_owner"
     )
     assert ("pc-a-fresh-owner-pair" in kinds) == (
