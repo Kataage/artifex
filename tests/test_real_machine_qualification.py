@@ -46,8 +46,8 @@ from artifex.qualification.archive_reproduction import (
     reproduce_archived_attempt,
 )
 from artifex.qualification.collector import QualificationEvidenceCollector
-from artifex.qualification.maintenance import QualificationEvidenceMaintenance
 from artifex.qualification.daemon_start_observation import DaemonStartObservation
+from artifex.qualification.maintenance import QualificationEvidenceMaintenance
 from artifex.qualification.soak_observer import SoakSample, observe_soak
 from artifex.render_node import RenderAssetDigest, RenderNodeAttestation
 from artifex.series import SeriesRepository
