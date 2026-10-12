@@ -18,6 +18,19 @@ guarantee that a particular process stayed alive. It cannot substitute for
 the full eight-hour duration, real finalized Packs, ownership continuity or
 the separate unattended production stage.
 
+The pre-start daemon read is repeated **after** the PC-B/LLM/ComfyUI sample:
+an absent heartbeat, missing marker or replaced loop blocks session creation.
+A SHA-256 fingerprint of that same start marker is carried privately from
+preflight to `soak-run` and stored in the schema-3 trace header (never the
+daemon UUID, PID, credential or path). Each interval must match **that
+original preflight loop**, including the first one after doctor and model
+hashing. A restart in the preflight-to-monitor gap fails before slow PC-B
+probes and is recorded as failed evidence, not a qualification PASS.
+Production stage verification requires the preflight binding in the trace.
+Session-bound `soak-observe` obtains the same preflight binding; unbound
+standalone diagnostic traces are still readable but cannot independently
+satisfy an `overnight_soak` production stage.
+
 During the qualification-bound `soak-run` (and session-bound `soak-observe`),
 each interval repeats the **read-only SQLite daemon observation** before
 contacting PC-B. New schema-3 JSONL evidence contains the fixed daemon state

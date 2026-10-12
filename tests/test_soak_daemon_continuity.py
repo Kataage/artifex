@@ -29,6 +29,8 @@ def _trace(
     tmp_path: Path,
     *,
     change: Literal["none", "stop", "restart", "exception"] = "none",
+    bound_loop: str | None = None,
+    sample_calls: list[float] | None = None,
 ) -> tuple[Path, object]:
     settings = ArtifexSettings()
     settings.qualification.require_renderer_owner_observation = False
@@ -50,6 +52,8 @@ def _trace(
         )
 
     def sample(_: ArtifexSettings, elapsed: float) -> SoakSample:
+        if sample_calls is not None:
+            sample_calls.append(elapsed)
         hour = int(elapsed / 3600)
         return SoakSample(
             observed_at=BASE + timedelta(seconds=elapsed),
@@ -65,6 +69,7 @@ def _trace(
     report = observe_soak(
         settings, output=path, duration_hours=8, interval_seconds=3600,
         require_daemon_observation=True, daemon_observer=observer,
+        expected_daemon_loop_fingerprint=bound_loop,
         sample=sample,
         monotonic=lambda: clock[0],
         sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
@@ -146,3 +151,55 @@ def test_removed_or_switched_middle_sample_cannot_verify(
     assert not checked.ready_for_soak_review
     assert checked.daemon_incidents == 1
     assert any("fingerprint" in issue for issue in checked.issues)
+
+
+def test_same_preflight_loop_can_prove_valid_soak(tmp_path: Path) -> None:
+    path, report = _trace(tmp_path, bound_loop="a" * 64)
+    assert report.ready_for_soak_review
+    assert verify_soak_evidence(
+        path, require_daemon_observation=True,
+        require_preflight_daemon_binding=True,
+    ).ready_for_soak_review
+    header = json.loads(path.read_text().splitlines()[0])
+    assert header["preflight_daemon_loop_fingerprint"] == "a" * 64
+
+
+def test_restart_between_preflight_and_first_sample_fails_before_remote_probe(
+    tmp_path: Path,
+) -> None:
+    remote_calls: list[float] = []
+    path, report = _trace(
+        tmp_path, bound_loop="b" * 64, sample_calls=remote_calls,
+    )
+    assert remote_calls == []
+    assert report.observed_samples == 1
+    assert not report.ready_for_soak_review
+    assert any("changed since preflight" in issue for issue in report.issues)
+    assert json.loads(path.read_text().splitlines()[-1])["stopped_early"] is True
+
+
+def test_reverification_rejects_removed_or_modified_preflight_binding(
+    tmp_path: Path,
+) -> None:
+    path, report = _trace(tmp_path, bound_loop="a" * 64)
+    assert report.ready_for_soak_review
+    lines = path.read_text().splitlines()
+    header = json.loads(lines[0])
+    header["preflight_daemon_loop_fingerprint"] = None
+    lines[0] = json.dumps(header)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = verify_soak_evidence(
+        path, require_daemon_observation=True,
+        require_preflight_daemon_binding=True,
+    )
+    assert not result.ready_for_soak_review
+    assert any("does not bind" in issue for issue in result.issues)
+    header["preflight_daemon_loop_fingerprint"] = "b" * 64
+    lines[0] = json.dumps(header)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = verify_soak_evidence(
+        path, require_daemon_observation=True,
+        require_preflight_daemon_binding=True,
+    )
+    assert not result.ready_for_soak_review
+    assert any("does not match preflight" in issue for issue in result.issues)

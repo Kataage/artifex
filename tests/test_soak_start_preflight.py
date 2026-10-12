@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from artifex.config.models import ArtifexSettings, RenderNodeConfig, RenderNodesConfig
+from artifex.qualification.daemon_start_observation import DaemonStartObservation
 from artifex.qualification.soak_observer import SoakOwnerObservation, SoakSample
 from artifex.qualification.soak_start_preflight import (
     check_soak_start_sample,
@@ -169,6 +170,7 @@ def test_probe_exception_is_redacted_and_never_claims_readiness(
         "artifex.qualification.soak_start_preflight.observe_active_production_daemon",
         lambda settings: DaemonStartObservation(
             state="observed_active_loop", ready=True,
+            loop_fingerprint="a" * 64,
         ),
     )
     result = preflight_soak_start(_settings())
@@ -188,3 +190,85 @@ def test_unconfigured_owner_is_not_silently_accepted_when_policy_requires_it() -
     assert result.ready is False
     assert "primary_renderer_unconfigured" in result.issues
     assert result.production_qualified is False
+
+
+@pytest.mark.parametrize(
+    ("later", "expected_issue"),
+    [
+        ("same", None),
+        ("different", "daemon_loop_changed"),
+        ("stopped", "daemon_not_live"),
+        ("missing", "daemon_not_live"),
+    ],
+)
+def test_preflight_rechecks_same_daemon_after_remote_probe(
+    monkeypatch: pytest.MonkeyPatch, later: str,
+    expected_issue: str | None,
+) -> None:
+    import artifex.qualification.soak_start_preflight as gate_module
+
+    calls: list[str] = []
+    def observe(_: ArtifexSettings) -> DaemonStartObservation:
+        calls.append("daemon")
+        if len(calls) == 1:
+            return DaemonStartObservation(
+                state="observed_active_loop", ready=True,
+                loop_fingerprint="a" * 64,
+            )
+        if later == "missing":
+            return DaemonStartObservation(
+                state="observed_active_loop", ready=True,
+                loop_fingerprint=None,
+            )
+        if later == "stopped":
+            return DaemonStartObservation(
+                state="loop_not_active", ready=False,
+            )
+        return DaemonStartObservation(
+            state="observed_active_loop", ready=True,
+            loop_fingerprint=("a" if later == "same" else "b") * 64,
+        )
+
+    def sample(_: ArtifexSettings, __: float) -> SoakSample:
+        calls.append("remote")
+        instant = datetime.now(UTC)
+        return _sample(
+            observed_at=instant,
+            owner=_owner(captured_utc=instant),
+        )
+
+    monkeypatch.setattr(gate_module, "observe_active_production_daemon", observe)
+    monkeypatch.setattr(gate_module, "sample_soak", sample)
+    result = preflight_soak_start(_settings())
+    assert calls == ["daemon", "remote", "daemon"]
+    if expected_issue is None:
+        assert result.ready
+        assert result.daemon_start_observed
+        assert result.daemon_loop_fingerprint == "a" * 64
+        assert "a" * 64 not in result.model_dump_json()
+    else:
+        assert not result.ready
+        assert result.issues == (expected_issue,)
+        assert result.daemon_loop_fingerprint is None
+        assert not result.qualification_session_created
+
+
+def test_preflight_refuses_missing_initial_loop_without_remote_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.qualification.soak_start_preflight as gate_module
+
+    monkeypatch.setattr(
+        gate_module, "observe_active_production_daemon",
+        lambda _: DaemonStartObservation(
+            state="observed_active_loop", ready=True,
+            loop_fingerprint=None,
+        ),
+    )
+    def forbidden(*args: object) -> SoakSample:
+        raise AssertionError("PC-B must not be contacted")
+    monkeypatch.setattr(gate_module, "sample_soak", forbidden)
+    result = preflight_soak_start(_settings())
+    assert not result.ready
+    assert result.issues == ("daemon_not_live",)
+    assert not result.sample_attempted

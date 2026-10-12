@@ -3059,6 +3059,10 @@ def qualify_soak_run(
         # qualification session or open an eight-hour evidence trace.
         # This gate is read-only (GET, local resource and DB counter reads).
         gate = preflight_soak_start(settings)
+        if gate.ready and gate.daemon_loop_fingerprint is None:
+            gate = gate.model_copy(update={
+                "ready": False, "issues": ("daemon_not_live",),
+            })
         if not gate.ready:
             _print_payload(
                 {
@@ -3115,6 +3119,7 @@ def qualify_soak_run(
             interval_seconds=sample_seconds,
             qualification_session_id=active_id,
             require_daemon_observation=True,
+            expected_daemon_loop_fingerprint=gate.daemon_loop_fingerprint,
             on_sample=show_sample,
         )
         if not report.ready_for_soak_review:
@@ -3211,11 +3216,18 @@ def qualify_soak_observe(
                     raise ValueError("qualification session is for a different controller")
             finally:
                 asyncio.run(core.close())
+        bound_loop: str | None = None
+        if session_id is not None:
+            gate = preflight_soak_start(settings)
+            if not gate.ready or gate.daemon_loop_fingerprint is None:
+                raise ValueError("Session-bound soak requires a live, stable PC-A/PC-B preflight")
+            bound_loop = gate.daemon_loop_fingerprint
         result = observe_soak(
             settings, output=output,
             duration_hours=hours, interval_seconds=sample_seconds,
             qualification_session_id=session_id,
             require_daemon_observation=session_id is not None,
+            expected_daemon_loop_fingerprint=bound_loop,
         )
         _print_payload(
             {"evidence_path": str(output), **result.model_dump(mode="json")},
@@ -3251,6 +3263,7 @@ def qualify_soak_check(
                 and settings.render_nodes.primary_node() is not None
             ),
             require_daemon_observation=True,
+            require_preflight_daemon_binding=True,
         )
         _print_payload(result.model_dump(mode="json"), as_json=json_output)
     except (OSError, ValueError, RuntimeError) as exc:

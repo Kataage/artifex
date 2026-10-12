@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from artifex.config.models import ArtifexSettings
 from artifex.qualification.daemon_start_observation import (
@@ -39,6 +39,7 @@ StartIssue = Literal[
     "renderer_owner_identity_invalid",
     "renderer_owner_snapshot_stale",
     "daemon_not_live",
+    "daemon_loop_changed",
 ]
 
 
@@ -53,6 +54,8 @@ class SoakStartPreflight(BaseModel):
     sample_attempted: bool = False
     daemon_state: DaemonStartState | Literal["not_checked"] = "not_checked"
     daemon_start_observed: bool = False
+    # Internal bridge between preflight and the real monitor. Never display.
+    daemon_loop_fingerprint: str | None = Field(default=None, exclude=True)
     # This gate is not the session and is not the full soak trace.
     qualification_session_created: Literal[False] = False
     soak_evidence_file_written: Literal[False] = False
@@ -157,7 +160,7 @@ def check_soak_start_sample(
 def preflight_soak_start(settings: ArtifexSettings) -> SoakStartPreflight:
     """Fail fast on absent daemon; only then sample local and PC-B hardware."""
     daemon = observe_active_production_daemon(settings)
-    if not daemon.ready:
+    if not daemon.ready or daemon.loop_fingerprint is None:
         # Avoid slow protected GETs, SQLite telemetry counts, session writes
         # and GPU service contact if continuous production is not even active.
         return SoakStartPreflight(
@@ -169,8 +172,27 @@ def preflight_soak_start(settings: ArtifexSettings) -> SoakStartPreflight:
         sample = sample_soak(settings, 0.0)
     except Exception:  # noqa: BLE001 - status-only failure, no secret echo
         sample = None
+    # The remote read can take time. Never accept a different loop or a
+    # stopped daemon merely because the *first* read had been healthy.
+    try:
+        after = observe_active_production_daemon(settings)
+    except Exception:  # noqa: BLE001 - never expose operator-specific DB details
+        after = None
+    if after is None or not after.ready or after.loop_fingerprint is None:
+        return SoakStartPreflight(
+            ready=False, issues=("daemon_not_live",),
+            sample_checked_utc=datetime.now(UTC), sample_attempted=sample is not None,
+            daemon_state=after.state if after is not None else "not_checked",
+        )
+    if after.loop_fingerprint != daemon.loop_fingerprint:
+        return SoakStartPreflight(
+            ready=False, issues=("daemon_loop_changed",),
+            sample_checked_utc=datetime.now(UTC), sample_attempted=sample is not None,
+            daemon_state=after.state,
+        )
     result = check_soak_start_sample(settings, sample)
     return result.model_copy(update={
         "daemon_state": daemon.state,
         "daemon_start_observed": True,
+        "daemon_loop_fingerprint": daemon.loop_fingerprint,
     })

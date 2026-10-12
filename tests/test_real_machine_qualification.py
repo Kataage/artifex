@@ -364,6 +364,7 @@ def _bound_soak_trace(
         interval_seconds=3600,
         qualification_session_id=session_id,
         require_daemon_observation=True,
+        expected_daemon_loop_fingerprint="a" * 64,
         daemon_observer=lambda _: DaemonStartObservation(
             state="observed_active_loop",
             ready=True,

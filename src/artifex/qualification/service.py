@@ -1215,6 +1215,7 @@ class QualificationService:
                 and self._settings.render_nodes.primary_node() is not None
             ),
             require_daemon_observation=True,
+            require_preflight_daemon_binding=True,
         )
         if report.evidence_sha256 != supplied_hash:
             raise ValueError("overnight_soak evidence SHA-256 mismatch")
