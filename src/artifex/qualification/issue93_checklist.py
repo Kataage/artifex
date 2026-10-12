@@ -9,9 +9,9 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import httpx
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
