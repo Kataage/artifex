@@ -161,6 +161,16 @@ def test_probe_exception_is_redacted_and_never_claims_readiness(
     monkeypatch.setattr(
         "artifex.qualification.soak_start_preflight.sample_soak", explode,
     )
+    from artifex.qualification.daemon_start_observation import (
+        DaemonStartObservation,
+    )
+
+    monkeypatch.setattr(
+        "artifex.qualification.soak_start_preflight.observe_active_production_daemon",
+        lambda settings: DaemonStartObservation(
+            state="observed_active_loop", ready=True,
+        ),
+    )
     result = preflight_soak_start(_settings())
     assert result.issues == ("sample_unavailable",)
     assert not result.ready
