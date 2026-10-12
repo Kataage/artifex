@@ -121,18 +121,28 @@ def _lora_inventory(
     errors: list[dict[str, str]] = []
     seen_names: set[str] = set()
     for root in config.lora_roots:
-        base = root.expanduser().resolve(strict=False)
-        if not base.exists():
-            errors.append({"path": "lora_root", "error": "lora_root_missing"})
+        # An existing regular file is NOT an empty LoRA folder. Treat any
+        # missing/unreadable/non-directory root as incomplete inventory;
+        # otherwise PC-A might disable all previously registered LoRAs.
+        try:
+            base = root.expanduser().resolve(strict=False)
+            if not base.exists():
+                errors.append({"path": "lora_root", "error": "lora_root_missing"})
+                continue
+            if not base.is_dir():
+                errors.append({"path": "lora_root", "error": "lora_root_not_directory"})
+                continue
+            paths = sorted(
+                (
+                    item.resolve(strict=False)
+                    for item in base.rglob("*")
+                    if item.is_file() and item.suffix.casefold() in extensions
+                ),
+                key=lambda item: item.as_posix().casefold(),
+            )
+        except (OSError, RuntimeError):
+            errors.append({"path": "lora_root", "error": "lora_root_unreadable"})
             continue
-        paths = sorted(
-            (
-                item.resolve(strict=False)
-                for item in base.rglob("*")
-                if item.is_file() and item.suffix.casefold() in extensions
-            ),
-            key=lambda item: item.as_posix().casefold(),
-        )
         for path in paths:
             try:
                 # Resolved symlinks may leave the configured directory.
@@ -150,6 +160,9 @@ def _lora_inventory(
                     max_header_bytes=config.metadata_header_max_mib * 1024 * 1024,
                 )
                 checksum = sha256_file(path)
+                # The file may disappear after hashing. Check its size
+                # before marking this relative name as successfully scanned.
+                size = path.stat().st_size
             except (OSError, SafeTensorMetadataError, ValueError):
                 # Untrusted file errors can contain private paths and URLs.
                 # PC-A only needs a nonempty inventory_errors to avoid
@@ -163,7 +176,7 @@ def _lora_inventory(
                     path=str(path),
                     relative_path=relative,
                     sha256=checksum,
-                    bytes=path.stat().st_size,
+                    bytes=size,
                     metadata=metadata,
                 )
             )
