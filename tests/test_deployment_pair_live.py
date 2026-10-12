@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,7 @@ from artifex.deployment_pair_live import (
     collect_pair_live_readiness,
     compile_pair_live_readiness,
 )
+from artifex.qualification.owner_handoff import PCBOwnerCorrelation
 from artifex.qualification.pair_installation import TwoPCInstallationAudit
 from artifex.qualification.pc_b_remote_field_gates import RemotePCBPassiveFieldGates
 
@@ -96,10 +97,26 @@ def _cached(
         checked_utc=NOW, node_id=node_id, status=state,
         installation_probe_status="observed",
         cached_owner_probe_status="observed",
+        cached_vs_live_owner_identity="match",
         authenticated_read_only_gets_attempted=2,
         blockers=("SECRET-CACHED-REPORT-BLOCKER",)
         if state != "observed_prerequisites" else (),
     )
+
+
+def _live_owner(
+    *, status: str = "correlated_read_only", checked: datetime = NOW,
+    bearer: bool = True, node_id: str = "gpu-b",
+) -> PCBOwnerCorrelation:
+    return PCBOwnerCorrelation.model_validate({
+        "checked_utc": checked,
+        "status": status,
+        "reason": "mock authenticated owner",
+        "node_id": node_id,
+        "remaining_real_machine_evidence": ["real_supervisor_loss"],
+        "source_mode": "authenticated_remote",
+        "remote_bearer_checked": bearer,
+    })
 
 
 def _compile(
@@ -107,12 +124,14 @@ def _compile(
     installation: TwoPCInstallationAudit | None = None,
     controller: DeploymentReport | None = None,
     cached: RemotePCBPassiveFieldGates | None = None,
+    current_owner: PCBOwnerCorrelation | None = None,
 ) -> PairLiveReadiness:
     return compile_pair_live_readiness(
         node_id="gpu-b",
         installation=_installation() if installation is None else installation,
         controller=_controller() if controller is None else controller,
         cached=_cached() if cached is None else cached,
+        current_owner=_live_owner() if current_owner is None else current_owner,
         checked_utc=NOW,
     )
 
@@ -129,6 +148,12 @@ def test_full_live_read_only_prerequisites_are_not_gpu_qualification() -> None:
     assert result.pc_b_heartbeat_status == "fresh"
     assert result.controller_services_ready
     assert result.cached_launcher_status == "observed_prerequisites"
+    assert result.live_owner_status == "correlated_read_only"
+    assert result.cached_vs_live_owner_identity == "match"
+    assert result.next_check_role == "pc_a"
+    assert result.next_read_only_argv == (
+        "uv", "run", "artifex", "qualify", "field-brief", "--json",
+    )
     assert result.blockers == ()
     assert result.next_action == "review_remaining_real_machine_qualification"
     assert result.commands_executed is False
@@ -184,7 +209,7 @@ def test_partial_pair_native_and_workflow_states_fail_closed(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [
-    "installation", "controller", "cache",
+    "installation", "controller", "cache", "owner",
 ])
 async def test_independent_live_probes_preserve_other_results_and_hide_errors(
     tmp_path: Path, failure: str,
@@ -217,7 +242,16 @@ async def test_independent_live_probes_preserve_other_results_and_hide_errors(
             raise OSError("SECRET-BEARER C:/private unsafe")
         return _controller()
 
-    def cache(actual_settings: ArtifexSettings) -> RemotePCBPassiveFieldGates:
+    def owner(actual_settings: ArtifexSettings) -> PCBOwnerCorrelation:
+        assert actual_settings is settings
+        calls.append("owner")
+        if failure == "owner":
+            raise RuntimeError("SECRET-BEARER C:/private unsafe")
+        return _live_owner()
+
+    def cache(
+        actual_settings: ArtifexSettings, *, current_owner: PCBOwnerCorrelation | None,
+    ) -> RemotePCBPassiveFieldGates:
         assert actual_settings is settings
         calls.append("cache")
         if failure == "cache":
@@ -226,9 +260,10 @@ async def test_independent_live_probes_preserve_other_results_and_hide_errors(
 
     result = await collect_pair_live_readiness(
         settings, controller_config=config,
-        installation_fn=install, controller_fn=controller, cached_fn=cache,
+        installation_fn=install, controller_fn=controller,
+        owner_fn=owner, cached_fn=cache,
     )
-    assert calls == ["install", "controller", "cache"]
+    assert calls == ["install", "controller", "owner", "cache"]
     assert result.status == "probe_unavailable"
     assert not result.read_only_prerequisites_observed
     assert result.commands_executed is False
@@ -240,10 +275,86 @@ async def test_independent_live_probes_preserve_other_results_and_hide_errors(
         ("installation_probe", failure != "installation"),
         ("controller_probe", failure != "controller"),
         ("cached_launcher_probe", failure != "cache"),
+        ("live_owner_probe", failure != "owner"),
     ):
         assert getattr(result, name) == (
             "observed" if observed else "unavailable"
         )
+
+
+@pytest.mark.parametrize(
+    ("status", "bearer", "age", "node", "expected_code"),
+    [
+        ("correlated_read_only", False, 0, "gpu-b", "pc_b_live_owner_unverified"),
+        ("unavailable", True, 0, "gpu-b", "pc_b_live_owner_unverified"),
+        ("correlated_read_only", True, 180, "gpu-b", "pc_b_live_owner_unverified"),
+        ("correlated_read_only", True, 0, "foreign", "pc_b_live_owner_unverified"),
+    ],
+)
+def test_live_owner_never_passes_if_not_fresh_bearer_correlated(
+    status: str, bearer: bool, age: int, node: str, expected_code: str,
+) -> None:
+    owner = _live_owner(
+        status=status, bearer=bearer,
+        checked=NOW - timedelta(seconds=age),
+        node_id=node,
+    )
+    report = _compile(current_owner=owner)
+    assert report.status == "needs_setup"
+    assert expected_code in report.blockers
+    assert not report.read_only_prerequisites_observed
+    assert report.next_action == "inspect_pc_b_live_owner_identity"
+    assert not report.production_qualified
+
+
+@pytest.mark.parametrize(
+    ("identity", "expected"),
+    [
+        ("conflict", "pc_b_cached_owner_identity_conflict"),
+        ("not_comparable", "pc_b_cached_owner_identity_not_correlated"),
+    ],
+)
+def test_cached_owner_must_match_live_process_identity(
+    identity: str, expected: str,
+) -> None:
+    cached = _cached().model_copy(update={
+        "cached_vs_live_owner_identity": identity,
+    })
+    report = _compile(cached=cached)
+    assert report.status == "needs_setup"
+    assert expected in report.blockers
+    assert report.next_action == "inspect_pc_b_live_owner_identity"
+    assert not report.read_only_prerequisites_observed
+
+
+def test_next_check_is_real_read_only_cli_on_correct_host() -> None:
+    variants = (
+        _compile(installation=_installation(
+            status="pc_a_needs_setup", task="registered_not_running",
+        )),
+        _compile(installation=_installation(
+            status="pc_b_needs_setup", heartbeat="stale",
+        )),
+        _compile(controller=_controller(ready=False)),
+        _compile(cached=_cached().model_copy(update={
+            "cached_vs_live_owner_identity": "not_comparable",
+        })),
+        _compile(),
+    )
+    expected_hosts = ("pc_a", "pc_b", "pc_a", "pc_a", "pc_a")
+    for report, host in zip(variants, expected_hosts, strict=True):
+        assert report.next_check_role == host
+        argv = report.next_read_only_argv
+        assert argv[:3] == ("uv", "run", "artifex")
+        assert argv[-1] == "--json"
+        assert not set(argv).intersection({
+            "--apply", "--replace", "--confirm-render",
+            "--render-smoke", "--save", "--output", "--install-missing",
+            "--release",
+        })
+        assert "--config" not in argv
+        assert not report.task_or_process_mutated
+        assert not report.gpu_jobs_submitted
 
 
 def test_controller_failure_codes_are_fixed_and_omit_untrusted_check_names() -> None:

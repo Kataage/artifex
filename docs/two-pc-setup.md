@@ -2,6 +2,28 @@
 
 ## PC-A: fileless read-only live pair inspection
 
+The fileless check additionally obtains a fresh **authenticated** PC-B
+owner correlation independently from the cached launcher report. Both sets of
+native process identity evidence must agree on the listener PID, exact
+timezone-normalized start instant and host; a cached `observed_prerequisites`
+status by itself no longer makes the pair ready. Missing/unavailable,
+unauthenticated, stale or conflicting current ownership leaves
+`read_only_prerequisites_observed=false`, even if both native tasks are
+running and the ComfyUI API responds.
+
+The result now carries `live_owner_status`,
+`cached_vs_live_owner_identity`, `next_check_role` (`pc_a` or `pc_b`)
+and `next_read_only_argv`: the **next safe diagnostic command** for the
+correct PC. The argv is a fixed local preview/audit (never an automatic
+execution or a shell snippet with credentials); it has no `--apply`, task
+replacement, GPU smoke, saved evidence mutation or remote shell. Commands
+use the default Artifex YAML paths. If the installation uses a custom path,
+supply the appropriate **local** `--config` explicitly when running the
+suggested command. A successful current identity match is still point-in-time
+observational evidence, not authentic proof of continuous supervisor-loss
+survival or a completed production soak.
+
+
 After the PC-B independent observer and renderer are activated, PC-A can
 inspect the two native Windows hosts **without** exporting a JSON file on PC-B
 or manually copying a report to PC-A:
