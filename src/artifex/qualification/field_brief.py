@@ -208,7 +208,7 @@ def compile_field_brief(
     deferred = (
         tuple(
             step.id for step in field_plan.steps
-            if step.id in {"pc-b-launcher-owner", "pc-b-observer-dry-run"}
+            if step.id in {"pc-b-field-preflight", "pc-b-observer-dry-run"}
         )
         if visit == "pc_a_recheck_first" else ()
     )

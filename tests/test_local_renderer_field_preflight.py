@@ -63,13 +63,30 @@ def _owner(
 ) -> dict[str, Any]:
     return {
         "status": "observed_independently", "host": host,
+        "collected_utc": NOW.isoformat(),
+        "observations_are_independent": True,
+        "actual_comfyui_inspected_by_owner_audit": True,
+        "production_qualified": False,
+        "renderer_restart_authorized": False,
         "checks": {
             "disposable_launcher_fixture": {"status": fixture, "reason": "fixture"},
             "live_comfyui_owner": {"status": "pass", "reason": "observed"},
         },
+        "launcher_fixture": {
+            "status": "observed", "host": host,
+            "observed_at_utc": NOW.isoformat(),
+            "verified_runtime_provenance": True,
+            "original_launcher_verified": True,
+            "listener_identity_stable": True,
+            "tcp_owner_stable": True,
+            "test_listener_only": True,
+            "actual_comfyui_inspected": False,
+        },
         "owner_audit": {
             "status": "observed_stable", "actual_listener_pid": pid,
             "actual_process_started_utc": started,
+            "captured_utc": NOW.isoformat(),
+            "process_observation_verified": True,
         },
         # May exist in the original detailed report, but must not be emitted
         # by the shareable reduced-scope PC-B field preflight.
@@ -279,3 +296,69 @@ def test_pc_b_cli_custom_path_exclusive_json_and_nonzero_when_blocked(
     ])
     assert blocked.exit_code == 1
     assert json.loads(blocked.stdout)["status"] == "needs_evidence"
+
+
+@pytest.mark.parametrize("problem", [
+    "old_report", "future_report", "naive_report", "old_owner",
+    "future_owner", "missing_owner_time", "old_fixture",
+    "future_fixture", "fixture_after_owner", "unverified_fixture",
+    "foreign_fixture_host", "no_real_owner_verification",
+    "untrusted_summary",
+])
+def test_pc_b_field_preflight_requires_fresh_original_evidence(
+    problem: str,
+) -> None:
+    owner = _owner()
+    prior = (NOW - timedelta(minutes=10)).isoformat()
+    future = (NOW + timedelta(minutes=10)).isoformat()
+    if problem == "old_report":
+        owner["collected_utc"] = prior
+    elif problem == "future_report":
+        owner["collected_utc"] = future
+    elif problem == "naive_report":
+        owner["collected_utc"] = NOW.replace(tzinfo=None).isoformat()
+    elif problem == "old_owner":
+        owner["owner_audit"]["captured_utc"] = prior
+    elif problem == "future_owner":
+        owner["owner_audit"]["captured_utc"] = future
+    elif problem == "missing_owner_time":
+        owner["owner_audit"].pop("captured_utc")
+    elif problem == "old_fixture":
+        owner["launcher_fixture"]["observed_at_utc"] = prior
+    elif problem == "future_fixture":
+        owner["launcher_fixture"]["observed_at_utc"] = future
+    elif problem == "fixture_after_owner":
+        owner["launcher_fixture"]["observed_at_utc"] = (
+            NOW + timedelta(seconds=29)
+        ).isoformat()
+        owner["owner_audit"]["captured_utc"] = (
+            NOW - timedelta(seconds=29)
+        ).isoformat()
+    elif problem == "unverified_fixture":
+        owner["launcher_fixture"]["verified_runtime_provenance"] = False
+    elif problem == "foreign_fixture_host":
+        owner["launcher_fixture"]["host"] = "another-pc"
+    elif problem == "no_real_owner_verification":
+        owner["owner_audit"]["process_observation_verified"] = False
+    else:
+        owner["actual_comfyui_inspected_by_owner_audit"] = False
+    result = _report(owner=owner)
+    assert result.status == "needs_evidence"
+    assert result.listener_pid is None
+    assert result.listener_started_utc is None
+    assert result.blocked_reasons
+    assert result.next_host == "pc_b"
+    assert not result.production_qualified
+    assert not result.issue_93_closure_authorized
+
+
+@pytest.mark.parametrize("seconds", [-180, 30])
+def test_pc_b_timestamp_boundary_remains_observation_only(seconds: int) -> None:
+    owner = _owner()
+    snapshot = (NOW + timedelta(seconds=seconds)).isoformat()
+    owner["collected_utc"] = snapshot
+    owner["launcher_fixture"]["observed_at_utc"] = snapshot
+    owner["owner_audit"]["captured_utc"] = snapshot
+    result = _report(owner=owner)
+    assert result.status == "passive_observation_ready"
+    assert not result.production_qualified

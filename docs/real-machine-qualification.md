@@ -1412,12 +1412,28 @@ local JSON). **No suggested argv contains `--apply`**; even an apparent
 cross-evidence match leaves physical PC-B, GPU and eight-hour production
 qualification false. Never force a supervisor exit to generate a PASS.
 
-On PC-B, the existing no-GPU `render-node owner-readiness --config
-.\\config\\render-node.yaml --json` combines the disposable venv Python
-fixture with a separate read-only inspection of the *already running*
-ComfyUI. Neither PC-A command creates a real ComfyUI process, changes
-Task Scheduler, submits GPU work, or certifies uninterrupted supervisor
-survival. Do not force a supervisor failure to generate evidence.
+For the Issue #93 field plan, run the existing **consolidated** command
+on the actual PC-B instead of repeating the native owner and observer checks:
+
+```powershell
+uv run artifex render-node field-preflight --config .\\config\\render-node.yaml --json
+```
+
+This single PC-B check inspects Task Scheduler and the independent observer,
+runs an isolated disposable no-GPU Python launcher, and separately checks
+the ownership of an *already running* ComfyUI. Its reported status now
+requires the original launcher-fixture and renderer-owner observations
+to be **recent and time-ordered** (three-minute maximum age; at most
+30 seconds of clock skew). A stale, future-dated, missing, contradictory
+or unverified source can never produce `passive_observation_ready`,
+even if a copied wrapper says that both checks passed.
+
+If the single PC-B field preflight already ran, a second observer
+dry-run is unnecessary solely for the Issue #93 field plan. This still
+does not authenticate an actual historical supervisor loss, prove safe
+reattachment, change Task Scheduler, submit GPU work, or qualify the
+fourteen-stage/8-hour production environment. Never force supervisor
+failure or restart existing ComfyUI to obtain evidence.
 
 The checklist calls the existing protected `owner-readiness-evidence`,
 `owner-audit`, `attestation` and `survival-trace` GETs and reads PC-A's

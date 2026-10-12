@@ -88,11 +88,12 @@ def compile_issue93_field_plan(
         }
         if "isolated_launcher_and_live_owner" in unresolved:
             append(
-                "pc-b-launcher-owner", "pc_b", "disposable_no_gpu_probe",
-                "On PC-B, run the local disposable loopback Python launcher fixture "
-                "and independently read current ComfyUI ownership. The fixture "
-                "does not start, stop, or adopt ComfyUI.",
-                _cmd(renderer_config, "render-node", "owner-readiness"),
+                "pc-b-field-preflight", "pc_b", "disposable_no_gpu_probe",
+                "On PC-B, run the existing unified native field-preflight: "
+                "inspect Task Scheduler/observer freshness, run the temporary "
+                "no-GPU launcher fixture, and read actual ComfyUI ownership. "
+                "No production ComfyUI process is started, stopped or adopted.",
+                _cmd(renderer_config, "render-node", "field-preflight"),
             )
         if "two_time_separated_owner_samples" in unresolved:
             append(
@@ -106,13 +107,16 @@ def compile_issue93_field_plan(
                 ),
             )
         if "natural_exit_survival_trace" in unresolved:
-            append(
-                "pc-b-observer-dry-run", "pc_b", "read_only",
-                "On PC-B, inspect whether the independent survival observer could "
-                "be enrolled; this command omits --apply and changes no task. "
-                "Never force a supervisor exit.",
-                _cmd(renderer_config, "startup", "observer-enable"),
-            )
+            # The unified local field-preflight already reports observer
+            # readiness. Do not ask PC-B to duplicate that inspection.
+            if "isolated_launcher_and_live_owner" not in unresolved:
+                append(
+                    "pc-b-observer-dry-run", "pc_b", "read_only",
+                    "On PC-B, inspect whether the independent survival observer "
+                    "could be enrolled; omit --apply and never force a "
+                    "supervisor exit.",
+                    _cmd(renderer_config, "startup", "observer-enable"),
+                )
             append(
                 "pc-a-survival-review", "pc_a", "read_only",
                 "On PC-A, fetch and replay the latest PC-B saved trace through "
