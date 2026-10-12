@@ -124,10 +124,11 @@ _MAX_OBSERVATION_AGE = timedelta(minutes=3)
 _MAX_FUTURE_SKEW = timedelta(seconds=30)
 
 
-def _recent_observation(sampled_at: datetime, checked_at: datetime) -> bool:
+def _recent_observation(sampled_at: datetime | None, checked_at: datetime) -> bool:
     """A successful backend status alone is never fresh observational proof."""
     return (
-        sampled_at.tzinfo is not None
+        sampled_at is not None
+        and sampled_at.tzinfo is not None
         and checked_at.tzinfo is not None
         and -_MAX_FUTURE_SKEW <= checked_at - sampled_at
         <= _MAX_OBSERVATION_AGE
@@ -194,7 +195,6 @@ def compile_issue93_checklist(
     owner_ok = (
         isinstance(owner, PCBOwnerCorrelation)
         and owner.status == "correlated_read_only"
-        and sampled_at["owner"] is not None
         and _recent_observation(sampled_at["owner"], checked_at)
         and owner.source_mode == "authenticated_remote"
         and owner.remote_bearer_checked
@@ -206,7 +206,6 @@ def compile_issue93_checklist(
     pair_ok = (
         isinstance(pair, OwnerPairReview)
         and pair.status == "correlated_read_only"
-        and sampled_at["pair"] is not None
         and _recent_observation(sampled_at["pair"], checked_at)
         and pair.remote_bearer_checked
         and pair.saved_required_checks_consistent
@@ -219,7 +218,6 @@ def compile_issue93_checklist(
     survival_ok = (
         isinstance(survival, PCBSurvivalEvidenceReview)
         and survival.status == "replayed_and_live_identity_matched"
-        and sampled_at["survival"] is not None
         and _recent_observation(sampled_at["survival"], checked_at)
         and survival.source_mode == "bearer_remote"
         and survival.remote_bearer_checked
