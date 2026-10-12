@@ -66,6 +66,26 @@ class LocalRendererFieldPreflight(BaseModel):
     production_qualified: Literal[False] = False
 
 
+def _read_evidence_timestamp(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif isinstance(value, str):
+        try:
+            timestamp = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    return timestamp.astimezone(UTC) if timestamp.tzinfo is not None else None
+
+
+def _recent_local_observation(value: datetime | None, now: datetime) -> bool:
+    return (
+        value is not None and now.tzinfo is not None
+        and -timedelta(seconds=30) <= now - value <= timedelta(minutes=3)
+    )
+
+
 def compile_local_renderer_field_preflight(
     settings: ArtifexSettings, *, config: Path,
     installation: RendererInstallationAudit | None,
@@ -87,11 +107,15 @@ def compile_local_renderer_field_preflight(
     spool = installation.evidence_spool if installation else "unavailable"
     node = settings.render_agent.node_id
     local_owner: dict[str, Any] = {}
+    local_fixture: dict[str, Any] = {}
     local_checks: dict[str, Any] = {}
     if isinstance(owner_readiness, dict):
         audit = owner_readiness.get("owner_audit")
         if isinstance(audit, dict):
             local_owner = audit
+        fixture = owner_readiness.get("launcher_fixture")
+        if isinstance(fixture, dict):
+            local_fixture = fixture
         checks = owner_readiness.get("checks")
         if isinstance(checks, dict):
             local_checks = checks
@@ -113,15 +137,48 @@ def compile_local_renderer_field_preflight(
         local_owner.get("actual_process_started_utc"),
     )
     pid_valid = isinstance(pid, int) and not isinstance(pid, bool) and pid > 0
+    collected = _read_evidence_timestamp(
+        owner_readiness.get("collected_utc")
+        if isinstance(owner_readiness, dict) else None
+    )
+    owner_captured = _read_evidence_timestamp(local_owner.get("captured_utc"))
+    fixture_observed = _read_evidence_timestamp(
+        local_fixture.get("observed_at_utc")
+    )
+    source_timestamps_valid = (
+        _recent_local_observation(collected, checked_at)
+        and _recent_local_observation(owner_captured, checked_at)
+        and _recent_local_observation(fixture_observed, checked_at)
+        and collected is not None and owner_captured is not None
+        and fixture_observed is not None
+        and fixture_observed <= owner_captured + timedelta(seconds=30)
+        and owner_captured <= collected + timedelta(seconds=30)
+        and fixture_observed <= collected + timedelta(seconds=30)
+    )
     owner_verified = bool(
         owner_readiness is not None
         and safe_owner_state == "observed_independently"
+        and owner_readiness.get("observations_are_independent") is True
+        and owner_readiness.get("actual_comfyui_inspected_by_owner_audit") is True
+        and owner_readiness.get("production_qualified") is False
+        and owner_readiness.get("renderer_restart_authorized") is False
+        and source_timestamps_valid
+        and local_fixture.get("status") == "observed"
+        and local_fixture.get("verified_runtime_provenance") is True
+        and local_fixture.get("original_launcher_verified") is True
+        and local_fixture.get("listener_identity_stable") is True
+        and local_fixture.get("tcp_owner_stable") is True
+        and local_fixture.get("test_listener_only") is True
+        and local_fixture.get("actual_comfyui_inspected") is False
         and isinstance(owner_readiness.get("host"), str)
         and installation is not None
         and owner_readiness["host"].casefold() == installation.hostname.casefold()
+        and isinstance(local_fixture.get("host"), str)
+        and local_fixture["host"].casefold() == installation.hostname.casefold()
         and fixture_status == "pass"
         and owner_status == "pass"
         and local_owner.get("status") == "observed_stable"
+        and local_owner.get("process_observation_verified") is True
         and pid_valid
         and parsed_start is not None
         and installation is not None
@@ -163,6 +220,8 @@ def compile_local_renderer_field_preflight(
     if owner_readiness is None:
         blockers.append("pc_b_owner_readiness_unavailable")
     elif not owner_verified:
+        if not source_timestamps_valid:
+            blockers.append("pc_b_owner_or_launcher_snapshot_stale_or_clock_skewed")
         blockers.append("pc_b_disposable_launcher_or_live_owner_not_verified")
     if probe_errors:
         blockers.append("pc_b_one_or_more_local_diagnostics_failed")
