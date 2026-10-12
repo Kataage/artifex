@@ -77,6 +77,7 @@ def _run_setup(
         calls.append(("observe", (path, kwargs["qualification_session_id"])))
         calls.append(("duration_hours", kwargs["duration_hours"]))
         assert kwargs["require_daemon_observation"] is True
+        assert kwargs["expected_daemon_loop_fingerprint"] == "a" * 64
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"synthetic test data")
         if kwargs["on_sample"] is not None:
@@ -111,6 +112,7 @@ def _run_setup(
             calls.append(("live_preflight", None))
             or SoakStartPreflight(
                 ready=True, issues=(), sample_checked_utc=datetime.now(UTC),
+                daemon_loop_fingerprint="a" * 64,
             )
         ),
     )
