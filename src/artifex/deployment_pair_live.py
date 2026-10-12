@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -17,6 +17,10 @@ from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
 from artifex.deployment import DeploymentReport, verify_deployment
+from artifex.qualification.owner_handoff import (
+    PCBOwnerCorrelation,
+    correlate_live_pc_b_owner_report,
+)
 from artifex.qualification.pair_installation import (
     TwoPCInstallationAudit,
     inspect_two_pc_installation,
@@ -37,7 +41,42 @@ NextAction = Literal[
     "inspect_controller_or_workflow_dependencies",
     "inspect_pc_b_cached_launcher_evidence",
     "review_remaining_real_machine_qualification",
+    "inspect_pc_b_live_owner_identity",
 ]
+SafeRole = Literal["pc_a", "pc_b"]
+_MAX_OWNER_AGE = timedelta(minutes=2)
+
+# Fixed local argv only: no secrets, configured URLs, PIDs or PC-B paths.
+# Arguments are for an operator to run on the indicated machine, NEVER
+# executed by pair-live. --config may be supplied locally if non-default.
+_NEXT_CHECKS: dict[NextAction, tuple[SafeRole, tuple[str, ...]]] = {
+    "inspect_pc_a_config_and_tasks": (
+        "pc_a", ("uv", "run", "artifex", "startup", "audit",
+                 "--role", "controller", "--json"),
+    ),
+    "restore_pc_b_authenticated_diagnostics": (
+        "pc_a", ("uv", "run", "artifex", "onboard", "inspect",
+                 "--role", "controller", "--json"),
+    ),
+    "inspect_pc_b_native_tasks_and_observer": (
+        "pc_b", ("uv", "run", "artifex", "deployment", "activate",
+                 "--role", "renderer", "--with-observer", "--json"),
+    ),
+    "inspect_controller_or_workflow_dependencies": (
+        "pc_a", ("uv", "run", "artifex", "deployment", "verify",
+                 "--role", "controller", "--require-autostart", "--json"),
+    ),
+    "inspect_pc_b_cached_launcher_evidence": (
+        "pc_a", ("uv", "run", "artifex", "qualify", "field-brief", "--json"),
+    ),
+    "inspect_pc_b_live_owner_identity": (
+        "pc_a", ("uv", "run", "artifex", "qualify", "field-brief", "--json"),
+    ),
+    "review_remaining_real_machine_qualification": (
+        "pc_a", ("uv", "run", "artifex", "qualify", "field-brief", "--json"),
+    ),
+}
+
 
 
 class PairLiveReadiness(BaseModel):
@@ -61,8 +100,13 @@ class PairLiveReadiness(BaseModel):
     failed_controller_areas: tuple[str, ...]
     cached_launcher_probe: ProbeState
     cached_launcher_status: str
+    live_owner_probe: ProbeState
+    live_owner_status: str
+    cached_vs_live_owner_identity: Literal["not_comparable", "match", "conflict"]
     blockers: tuple[str, ...]
     next_action: NextAction
+    next_check_role: SafeRole
+    next_read_only_argv: tuple[str, ...]
     read_only_prerequisites_observed: bool
     remote_report_copied_by_operator: Literal[False] = False
     commands_executed: Literal[False] = False
@@ -102,6 +146,7 @@ def compile_pair_live_readiness(
     installation: TwoPCInstallationAudit | None,
     controller: DeploymentReport | None,
     cached: RemotePCBPassiveFieldGates | None,
+    current_owner: PCBOwnerCorrelation | None = None,
     checked_utc: datetime | None = None,
 ) -> PairLiveReadiness:
     """Combine independent snapshots conservatively, without side effects."""
@@ -109,6 +154,8 @@ def compile_pair_live_readiness(
     pair_probe: ProbeState = "observed" if installation else "unavailable"
     controller_probe: ProbeState = "observed" if controller else "unavailable"
     cached_probe: ProbeState = "observed" if cached else "unavailable"
+    owner_probe: ProbeState = "observed" if current_owner else "unavailable"
+    now = checked_utc or datetime.now(UTC)
 
     pair_status = installation.status if installation else "unavailable"
     task_a = (
@@ -146,6 +193,31 @@ def compile_pair_live_readiness(
         if cached.cached_vs_live_owner_identity == "conflict":
             blockers.append("pc_b_cached_owner_identity_conflict")
 
+    owner_status = current_owner.status if current_owner else "unavailable"
+    owner_verified = bool(
+        current_owner is not None
+        and current_owner.status == "correlated_read_only"
+        and current_owner.source_mode == "authenticated_remote"
+        and current_owner.remote_bearer_checked
+        and current_owner.node_id == node_id
+        and current_owner.checked_utc.tzinfo is not None
+        and -timedelta(seconds=30) <= (
+            now - current_owner.checked_utc
+        ) <= _MAX_OWNER_AGE
+    )
+    agreement = (
+        cached.cached_vs_live_owner_identity if cached is not None
+        else "not_comparable"
+    )
+    if current_owner is None:
+        blockers.append("pc_b_live_owner_probe_unavailable")
+    elif not owner_verified:
+        blockers.append("pc_b_live_owner_unverified")
+    if agreement == "conflict":
+        blockers.append("pc_b_cached_owner_identity_conflict")
+    elif agreement != "match":
+        blockers.append("pc_b_cached_owner_identity_not_correlated")
+
     complete = bool(
         installation is not None
         and installation.status == "ready_for_passive_monitoring"
@@ -154,13 +226,17 @@ def compile_pair_live_readiness(
         and cached is not None
         and cached.node_id == node_id
         and cached.status == "observed_prerequisites"
-        and cached.cached_vs_live_owner_identity != "conflict"
+        and owner_verified
+        and agreement == "match"
         and not blockers
     )
     if complete:
         status: ReadinessState = "observed_prerequisites"
         action: NextAction = "review_remaining_real_machine_qualification"
-    elif installation is None or controller is None or cached is None:
+    elif (
+        installation is None or controller is None or cached is None
+        or current_owner is None
+    ):
         status = "probe_unavailable"
         if installation is None:
             action = "inspect_pc_a_config_and_tasks"
@@ -168,8 +244,10 @@ def compile_pair_live_readiness(
             action = "restore_pc_b_authenticated_diagnostics"
         elif controller is None:
             action = "inspect_controller_or_workflow_dependencies"
-        else:
+        elif current_owner is None:
             action = "restore_pc_b_authenticated_diagnostics"
+        else:
+            action = "inspect_pc_b_cached_launcher_evidence"
     else:
         status = "needs_setup"
         if installation.status in {"pc_b_unreachable", "pc_b_unconfigured"}:
@@ -180,11 +258,13 @@ def compile_pair_live_readiness(
             action = "inspect_pc_b_native_tasks_and_observer"
         elif not controller.ready:
             action = "inspect_controller_or_workflow_dependencies"
+        elif not owner_verified or agreement != "match":
+            action = "inspect_pc_b_live_owner_identity"
         else:
             action = "inspect_pc_b_cached_launcher_evidence"
 
     return PairLiveReadiness(
-        checked_utc=checked_utc or datetime.now(UTC),
+        checked_utc=now,
         status=status,
         node_id=node_id,
         installation_probe=pair_probe,
@@ -198,8 +278,13 @@ def compile_pair_live_readiness(
         failed_controller_areas=failed_areas,
         cached_launcher_probe=cached_probe,
         cached_launcher_status=cached_status,
+        live_owner_probe=owner_probe,
+        live_owner_status=owner_status,
+        cached_vs_live_owner_identity=agreement,
         blockers=tuple(dict.fromkeys(blockers)),
         next_action=action,
+        next_check_role=_NEXT_CHECKS[action][0],
+        next_read_only_argv=_NEXT_CHECKS[action][1],
         read_only_prerequisites_observed=complete,
     )
 
@@ -210,6 +295,7 @@ async def collect_pair_live_readiness(
     installation_fn: Callable[..., TwoPCInstallationAudit] = inspect_two_pc_installation,
     controller_fn: Callable[..., Awaitable[DeploymentReport]] = verify_deployment,
     cached_fn: Callable[..., RemotePCBPassiveFieldGates] = inspect_remote_pc_b_passive_gates,
+    owner_fn: Callable[..., PCBOwnerCorrelation] = correlate_live_pc_b_owner_report,
 ) -> PairLiveReadiness:
     """PC-A only: sequential, bounded existing GETs, never launch anything."""
     chosen = settings.render_nodes.primary_node()
@@ -217,6 +303,7 @@ async def collect_pair_live_readiness(
     installation: TwoPCInstallationAudit | None = None
     controller: DeploymentReport | None = None
     cached: RemotePCBPassiveFieldGates | None = None
+    current_owner: PCBOwnerCorrelation | None = None
 
     # Each independent observation must still be reported if another one
     # fails. Do not serialize exception strings containing remote URLs/tokens.
@@ -233,11 +320,20 @@ async def collect_pair_live_readiness(
         )
     except Exception:  # noqa: BLE001 - preserve other GET observations
         controller = None
+    # The native cache is not live process identity. The current,
+    # independently Bearer-correlated owner must be sampled separately.
     try:
-        cached = await asyncio.to_thread(cached_fn, settings)
+        current_owner = await asyncio.to_thread(owner_fn, settings)
+    except Exception:  # noqa: BLE001 - omit remote paths and error details
+        current_owner = None
+    try:
+        cached = await asyncio.to_thread(
+            cached_fn, settings, current_owner=current_owner,
+        )
     except Exception:  # noqa: BLE001 - do not discard valid native/LLM checks
         cached = None
     return compile_pair_live_readiness(
         node_id=node_id,
         installation=installation, controller=controller, cached=cached,
+        current_owner=current_owner,
     )
