@@ -668,3 +668,27 @@ def test_venv_child_exact_args_rejects_suffix_only_match(
             expected_receipt(settings, child, launcher_identity=launcher),
             forged,
         )
+
+
+def test_venv_redirector_may_preserve_configured_venv_argv0(
+    tmp_path: Path,
+) -> None:
+    """Windows may keep the launching venv path in the base interpreter argv."""
+    settings = _settings(tmp_path)
+    launcher, child = _identities(settings)
+    config = settings.render_agent.comfyui_process
+    assert config.executable is not None
+    redirector_argv = subprocess.list2cmdline([
+        str(config.executable.resolve()), *config.arguments,
+    ])
+    candidate = child.model_copy(update={"command_line": redirector_argv})
+    assert verified_launcher_child(settings, launcher, candidate)
+    receipt = expected_receipt(settings, candidate, launcher_identity=launcher)
+    assert matches_owned_process(settings, receipt, candidate)
+    # An added interpreter option is still unsafe, even with trusted argv0.
+    modified = candidate.model_copy(update={
+        "command_line": subprocess.list2cmdline([
+            str(config.executable.resolve()), "-X", "dev", *config.arguments,
+        ]),
+    })
+    assert not verified_launcher_child(settings, launcher, modified)
