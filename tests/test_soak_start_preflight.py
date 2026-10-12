@@ -175,6 +175,6 @@ def test_unconfigured_owner_is_not_silently_accepted_when_policy_requires_it() -
         settings, _sample().model_copy(update={"owner_observation": None}),
         checked_utc=NOW,
     )
-    # Missing renderer itself is a blocking LLM/ComfyUI/attestation issue on
-    # actual sample_soak. This helper should not manufacture owner proof.
+    assert result.ready is False
+    assert "primary_renderer_unconfigured" in result.issues
     assert result.production_qualified is False
