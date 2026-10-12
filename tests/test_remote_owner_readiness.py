@@ -276,3 +276,92 @@ def test_attestation_failed_inventory_never_discloses_private_error(
     finally:
         stop.set()
         server.join(timeout=5)
+
+
+def test_attestation_client_uses_direct_bounded_authenticated_get(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import artifex.render_node.client as client_module
+
+    cfg = RenderNodeConfig(
+        base_url="http://127.0.0.1:8188",
+        attestation_url="http://pc-b.invalid:8190",
+    )
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "private-attestation-token")
+    monkeypatch.setenv("HTTPS_PROXY", "http://forbidden-proxy.invalid:3128")
+    received: list[httpx.Request] = []
+    client_flags: list[dict[str, Any]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        received.append(request)
+        return httpx.Response(200, json={
+            "node_id": "gpu-b",
+            "created_at": "2026-10-13T00:00:00+00:00",
+            "hostname": "actual-pc-b",
+            "os": {"system": "Windows"},
+            "comfyui_base_url": "http://127.0.0.1:8188",
+            "inventory_errors": [
+                {"path": "lora_asset", "error": "lora_asset_unreadable"},
+            ],
+        })
+
+    real_client = httpx.Client
+
+    def make_client(*args: Any, **kwargs: Any) -> httpx.Client:
+        client_flags.append(dict(kwargs))
+        return real_client(
+            *args, transport=httpx.MockTransport(respond), **kwargs,
+        )
+
+    monkeypatch.setattr(client_module.httpx, "Client", make_client)
+    attestation = client_module.fetch_render_attestation(
+        "gpu-b", cfg, fresh=True,
+    )
+    assert attestation.node_id == "gpu-b"
+    assert attestation.inventory_errors[0]["error"] == "lora_asset_unreadable"
+    assert client_flags[0]["trust_env"] is False
+    assert client_flags[0]["follow_redirects"] is False
+    assert len(received) == 1
+    assert received[0].url.query == b"fresh=1"
+    assert received[0].headers["authorization"] == "Bearer private-attestation-token"
+
+
+@pytest.mark.parametrize("failure", ["redirect", "content_length", "oversized_stream"])
+def test_attestation_client_rejects_redirects_and_unbounded_http_payloads(
+    monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    import artifex.render_node.client as module
+
+    cfg = RenderNodeConfig(
+        base_url="http://127.0.0.1:8188",
+        attestation_url="https://pc-b.invalid:8190",
+    )
+    monkeypatch.setenv("ARTIFEX_RENDER_NODE_TOKEN", "private-token")
+    # Deliberately tiny cap to exercise both rejection paths with small bytes.
+    monkeypatch.setattr(module, "_MAX_ATTESTATION_RESPONSE_BYTES", 80)
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        if failure == "redirect":
+            return httpx.Response(
+                302, headers={"location": "https://foreign.invalid/"},
+            )
+        if failure == "content_length":
+            return httpx.Response(
+                200, headers={"content-length": "999999"}, content=b"{}",
+            )
+        return httpx.Response(200, stream=httpx.ByteStream(b"z" * 81))
+
+    with httpx.Client(
+        transport=httpx.MockTransport(respond), trust_env=False,
+        follow_redirects=True,
+    ) as supplied:
+        if failure == "redirect":
+            with pytest.raises(httpx.HTTPStatusError):
+                module.fetch_render_attestation("gpu-b", cfg, client=supplied)
+        else:
+            with pytest.raises(ValueError, match="size bound"):
+                module.fetch_render_attestation("gpu-b", cfg, client=supplied)
+    assert len(requests) == 1
+    assert "foreign.invalid" not in requests[0]
