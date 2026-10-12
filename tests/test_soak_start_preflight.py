@@ -169,6 +169,7 @@ def test_probe_exception_is_redacted_and_never_claims_readiness(
         "artifex.qualification.soak_start_preflight.observe_active_production_daemon",
         lambda settings: DaemonStartObservation(
             state="observed_active_loop", ready=True,
+            loop_fingerprint="a" * 64,
         ),
     )
     result = preflight_soak_start(_settings())
