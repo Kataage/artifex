@@ -258,6 +258,11 @@ def compile_pair_live_readiness(
             action = "inspect_pc_b_native_tasks_and_observer"
         elif not controller.ready:
             action = "inspect_controller_or_workflow_dependencies"
+        elif (
+            cached.status != "observed_prerequisites"
+            or cached.node_id != node_id
+        ):
+            action = "inspect_pc_b_cached_launcher_evidence"
         elif not owner_verified or agreement != "match":
             action = "inspect_pc_b_live_owner_identity"
         else:
