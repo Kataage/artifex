@@ -1,7 +1,6 @@
 """8-hour soak must observe a live, continuous PC-A daemon, not just HTTP."""
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -187,6 +186,8 @@ def test_preflight_includes_daemon_state_and_hides_saved_identifiers(
             lambda s: observe_active_production_daemon(s, now=NOW))
         result = preflight_soak_start(settings)
         assert result.daemon_state == "loop_not_active"
+        assert not result.sample_attempted
+        assert result.sample_checked_utc is None
         assert "daemon_not_live" in result.issues
         assert not result.ready
         assert not result.daemon_start_observed
