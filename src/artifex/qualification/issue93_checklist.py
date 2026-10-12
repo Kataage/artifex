@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+import httpx
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
@@ -118,6 +119,21 @@ def _verified_process_start(value: str | None) -> datetime | None:
     return started.astimezone(UTC) if started.tzinfo is not None else None
 
 
+_MAX_OBSERVATION_AGE = timedelta(minutes=3)
+_MAX_FUTURE_SKEW = timedelta(seconds=30)
+
+
+def _recent_observation(sampled_at: datetime | None, checked_at: datetime) -> bool:
+    """A successful backend status alone is never fresh observational proof."""
+    return (
+        sampled_at is not None
+        and sampled_at.tzinfo is not None
+        and checked_at.tzinfo is not None
+        and -_MAX_FUTURE_SKEW <= checked_at - sampled_at
+        <= _MAX_OBSERVATION_AGE
+    )
+
+
 def compile_issue93_checklist(
     settings: ArtifexSettings, *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -153,8 +169,24 @@ def compile_issue93_checklist(
                 sample = fetch(settings)
                 samples[key] = sample
                 statuses[key] = sample.status
-            except (OSError, RuntimeError, TypeError, ValueError):
+            except (OSError, RuntimeError, TypeError, ValueError, httpx.HTTPError):
                 statuses[key] = "unavailable"
+
+    # These three independent reads can take time. Recheck their own
+    # acquisition timestamps using one final clock after all three finish,
+    # not only the status codes asserted by their individual backends.
+    checked_at = now()
+    sampled_at = {
+        "owner": samples["owner"].checked_utc
+        if isinstance(samples["owner"], PCBOwnerCorrelation) else None,
+        "pair": samples["pair"].checked_utc
+        if isinstance(samples["pair"], OwnerPairReview) else None,
+        "survival": samples["survival"].reviewed_utc
+        if isinstance(samples["survival"], PCBSurvivalEvidenceReview) else None,
+    }
+    for key, timestamp in sampled_at.items():
+        if timestamp is not None and not _recent_observation(timestamp, checked_at):
+            statuses[key] = "observation_timestamp_untrusted"
 
     owner = samples["owner"]
     pair = samples["pair"]
@@ -162,6 +194,7 @@ def compile_issue93_checklist(
     owner_ok = (
         isinstance(owner, PCBOwnerCorrelation)
         and owner.status == "correlated_read_only"
+        and _recent_observation(sampled_at["owner"], checked_at)
         and owner.source_mode == "authenticated_remote"
         and owner.remote_bearer_checked
         and owner.node_id == node
@@ -172,6 +205,7 @@ def compile_issue93_checklist(
     pair_ok = (
         isinstance(pair, OwnerPairReview)
         and pair.status == "correlated_read_only"
+        and _recent_observation(sampled_at["pair"], checked_at)
         and pair.remote_bearer_checked
         and pair.saved_required_checks_consistent
         and pair.saved_identity_consistent
@@ -183,6 +217,7 @@ def compile_issue93_checklist(
     survival_ok = (
         isinstance(survival, PCBSurvivalEvidenceReview)
         and survival.status == "replayed_and_live_identity_matched"
+        and _recent_observation(sampled_at["survival"], checked_at)
         and survival.source_mode == "bearer_remote"
         and survival.remote_bearer_checked
         and survival.trace_replayed
@@ -243,7 +278,6 @@ def compile_issue93_checklist(
     )
     missing = sum(c.state == "missing" for c in checks)
     conflicting = sum(c.state == "conflict" for c in checks)
-    checked_at = now()
     state: State = (
         "unconfigured" if not enabled else
         "conflict" if conflict else
