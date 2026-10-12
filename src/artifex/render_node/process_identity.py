@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from artifex.config.models import ArtifexSettings
 
 _MAX_RECEIPT_BYTES = 8192
+# A Windows venv shim delegates to its interpreter immediately, not after
+# minutes of unrelated PID reuse. ComfyUI model loading happens *after* exec.
+_MAX_VENV_CHILD_START_DELAY_SECONDS = 120
 # PID is an integer passed by the caller, never arbitrary script text.
 _PROCESS_SCRIPT = (
     "$ErrorActionPreference='Stop'; "
@@ -187,7 +190,8 @@ def _started_not_before(process: WindowsProcessIdentity, launcher: WindowsProces
         # ancestry; comparisons must fail closed instead of raising TypeError.
         if child_time.tzinfo is None or launch_time.tzinfo is None:
             return False
-        return child_time >= launch_time
+        delay = (child_time - launch_time).total_seconds()
+        return 0 <= delay <= _MAX_VENV_CHILD_START_DELAY_SECONDS
     except (ValueError, TypeError):
         return False
 
@@ -217,9 +221,14 @@ def verified_launcher_child(
         return False
     if ntpath.basename(child.executable).casefold() != ntpath.basename(executable).casefold():
         return False
-    expected_tail = " " + subprocess.list2cmdline(config.arguments)
+    # Suffix-only matching could accept additional -c/-m, startup flags or
+    # another script before the configured ComfyUI arguments. Bind the entire
+    # interpreter invocation, as done for the original launcher itself.
+    expected_child_command = subprocess.list2cmdline([
+        child.executable, *config.arguments,
+    ])
     return (
-        child.command_line.endswith(expected_tail)
+        child.command_line == expected_child_command
         and _started_not_before(child, launcher)
     )
 
