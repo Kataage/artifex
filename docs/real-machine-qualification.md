@@ -2275,6 +2275,19 @@ timezone-aware Windows CIM timestamps; naive or malformed values fail
 closed. This hardening does not start, stop or restart ComfyUI, does not
 register qualification PASS, and still requires verification on the real PC-B.
 
+A second process-lifetime guard applies to **automatic replacement after the
+recorded listener exits**. A verified schema-2 launcher that is **still
+running** must not be discarded just because the child PID disappeared and
+the upstream TCP port appears free. The launcher might still spawn or
+supervise another Python listener, so both new-supervisor reattachment and
+natural-exit recovery refuse to retire the old receipt until the launcher
+and the actual listener are *both* absent, the port is demonstrably
+unoccupied, and the immutable launch identity has not drifted. A reused
+launcher PID also fails closed. This may block automatic recovery while an
+orphaned launcher is present; resolve it using read-only PC-B diagnostics,
+**not** an automatic terminate/kill/reparent operation. Direct-interpreter
+schema-1 receipts retain their existing exact-PID and socket checks.
+
 The native Windows CI tests launch only a temporary loopback Python listener,
 not ComfyUI or a GPU workload. They prove identity checking on a disposable
 venv launcher but **do not** qualify the production PC-B, GPU process,
