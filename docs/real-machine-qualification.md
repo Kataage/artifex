@@ -1036,9 +1036,13 @@ inspect local logs and configuration through the permitted on-host tools.
 
 **Partially successful inventory responses are not error-message channels:**
 `inventory_errors` uses fixed `asset_unavailable`, `lora_root_missing`,
+`lora_root_not_directory`, `lora_root_unreadable`,
 `lora_asset_unreadable` or `duplicate_relative_lora_asset` codes and
 generic source categories rather than raw PC-B absolute paths or
-exception text. The list remains nonempty on partial failure, preventing
+exception text. A configured LoRA root that exists but is a **regular file**
+is not mistaken for an empty, successfully scanned folder. Root traversal
+failures and a LoRA file disappearing after it was hashed are also reported
+as incomplete scans, not as proof that previously registered models vanished. The list remains nonempty on partial failure, preventing
 PC-A from treating an incomplete LoRA scan as a deliberate deletion.
 **Successful** attestation still contains model/LoRA inventory, checksums
 and paths needed for the authorized remote workflow, so keep PC-B

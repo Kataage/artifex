@@ -396,3 +396,74 @@ def test_remote_lora_scan_requests_fresh_attestation(
     assert not result.failed
     assert called == [("gpu-box", True)]
     database.dispose()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["regular_file_root", "root_walk_permission_error", "file_stat_race"],
+)
+def test_pc_b_incomplete_root_scan_preserves_registered_remote_loras(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    """A bad root or disappearing file must not look like a complete deletion."""
+    import json
+
+    from artifex.config.models import ArtifexSettings
+    from artifex.render_node import attestation as module
+
+    monkeypatch.setattr(module, "_nvidia_gpus", lambda: ())
+    root = tmp_path / "loras"
+    root.mkdir()
+    safetensors = root / "character.safetensors"
+    header = json.dumps({"__metadata__": {"trigger": "character"}}).encode()
+    safetensors.write_bytes(len(header).to_bytes(8, "little") + header)
+    settings = ArtifexSettings()
+    settings.render_agent.lora_roots = (root,)
+    first = module.build_attestation(settings)
+    assert len(first.loras) == 1 and not first.inventory_errors
+
+    database = Database(f"sqlite:///{(tmp_path / 'root-failure.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    remote = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    profile = remote.sync(first).discovered[0]
+    original_checksum = profile.checksum
+
+    if failure == "regular_file_root":
+        wrong_root = tmp_path / "mistaken-root.safetensors"
+        wrong_root.write_bytes(b"not a folder")
+        settings.render_agent.lora_roots = (wrong_root,)
+        expected_code = "lora_root_not_directory"
+    elif failure == "root_walk_permission_error":
+        walk = Path.rglob
+
+        def fail_root_walk(path: Path, pattern: str):
+            if path == root:
+                raise PermissionError("private root path")
+            return walk(path, pattern)
+
+        monkeypatch.setattr(Path, "rglob", fail_root_walk)
+        expected_code = "lora_root_unreadable"
+    else:
+        checksum = module.sha256_file
+
+        def vanish_after_checksum(path: Path) -> str:
+            digest = checksum(path)
+            path.unlink()
+            return digest
+
+        monkeypatch.setattr(module, "sha256_file", vanish_after_checksum)
+        expected_code = "lora_asset_unreadable"
+
+    incomplete = module.build_attestation(settings)
+    assert not incomplete.loras
+    assert len(incomplete.inventory_errors) == 1
+    assert incomplete.inventory_errors[0]["error"] == expected_code
+    assert str(tmp_path) not in incomplete.model_dump_json()
+
+    result = remote.sync(incomplete)
+    assert not result.removed
+    assert result.failed
+    assert registry.require(profile.id).state is LoRAState.DISCOVERED
+    assert registry.require(profile.id).checksum == original_checksum
+    database.dispose()
