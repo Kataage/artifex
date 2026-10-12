@@ -2,6 +2,23 @@
 
 ## Eight-hour soak start requires live PC-A/PC-B evidence
 
+The pre-start check also reads **existing PC-A SQLite records in read-only
+mode**: the most recent `daemon.loop_started`/`daemon.loop_stopped` lifecycle
+event plus a fresh operations heartbeat. It refuses to start an eight-hour
+qualification observation when no genuine continuous daemon loop was
+started, the latest loop was stopped, the heartbeat is missing/stale or
+either record is invalid. It reports only fixed `daemon_state` and
+`daemon_not_live` categories; no run IDs, SQLite file paths or raw payloads
+are emitted. A stale report never triggers a daemon restart. Restore the
+legitimate continuous Artifex daemon using the existing operator-authorized
+startup process, then repeat the safe soak check.
+
+A loop-start marker plus a fresh heartbeat is **advisory liveness**, not a
+guarantee that a particular process stayed alive. It cannot substitute for
+the full eight-hour duration, real finalized Packs, ownership continuity or
+the separate unattended production stage.
+
+
 `uv run artifex qualify soak-run --config config/local.yaml` now performs
 one **actual, read-only** controller/PC-B observation *before* running
 doctor, creating a new qualification session, or opening the eight-hour

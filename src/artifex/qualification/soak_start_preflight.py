@@ -11,6 +11,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from artifex.config.models import ArtifexSettings
+from artifex.qualification.daemon_start_observation import (
+    DaemonStartState,
+    observe_active_production_daemon,
+)
 from artifex.qualification.native_creation_time import native_creation_instant
 from artifex.qualification.renderer_owner_evidence import _REQUIRED_CHECKS
 from artifex.qualification.soak_observer import (
@@ -34,6 +38,7 @@ StartIssue = Literal[
     "renderer_owner_unverified",
     "renderer_owner_identity_invalid",
     "renderer_owner_snapshot_stale",
+    "daemon_not_live",
 ]
 
 
@@ -44,7 +49,10 @@ class SoakStartPreflight(BaseModel):
     mode: Literal["read_only"] = "read_only"
     ready: bool
     issues: tuple[StartIssue, ...]
-    sample_checked_utc: datetime
+    sample_checked_utc: datetime | None = None
+    sample_attempted: bool = False
+    daemon_state: DaemonStartState | Literal["not_checked"] = "not_checked"
+    daemon_start_observed: bool = False
     # This gate is not the session and is not the full soak trace.
     qualification_session_created: Literal[False] = False
     soak_evidence_file_written: Literal[False] = False
@@ -142,13 +150,27 @@ def check_soak_start_sample(
         ready=not issues,
         issues=tuple(dict.fromkeys(issues)),
         sample_checked_utc=now,
+        sample_attempted=sample is not None,
     )
 
 
 def preflight_soak_start(settings: ArtifexSettings) -> SoakStartPreflight:
-    """Perform one actual read-only sample, no session creation or evidence write."""
+    """Fail fast on absent daemon; only then sample local and PC-B hardware."""
+    daemon = observe_active_production_daemon(settings)
+    if not daemon.ready:
+        # Avoid slow protected GETs, SQLite telemetry counts, session writes
+        # and GPU service contact if continuous production is not even active.
+        return SoakStartPreflight(
+            ready=False,
+            issues=("daemon_not_live",),
+            daemon_state=daemon.state,
+        )
     try:
         sample = sample_soak(settings, 0.0)
     except Exception:  # noqa: BLE001 - status-only failure, no secret echo
         sample = None
-    return check_soak_start_sample(settings, sample)
+    result = check_soak_start_sample(settings, sample)
+    return result.model_copy(update={
+        "daemon_state": daemon.state,
+        "daemon_start_observed": True,
+    })
