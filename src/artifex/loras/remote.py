@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,43 @@ def _remote_id(node_id: str, relative_path: str) -> str:
     return "remote_" + hashlib.sha256(key).hexdigest()[:20]
 
 
+_MAX_REMOTE_INVENTORY_AGE = timedelta(minutes=3)
+_MAX_FUTURE_SKEW = timedelta(seconds=30)
+
+
+def _safe_relative_asset_path(value: str) -> bool:
+    """Reject traversal/ambiguous paths before constructing virtual LoRA paths."""
+    parts = value.split("/")
+    return (
+        bool(value) and not value.startswith("/")
+        and "\\" not in value and ":" not in value and "\x00" not in value
+        and all(part not in {"", ".", ".."} for part in parts)
+    )
+
+
+def _trusted_inventory(attestation: RenderNodeAttestation) -> bool:
+    stamp = attestation.created_at
+    if stamp.tzinfo is None:
+        return False
+    age = datetime.now(UTC) - stamp.astimezone(UTC)
+    if not -_MAX_FUTURE_SKEW <= age <= _MAX_REMOTE_INVENTORY_AGE:
+        return False
+    node_id = attestation.node_id
+    if not _safe_relative_asset_path(node_id) or "/" in node_id:
+        return False
+    observed: set[str] = set()
+    for item in attestation.loras:
+        relative = item.relative_path
+        if (
+            not _safe_relative_asset_path(relative)
+            or item.name != relative.rsplit("/", 1)[-1]
+            or relative.casefold() in observed
+        ):
+            return False
+        observed.add(relative.casefold())
+    return True
+
+
 def _merge_results(results: list[DiscoveryResult]) -> DiscoveryResult:
     return DiscoveryResult(
         discovered=tuple(item for result in results for item in result.discovered),
@@ -50,6 +88,14 @@ class RemoteLoRADiscovery:
         self._characters = characters
 
     def sync(self, attestation: RenderNodeAttestation) -> DiscoveryResult:
+        # Treat an inventory as one all-or-nothing observation. Do not
+        # invalidate *or* upsert any LoRA when its timestamp or relative
+        # paths could be stale, replayed, duplicated or unsafe.
+        if not _trusted_inventory(attestation):
+            return DiscoveryResult(
+                discovered=(), unchanged=(), removed=(),
+                failed=((Path("remote-inventory"), "stale_or_untrusted_inventory"),),
+            )
         source = f"render-node:{attestation.node_id}"
         discovered: list[LoRAProfile] = []
         unchanged: list[LoRAProfile] = []
@@ -201,7 +247,7 @@ class RenderAwareLoRADiscovery(LoRADiscovery):
             if not config.enabled or not config.attestation_url:
                 continue
             try:
-                attestation = fetch_render_attestation(node_id, config)
+                attestation = fetch_render_attestation(node_id, config, fresh=True)
             except (httpx.HTTPError, OSError, ValueError) as exc:
                 results.append(
                     DiscoveryResult(

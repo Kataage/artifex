@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -252,3 +252,147 @@ def test_inventory_errors_do_not_expose_pc_b_private_paths_or_exceptions(
     assert str(tmp_path) not in wire
     # Missing inventory items must never silently disable previously known LoRAs.
     assert len(attestation.inventory_errors) == 3
+
+
+
+@pytest.mark.parametrize("bad_clock", ["stale", "future", "naive"])
+def test_untrusted_remote_inventory_cannot_disable_existing_loras(
+    tmp_path: Path, bad_clock: str,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'stale-remote.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    remote = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    item = RenderLoRAInventoryItem(
+        name="working.safetensors",
+        path=r"D:\ComfyUI\loras\working.safetensors",
+        relative_path="working.safetensors",
+        sha256="a" * 64,
+        bytes=1,
+    )
+    original = remote.sync(_attestation(loras=(item,)))
+    assert len(original.discovered) == 1
+    profile = original.discovered[0]
+    clock = datetime.now(UTC)
+    if bad_clock == "stale":
+        clock -= timedelta(minutes=4)
+    elif bad_clock == "future":
+        clock += timedelta(seconds=40)
+    else:
+        clock = clock.replace(tzinfo=None)
+    evidence = _attestation(loras=()).model_copy(update={"created_at": clock})
+    blocked = remote.sync(evidence)
+    assert not blocked.discovered and not blocked.removed
+    assert blocked.failed[0][1] == "stale_or_untrusted_inventory"
+    assert registry.require(profile.id).state is LoRAState.DISCOVERED
+    assert registry.require(profile.id).checksum == item.sha256
+    database.dispose()
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "../outside.safetensors",
+        "/absolute.safetensors",
+        r"parent\windows.safetensors",
+        "C:/windows.safetensors",
+        "nested//empty.safetensors",
+        "nested/./dot.safetensors",
+        "nested/../escape.safetensors",
+    ],
+)
+def test_untrusted_remote_paths_never_mutate_registry(
+    tmp_path: Path, relative_path: str,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'unsafe-path.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    remote = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    original = RenderLoRAInventoryItem(
+        name="safe.safetensors", path="D:/loras/safe.safetensors",
+        relative_path="safe.safetensors", sha256="a" * 64, bytes=1,
+    )
+    initial = remote.sync(_attestation(loras=(original,)))
+    profile = initial.discovered[0]
+    candidate = original.model_copy(update={
+        "relative_path": relative_path,
+        "name": relative_path.split("/")[-1],
+        "sha256": "b" * 64,
+    })
+    blocked = remote.sync(_attestation(loras=(candidate,)))
+    assert not blocked.discovered and not blocked.removed
+    assert blocked.failed[0][1] == "stale_or_untrusted_inventory"
+    assert registry.require(profile.id).checksum == original.sha256
+    assert len(registry.list()) == 1
+    database.dispose()
+
+
+@pytest.mark.parametrize("node_id", ["../foreign", "/root", "nested/node", "C:foreign"])
+def test_unsafe_remote_node_id_is_rejected_before_sync(
+    tmp_path: Path, node_id: str,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'bad-node.sqlite3').as_posix()}")
+    database.migrate()
+    remote = RemoteLoRADiscovery(
+        LoRARegistry(database), CharacterRegistry(database),
+    )
+    candidate = _attestation(loras=()).model_copy(update={"node_id": node_id})
+    result = remote.sync(candidate)
+    assert result.failed[0][1] == "stale_or_untrusted_inventory"
+    assert not result.discovered and not result.removed
+    database.dispose()
+
+
+def test_casefold_duplicate_remote_asset_names_block_partial_updates(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{(tmp_path / 'duplicates.sqlite3').as_posix()}")
+    database.migrate()
+    registry = LoRARegistry(database)
+    remote = RemoteLoRADiscovery(registry, CharacterRegistry(database))
+    first = RenderLoRAInventoryItem(
+        name="Character.safetensors", path="D:/loras/Character.safetensors",
+        relative_path="Character.safetensors", sha256="a" * 64, bytes=1,
+    )
+    second = first.model_copy(update={
+        "name": "character.safetensors",
+        "relative_path": "character.safetensors",
+        "sha256": "b" * 64,
+    })
+    result = remote.sync(_attestation(loras=(first, second)))
+    assert not result.discovered and not result.removed
+    assert result.failed[0][1] == "stale_or_untrusted_inventory"
+    assert not registry.list()
+    database.dispose()
+
+
+def test_remote_lora_scan_requests_fresh_attestation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    import artifex.render_node.client as client_module
+    from artifex.config.models import RenderNodeConfig, RenderNodesConfig
+    from artifex.loras.remote import RenderAwareLoRADiscovery
+
+    database = Database(f"sqlite:///{(tmp_path / 'fresh-scan.sqlite3').as_posix()}")
+    database.migrate()
+    called: list[tuple[str, bool]] = []
+
+    def get_attestation(node_id: str, config: RenderNodeConfig, *, fresh: bool = False):
+        called.append((node_id, fresh))
+        return _attestation(loras=()).model_copy(update={"node_id": node_id})
+
+    monkeypatch.setattr(client_module, "fetch_render_attestation", get_attestation)
+    nodes = RenderNodesConfig(
+        primary="gpu-box",
+        nodes={"gpu-box": RenderNodeConfig(
+            base_url="http://127.0.0.1:8188",
+            attestation_url="http://127.0.0.1:8190",
+        )},
+    )
+    scanner = RenderAwareLoRADiscovery(
+        LoRARegistry(database), CharacterRegistry(database), nodes,
+    )
+    result = scanner.scan([])
+    assert not result.failed
+    assert called == [("gpu-box", True)]
+    database.dispose()
