@@ -224,15 +224,21 @@ def verified_launcher_child(
     # Suffix-only matching could accept additional -c/-m, startup flags or
     # another script before the configured ComfyUI arguments. Bind the entire
     # interpreter invocation, as done for the original launcher itself.
-    # A Windows venv redirector can preserve the original venv argv[0]
-    # after launching the base interpreter. Admit only these TWO exact
-    # full commands; never accept an arbitrary prefix plus a matching tail.
-    permitted_child_commands = {
-        subprocess.list2cmdline([child.executable, *config.arguments]),
-        subprocess.list2cmdline([executable, *config.arguments]),
+    # Windows CIM can quote argv[0] even when quoting is not required.
+    # The venv redirector may preserve either the base interpreter or the
+    # configured venv path as argv[0]. After verifying the *entire* args tail,
+    # accept only those exact paths (with or without surrounding quotes).
+    # An arbitrary prefix, intervening option or extra script never qualifies.
+    expected_tail = " " + subprocess.list2cmdline(config.arguments)
+    if not child.command_line.endswith(expected_tail):
+        return False
+    argv0 = child.command_line[:-len(expected_tail)]
+    permitted_argv0 = {
+        child.executable, f'"{child.executable}"',
+        executable, f'"{executable}"',
     }
     return (
-        child.command_line in permitted_child_commands
+        argv0 in permitted_argv0
         and _started_not_before(child, launcher)
     )
 
